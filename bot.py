@@ -144,9 +144,39 @@ def main_keyboard(user_id):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     upsert_user(update.effective_user)
-    await update.message.reply_text(setting("welcome"), reply_markup=main_keyboard(update.effective_user.id))
-    if is_admin(update.effective_user.id):
-        await update.message.reply_text("🔐 شما به عنوان مدیر شناسایی شدید. دکمه «🛠 پنل مدیریت» را بزنید.")
+    uid = update.effective_user.id
+    logging.info("START from user_id=%s username=%s is_admin=%s configured_admins=%s",
+                 uid, update.effective_user.username or "", is_admin(uid), sorted(ADMIN_IDS))
+    await update.message.reply_text(setting("welcome"), reply_markup=main_keyboard(uid))
+    if is_admin(uid):
+        await update.message.reply_text(
+            "🔐 شما به عنوان مدیر شناسایی شدید.\n"
+            "برای ورود مستقیم به پنل، /admin را بفرستید یا دکمه «🛠 پنل مدیریت» را بزنید."
+        )
+    else:
+        await update.message.reply_text(
+            f"شناسه عددی حساب شما: {uid}\n"
+            "اگر مدیر هستید ولی پنل را نمی‌بینید، همین عدد را در Railway → Variables → ADMIN_IDS قرار دهید."
+        )
+
+async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    logging.info("ADMIN command from user_id=%s is_admin=%s configured_admins=%s",
+                 uid, is_admin(uid), sorted(ADMIN_IDS))
+    if not is_admin(uid):
+        await update.message.reply_text(
+            f"⛔ دسترسی ندارید.\nشناسه عددی شما: {uid}\n"
+            "این شناسه باید در Railway در متغیر ADMIN_IDS قرار بگیرد."
+        )
+        return
+    await admin_panel(update, context)
+
+async def myid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    await update.message.reply_text(
+        f"🆔 Telegram User ID: {uid}\n"
+        f"مدیر: {'بله ✅' if is_admin(uid) else 'خیر ❌'}"
+    )
 
 async def register_start(update, context):
     context.user_data.clear()
@@ -623,6 +653,8 @@ def main():
     )
 
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("admin", admin_command))
+    app.add_handler(CommandHandler("myid", myid_command))
     app.add_handler(registration)
     app.add_handler(add_service_conv)
     app.add_handler(add_step_conv)
@@ -633,6 +665,7 @@ def main():
     app.add_handler(CallbackQueryHandler(toggle_service, pattern=r"^toggle:\d+$"))
     app.add_handler(CallbackQueryHandler(request_detail, pattern=r"^req:\d+$"))
     app.add_handler(CallbackQueryHandler(change_status, pattern=r"^status:\d+:(processing|done|rejected)$"))
+    app.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL, service_input))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu))
 
     logging.info("NetYar admin bot started. Admin IDs: %s", sorted(ADMIN_IDS))
