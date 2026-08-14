@@ -25,3 +25,7 @@
 
 ## نکته
 ویرایش محتوای ربات از پنل انجام می‌شود. تغییر خودِ کد برنامه باید از GitHub/Railway انجام شود؛ عمداً امکان اجرای کد دلخواه از داخل تلگرام قرار داده نشده است.
+
+
+## V2 Stabilized
+Run with `python bot.py`. Configure `.env` values before deployment. Run `python phase1_check.py` for syntax validation.

@@ -1,3 +1,2 @@
 python-telegram-bot>=21.0,<23
-# Optional Rubika connector; enable only after adding RUBIKA_BOT_TOKEN.
-rubka>=7.5.4
+rubka>=7.5.7,<9
