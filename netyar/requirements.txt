@@ -1,0 +1,2 @@
+python-telegram-bot>=21.0,<23
+rubka>=7.5.7,<9
