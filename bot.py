@@ -342,5 +342,6 @@ def main():
     app.add_handler(CallbackQueryHandler(service_selected,pattern=r"^svc:\d+$")); app.add_handler(CallbackQueryHandler(service_detail,pattern=r"^svcadmin:\d+$")); app.add_handler(CallbackQueryHandler(toggle_service,pattern=r"^toggle:\d+$")); app.add_handler(CallbackQueryHandler(request_detail,pattern=r"^req:\d+$")); app.add_handler(CallbackQueryHandler(change_status,pattern=r"^status:\d+:(processing|done|rejected)$"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,menu)); app.add_error_handler(error_handler)
     logging.info("NetYar v4 started. Admins=%s",ADMIN_IDS); app.run_polling()
+    
 
 if __name__=="__main__": main()
