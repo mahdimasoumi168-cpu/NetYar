@@ -1,17 +1,27 @@
-# NetYar Admin v3
+# NetYar Admin v4
 
-Railway variables:
-- BOT_TOKEN = your bot token
-- ADMIN_IDS = numeric Telegram user ID(s), comma-separated
+نسخه مدیریت‌شده ربات نت‌یار.
 
-Commands:
-- /start
-- /admin
-- /myid
+## امکانات
+- پنل مدیریت واقعی با دسترسی حداکثر ۳ مدیر
+- `/admin` برای ورود مستقیم و `/myid` برای دیدن شناسه مدیر
+- ساخت، ویرایش، فعال/غیرفعال کردن خدمات
+- ساخت مراحل قابل تنظیم برای هر خدمت
+- درخواست‌ها، وضعیت درخواست و اعلان فوری مدیران
+- گزارش بین دو تاریخ با نام، موبایل، کد شناسایی، شهر، خدمت و وضعیت
+- ویرایش متن‌های اصلی ربات از داخل پنل
+- ویرایش عنوان دکمه‌های اصلی از داخل پنل
+- باز/بسته کردن ربات از داخل پنل
+- SQLite با WAL و timeout برای کاهش خطاهای قفل دیتابیس
 
-Important:
-1. Do not upload BOT_TOKEN into GitHub.
-2. Replace the existing bot.py, requirements.txt and Procfile with these files.
-3. Commit to GitHub and let Railway redeploy.
-4. In Telegram send /myid first. The bot returns your numeric ID and whether it is currently recognized as an admin.
-5. If it says Admin: no, copy that numeric ID into Railway ADMIN_IDS, save, redeploy, then send /admin.
+## Railway Variables
+الزامی:
+- `BOT_TOKEN`
+- `ADMIN_IDS` = شناسه‌های عددی مدیر، حداکثر ۳ عدد، جداشده با کاما
+
+اختیاری:
+- `DB_PATH` = مسیر دیتابیس، پیش‌فرض `netyar.db`
+- `RUBIKA_BOT_TOKEN` = برای اتصال روبیکا (اتصال روبیکا را بعد از دریافت توکن و مشخصات API نهایی کنید)
+
+## نکته
+ویرایش محتوای ربات از پنل انجام می‌شود. تغییر خودِ کد برنامه باید از GitHub/Railway انجام شود؛ عمداً امکان اجرای کد دلخواه از داخل تلگرام قرار داده نشده است.
