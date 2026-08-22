@@ -1,6 +1,5 @@
 import os, asyncio, logging, threading
-from netyar.telegram import build as build_telegram
-
+from netyar.telegram_bot import build as build_telegram
 logging.basicConfig(level=os.getenv("LOG_LEVEL","INFO"),format="%(asctime)s | %(levelname)s | %(name)s | %(message)s")
 
 def main():
