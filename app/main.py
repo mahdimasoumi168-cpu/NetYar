@@ -94,12 +94,41 @@ async def _sizpay_callback_data(data):
 
 async def run():
     global tg_app
+    init_db()
+    # This service must not create a second Telegram polling consumer.
+    # The production Telegram consumer is bot.py/runner.py.
+    if os.getenv("SIZPAY_BOT_ENABLED","0") != "1":
+        while True:
+            await asyncio.sleep(3600)
     if not BOT_TOKEN:
         raise RuntimeError('BOT_TOKEN is not set')
-    init_db()
     tg_app = Application.builder().token(BOT_TOKEN).build()
     tg_app.add_handler(CommandHandler('start', start))
-    tg_app.add_handler(CallbackQueryHandler(payment_button, pattern='^test_payment$'))
+    tg_app.add_handler(CallbackQueryHandler(payment_button, pattern='^test_payment
+
+
+def main():
+    import uvicorn
+    init_db()
+    async def both():
+        server = uvicorn.Server(uvicorn.Config(app, host='0.0.0.0', port=int(os.getenv('PORT','8080')), log_level='info'))
+        await asyncio.gather(run(), server.serve())
+    asyncio.run(both())
+
+if __name__ == '__main__':
+    main()
+
+
+@app.post('/sizpay/callback')
+async def sizpay_callback_post(request: Request):
+    form = await request.form()
+    return await _sizpay_callback_data({k: str(v) for k, v in form.items()})
+
+
+@app.get('/sizpay/callback')
+async def sizpay_callback_get(request: Request):
+    return await _sizpay_callback_data({k: str(v) for k, v in request.query_params.items()})
+))
     await tg_app.initialize(); await tg_app.start(); await tg_app.updater.start_polling()
     while True:
         await asyncio.sleep(3600)
