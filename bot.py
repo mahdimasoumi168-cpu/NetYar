@@ -19,21 +19,31 @@ def main(uid):
  if admin(uid): rows.append(["🛠 پنل مدیریت بات"])
  rows.extend([["❌ Cancel" if lang=="en" else "❌ إلغاء" if lang=="ar" else CANCEL],[a[9]]])
  return kb(rows)
-def cancel_kb(): return kb([[CANCEL]])
-def partner_kb(): return kb([["➕ شارژ حساب","🪪 ثبت درخواست همکار"],["🔎 پیگیری کد","📋 سوابق"],[CANCEL]])
+def cancel_kb(lang="fa"):
+ return kb([[CANCEL if lang=="fa" else "❌ Cancel" if lang=="en" else "❌ إلغاء"]])
+def partner_kb(lang="fa"):
+ if lang=="en": return kb([["➕ Top up","🪪 Partner request"],["🔎 Track code","📋 History"],["❌ Cancel"]])
+ if lang=="ar": return kb([["➕ شحن الحساب","🪪 طلب الشريك"],["🔎 رمز المتابعة","📋 السجل"],["❌ إلغاء"]])
+ return kb([["➕ شارژ حساب","🪪 ثبت درخواست همکار"],["🔎 پیگیری کد","📋 سوابق"],[CANCEL]])
 def amenu(): return kb([["👥 همکاران","💰 شارژها"],["💰 پرداخت‌های مشتری","📋 درخواست‌ها"],["⚙️ قیمت‌ها","📊 گزارش"],["⬅️ منوی اصلی"]])
 async def start(u,c):
  uid=u.effective_user.id; db.user("telegram",uid,u.effective_user.username,u.effective_user.full_name); S[uid]={}
  await u.message.reply_text("سلام و خوش آمدید 🌷\nلطفاً زبان را انتخاب کنید / Choose your language / اختر اللغة:",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🇮🇷 فارسی",callback_data="lang:fa"),InlineKeyboardButton("🇬🇧 English",callback_data="lang:en"),InlineKeyboardButton("🇸🇦 العربية",callback_data="lang:ar")]]))
 async def langcb(u,c):
- q=u.callback_query; await q.answer(); uid=q.from_user.id; S[uid]={"lang":q.data.split(":")[1]}
- await q.message.reply_text("آیا اتباع هستید یا ایرانی؟",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🪪 اتباع هستم",callback_data="st:foreign"),InlineKeyboardButton("🇮🇷 ایرانی هستم",callback_data="st:iranian")]]))
+ q=u.callback_query; await q.answer(); uid=q.from_user.id; lang=q.data.split(":")[1]; S[uid]={"lang":lang}
+ cit={"fa":"آیا اتباع هستید یا ایرانی؟","en":"Are you a foreign national or Iranian?","ar":"هل أنت من الرعايا الأجانب أم إيراني؟"}[lang]
+ foreign={"fa":"🪪 اتباع هستم","en":"🪪 Foreign national","ar":"🪪 أجنبي"}[lang]
+ iran={"fa":"🇮🇷 ایرانی هستم","en":"🇮🇷 Iranian","ar":"🇮🇷 إيراني"}[lang]
+ await q.message.reply_text(cit,reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(foreign,callback_data="st:foreign"),InlineKeyboardButton(iran,callback_data="st:iranian")]]))
 async def statuscb(u,c):
  q=u.callback_query; await q.answer(); uid=q.from_user.id; S.setdefault(uid,{})["status"]=q.data.split(":")[1]
  lang=S[uid].get("lang","fa")
  if S[uid]["status"]=="iranian":
   msg={"fa":"🇮🇷 فعلاً خدماتی برای ایرانی فعال نیست.","en":"🇮🇷 Services are currently unavailable for Iranian users.","ar":"🇮🇷 الخدمات غير متاحة حالياً للمستخدمين الإيرانيين."}[lang]
-  return await q.message.reply_text(msg,reply_markup=kb([["👥 پنل همکاران","🎫 پیگیری"],[CANCEL]]))
+  partner={"fa":"👥 پنل همکاران","en":"👥 Partner panel","ar":"👥 لوحة الشركاء"}[lang]
+ track={"fa":"🎫 پیگیری","en":"🎫 Track","ar":"🎫 متابعة"}[lang]
+ cancel={"fa":CANCEL,"en":"❌ Cancel","ar":"❌ إلغاء"}[lang]
+ return await q.message.reply_text(msg,reply_markup=kb([[partner,track],[cancel]]))
  msg={"fa":"منوی خدمات کمک یار مهاجر 👇","en":"Mohajer Helper services 👇","ar":"خدمات مساعد المهاجر 👇"}[lang]
  await q.message.reply_text(msg,reply_markup=main(uid))
 async def cancel(u,c):
