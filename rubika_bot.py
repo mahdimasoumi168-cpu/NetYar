@@ -165,7 +165,6 @@ async def handle_service_answer(message, internal_id):
 
 
 async def run():
-    init_db()
     logging.info("NetYar Rubika bot starting...")
     await rubika.run()
 
