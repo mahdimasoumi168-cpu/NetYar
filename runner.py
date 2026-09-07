@@ -22,11 +22,11 @@ if __name__=='__main__':
   print('NetYar worker mode: bot polling disabled',flush=True)
   while True:time.sleep(3600)
  signal.signal(signal.SIGTERM,stop_all);signal.signal(signal.SIGINT,stop_all)
- spawn('telegram','bot.py');spawn('rubika','rubika_entry.py')
- print('NetYar: Telegram + Rubika workers started',flush=True)
+ spawn('telegram','bot.py');spawn('rubika','rubika_webhook_entry.py')
+ print('NetYar: Telegram polling + Rubika webhook workers started',flush=True)
  try:
   while not stop_requested:
-   for name,script in (('telegram','bot.py'),('rubika','rubika_entry.py')):
+   for name,script in (('telegram','bot.py'),('rubika','rubika_webhook_entry.py')):
     p=children.get(name)
     if p is None or p.poll() is not None:
      if stop_requested:break
