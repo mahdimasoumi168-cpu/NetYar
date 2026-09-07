@@ -1,4 +1,4 @@
-python-telegram-bot>=21.0,<23
+python-telegram-bot[webhooks]>=21.0,<23
 rubka>=7.5.7,<9
 Pillow>=10.4,<11
 fastapi>=0.115,<1
