@@ -31,6 +31,7 @@ class Database:
         CREATE TABLE IF NOT EXISTS admins(platform TEXT, external_id TEXT, role TEXT DEFAULT 'owner', active INTEGER DEFAULT 1, PRIMARY KEY(platform,external_id));
         CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT);
         CREATE TABLE IF NOT EXISTS audit_log(id INTEGER PRIMARY KEY AUTOINCREMENT, platform TEXT, actor_id TEXT, action TEXT, target TEXT DEFAULT '', details TEXT DEFAULT '', created_at TEXT);
+        CREATE TABLE IF NOT EXISTS bot_integrations(id INTEGER PRIMARY KEY AUTOINCREMENT, platform TEXT UNIQUE, bot_name TEXT DEFAULT '', token_ref TEXT DEFAULT '', active INTEGER DEFAULT 0, status TEXT DEFAULT 'configured', created_at TEXT, updated_at TEXT);
         """)
         defaults={"welcome_fa":"سلام و خوش آمدید 🌷\nبه بات «کمک یار مهاجر» خوش آمدید.","welcome_en":"Welcome to Mohajer Helper.","welcome_ar":"مرحباً بكم في مساعد المهاجر.","card_number":CARD_NUMBER or "6037691512755802","card_owner":CARD_OWNER or "فریبا خاوری","price_fida":"0","price_print_bw":"0","price_print_color":"0","price_government":"500000","bot_open":"1"}
         for k,v in defaults.items(): self.conn.execute("INSERT OR IGNORE INTO settings VALUES(?,?)",(k,v))
@@ -48,11 +49,13 @@ class Database:
     def service(self,key): return self.conn.execute("SELECT * FROM services WHERE key=? AND active=1",(key,)).fetchone()
     def create_request(self,user_id,service_key,platform,amount):
         code="NYM-"+secrets.token_hex(4).upper(); t=now(); cur=self.conn.execute("INSERT INTO requests(tracking_code,user_id,service_key,platform,status,amount,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)",(code,user_id,service_key,platform,"awaiting_payment",amount,t,t)); self.conn.commit(); return cur.lastrowid,code
-    def answer(self,rid,key,answer="",file_id=""): self.conn.execute("INSERT INTO request_answers(request_id,field_key,answer,file_id,created_at) VALUES(?,?,?,?,?)",(rid,key,answer or "",file_id or "",now())); self.conn.commit()
+    def answer(self,rid,key,answer="",file_id=""): self.conn.execute("INSERT INTO request_answers(request_id,field_key,answer,file_id,created_at) VALUES(?,?,?,?,?)",(rid,key,answer or "",file_id or "",now()))
     def partner(self,phone): return self.conn.execute("SELECT * FROM partners WHERE phone=? AND active=1",(phone.strip(),)).fetchone()
-    def add_partner(self,phone,password,name): self.conn.execute("INSERT INTO partners(phone,password_hash,name,created_at,updated_at) VALUES(?,?,?,?,?)",(phone,hash_password(password),name,now(),now())); self.conn.commit()
+    def add_partner(self,phone,password,name): self.conn.execute("INSERT INTO partners(phone,password_hash,name,created_at,updated_at) VALUES(?,?,?,?,?)",(phone.strip(),hash_password(password),name.strip(),now(),now())); self.conn.commit()
     def add_topup(self,pid,amount,file_id):
         cur=self.conn.execute("INSERT INTO topups(partner_id,amount,receipt_file_id,status,created_at) VALUES(?,?,?,?,?)",(pid,amount,file_id,"pending",now())); self.conn.commit(); return cur.lastrowid
     def audit(self,*a): self.conn.execute("INSERT INTO audit_log(platform,actor_id,action,target,details,created_at) VALUES(?,?,?,?,?,?)",(*map(str,a[:5]),now())); self.conn.commit()
+    def add_bot(self,platform,bot_name,token_ref): self.conn.execute("INSERT OR REPLACE INTO bot_integrations(platform,bot_name,token_ref,active,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",(platform,bot_name,token_ref,0,"configured",now(),now())); self.conn.commit()
+    def bots(self): return self.conn.execute("SELECT id,platform,bot_name,active,status,created_at,updated_at FROM bot_integrations ORDER BY id DESC").fetchall()
 
 db=Database()
