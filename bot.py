@@ -7,6 +7,9 @@ ADM={x.strip() for x in os.getenv("ADMIN_IDS","").replace(";",",").split(",") if
 ADMIN_COMMAND=os.getenv("ADMIN_COMMAND", "/"+"Admin"+"2025").strip()
 def admin(u): return str(u) in ADM or S.get(u,{}).get("admin") is True
 def kb(rows): return ReplyKeyboardMarkup(rows,resize_keyboard=True)
+def L(uid, fa, en, ar):
+ lang=S.get(uid,{}).get("lang","fa")
+ return {"fa":fa,"en":en,"ar":ar}.get(lang,fa)
 def main(uid):
  lang=S.get(uid,{}).get("lang","fa")
  labels={
@@ -58,16 +61,16 @@ async def ptext(u,c):
  uid=u.effective_user.id; st=S.setdefault(uid,{}); t=(u.message.text or "").strip()
  if st.get("mode")=="p_phone":
   p=db.partner(t)
-  if not p:return await u.message.reply_text("❌ همکار یافت نشد.")
+  if not p:return await u.message.reply_text(L(uid,"❌ همکار یافت نشد.","❌ Partner not found.","❌ لم يتم العثور على الشريك."))
   st["phone"]=t; st["mode"]="p_pass"; return await u.message.reply_text("🔐 رمز عبور را وارد کنید:",reply_markup=cancel_kb())
  if st.get("mode")=="p_pass":
   p=db.partner(st["phone"])
-  if not p or not check_password(t,p["password_hash"]):return await u.message.reply_text("❌ اطلاعات ورود نادرست است.")
+  if not p or not check_password(t,p["password_hash"]):return await u.message.reply_text(L(uid,"❌ اطلاعات ورود نادرست است.","❌ Invalid phone number or password.","❌ رقم الهاتف أو كلمة المرور غير صحيحة."))
   st["partner_id"]=p["id"]; st["mode"]=None; return await partner(u,c)
  if st.get("mode")=="topup_amount":
   try:a=int(t.replace(",","").replace("٬",""))
-  except:return await u.message.reply_text("مبلغ را عددی وارد کنید.")
-  if a<=0:return await u.message.reply_text("مبلغ نامعتبر است.")
+  except:return await u.message.reply_text(L(uid,"مبلغ را عددی وارد کنید.","Enter the amount as a number.","أدخل المبلغ كرقم."))
+  if a<=0:return await u.message.reply_text(L(uid,"مبلغ نامعتبر است.","Invalid amount.","المبلغ غير صالح."))
   st["amount"]=a; st["mode"]="topup_receipt"; return await u.message.reply_text(f"💳 مبلغ: {a:,} تومان\nشماره کارت: {db.setting('card_number')}\nبه نام: {db.setting('card_owner')}\n📸 رسید را ارسال کنید.",reply_markup=cancel_kb())
  if st.get("mode")=="ptrack":
   r=db.conn.execute("SELECT * FROM requests WHERE tracking_code=? AND user_id=?",(t,st["partner_id"])).fetchone()
@@ -80,7 +83,7 @@ async def topup(u,c): S[u.effective_user.id]["mode"]="topup_amount"; await u.mes
 async def ptrack(u,c): S[u.effective_user.id]["mode"]="ptrack"; await u.message.reply_text("🎫 کد پیگیری را ارسال کنید:",reply_markup=cancel_kb())
 async def phistory(u,c):
  st=S.get(u.effective_user.id,{})
- if not st.get("partner_id"):return await u.message.reply_text("ابتدا وارد پنل همکاران شوید.")
+ if not st.get("partner_id"):return await u.message.reply_text(L(uid,"ابتدا وارد پنل همکاران شوید.","Please log in to the partner panel first.","يرجى تسجيل الدخول إلى لوحة الشركاء أولاً."))
  rows=db.conn.execute("SELECT tracking_code,service_key,status,amount FROM requests WHERE user_id=? ORDER BY id DESC LIMIT 20",(st["partner_id"],)).fetchall()
  await u.message.reply_text("\n".join(f"{r['tracking_code']} | {r['service_key']} | {r['status']} | {r['amount']:,}" for r in rows) or "سابقه‌ای نیست.",reply_markup=partner_kb())
 async def media(u,c):
@@ -96,7 +99,7 @@ async def media(u,c):
   if not fid:return await u.message.reply_text("تصویر را بفرستید.")
   st["gov_files"][st["field"]]=fid
   if st["field"]=="id": st["field"]="sim"; return await u.message.reply_text("📄 اگر سند سیم‌کارت دارید بفرستید؛ اگر ندارید «ندارم» بنویسید.",reply_markup=cancel_kb())
-  st["mode"]="gov_phone"; return await u.message.reply_text("📱 لطفاً شماره موبایل مشترک را وارد کنید.",reply_markup=cancel_kb())
+  st["mode"]="gov_phone"; return await u.message.reply_text(L(uid,"📱 لطفاً شماره موبایل مشترک را وارد کنید.","📱 Enter the customer's mobile number.","📱 أدخل رقم هاتف العميل."),reply_markup=cancel_kb(S.get(uid,{}).get("lang","fa")))
  if st.get("mode")=="print":
   if not fid:return await u.message.reply_text("عکس یا فایل بفرستید.")
   st.setdefault("files",[]).append(fid); return await u.message.reply_text(f"📎 دریافت شد ({len(st['files'])}). برای پایان «تأیید» را بزنید.",reply_markup=kb([[OK,CANCEL]]))
@@ -119,14 +122,14 @@ async def service_text(u,c):
    if p and p["balance"]>=amount: db.conn.execute("UPDATE requests SET status='submitted',payment_status='paid',payment_method='partner_balance' WHERE id=?",(rid,)); db.conn.execute("UPDATE partners SET balance=balance-?,updated_at=? WHERE id=?",(amount,now(),p["id"])); db.conn.commit(); st["mode"]=None; return await u.message.reply_text(f"✅ ثبت شد.\n🎫 {code}\n💰 کسر: {amount:,} تومان",reply_markup=partner_kb())
   st.update({"rid":rid,"code":code,"mode":"payment"}); return await invoice(u,amount,code)
  if st.get("mode")=="gov_text":
-  if st["field"]=="fida":st["gov_files"]["fida_id"]=t;st["field"]="yekta";return await u.message.reply_text("🔢 شناسه یکتا را وارد کنید.",reply_markup=cancel_kb())
+  if st["field"]=="fida":st["gov_files"]["fida_id"]=t;st["field"]="yekta";return await u.message.reply_text(L(uid,"🔢 شناسه یکتای مشترک را وارد کنید.","🔢 Enter the customer's unique ID.","🔢 أدخل المعرف الفريد للعميل."),reply_markup=cancel_kb(S.get(uid,{}).get("lang","fa")))
   if st["field"]=="yekta":st["gov_files"]["yekta"]=t;st["field"]="id";st["mode"]="gov_doc";return await u.message.reply_text("🪪 تصویر مدرک شناسایی را بفرستید.",reply_markup=cancel_kb())
  if st.get("mode")=="gov_doc" and st.get("field")=="sim" and t=="ندارم":st["gov_files"]["sim"]="ندارد";st["mode"]="gov_phone";return await u.message.reply_text("📱 شماره موبایل مشتری را بفرستید.",reply_markup=cancel_kb())
  if st.get("mode")=="gov_phone":
-  st["gov_phone"]=t; st["mode"]="gov_dob"; return await u.message.reply_text("🎂 تاریخ تولد مشترک را به صورت 1356/01/01 وارد کنید.",reply_markup=cancel_kb())
+  st["gov_phone"]=t; st["mode"]="gov_dob"; return await u.message.reply_text(L(uid,"🎂 تاریخ تولد مشترک را به صورت 1356/01/01 وارد کنید.","🎂 Enter the customer's birth date as 1356/01/01.","🎂 أدخل تاريخ ميلاد العميل بالشكل 1356/01/01."),reply_markup=cancel_kb(S.get(uid,{}).get("lang","fa")))
  if st.get("mode")=="gov_dob":
   import re
-  if not re.fullmatch(r"1[34]\d{2}/(0[1-9]|1[0-2])/(0[1-9]|[12]\d|3[01])",t): return await u.message.reply_text("❌ تاریخ تولد را به شکل 1356/01/01 وارد کنید.",reply_markup=cancel_kb())
+  if not re.fullmatch(r"1[34]\d{2}/(0[1-9]|1[0-2])/(0[1-9]|[12]\d|3[01])",t): return await u.message.reply_text(L(uid,"❌ تاریخ تولد را به شکل 1356/01/01 وارد کنید.","❌ Enter the birth date as 1356/01/01.","❌ أدخل تاريخ الميلاد بالشكل 1356/01/01."),reply_markup=cancel_kb(S.get(uid,{}).get("lang","fa")))
   st["dob"]=t; amount=int(db.setting("price_government","500000")); rid,code=db.create_request(st.get("partner_id") or db.user("telegram",uid,u.effective_user.username,u.effective_user.full_name),"government","telegram",amount)
   for k,v in st["gov_files"].items():db.answer(rid,k,file_id=v if k in ("id","sim") and v!="ندارد" else "",answer=v if k not in ("id","sim") or v=="ندارد" else "")
   db.answer(rid,"phone",t)
@@ -136,12 +139,12 @@ async def service_text(u,c):
    db.conn.execute("UPDATE requests SET status='submitted',payment_status='paid',payment_method='partner_balance' WHERE id=?",(rid,));db.conn.execute("UPDATE partners SET balance=balance-?,updated_at=? WHERE id=?",(amount,now(),p["id"]));db.conn.commit();st["mode"]=None;return await u.message.reply_text(f"✅ ثبت شد.\n🎫 {code}\n💰 کسر: {amount:,} تومان",reply_markup=partner_kb())
   st.update({"rid":rid,"code":code,"mode":"payment"});return await invoice(u,amount,code)
  if st.get("mode")=="print_color":
-  if t in ("⚫ سیاه و سفید","🌈 رنگی"):st["color"]="bw" if t.startswith("⚫") else "color";st["mode"]="print_side";return await u.message.reply_text("📄 یک‌رو یا 🔄 پشت‌ورو؟",reply_markup=kb([["📄 یک‌رو","🔄 پشت‌ورو"],[CANCEL]]))
+  if t in ("⚫ سیاه و سفید","🌈 رنگی"):st["color"]="bw" if t.startswith("⚫") else "color";st["mode"]="print_side";return await u.message.reply_text(L(uid,"📄 یک‌رو یا 🔄 پشت‌ورو؟","📄 Single-sided or 🔄 double-sided?","📄 وجه واحد أم 🔄 وجهان؟"),reply_markup=kb([[L(uid,"📄 یک‌رو","📄 Single-sided","📄 وجه واحد"),L(uid,"🔄 پشت‌ورو","🔄 Double-sided","🔄 وجهان")],[L(uid,CANCEL,"❌ Cancel","❌ إلغاء")]]))
  if st.get("mode")=="print_side":
-  if t in ("📄 یک‌رو","🔄 پشت‌ورو"):st["side"]=1 if t.startswith("📄") else 2;st["mode"]="print_copies";return await u.message.reply_text("🔢 تعداد چاپ از هر صفحه را وارد کنید:",reply_markup=cancel_kb())
+  if t in ("📄 یک‌رو","🔄 پشت‌ورو"):st["side"]=1 if t.startswith("📄") else 2;st["mode"]="print_copies";return await u.message.reply_text(L(uid,"🔢 تعداد نسخه موردنیاز از هر صفحه را وارد کنید.","🔢 Enter the number of copies per page.","🔢 أدخل عدد النسخ لكل صفحة."),reply_markup=cancel_kb(S.get(uid,{}).get("lang","fa")))
  if st.get("mode")=="print_copies":
   if not t.isdigit() or int(t)<1:return await u.message.reply_text("تعداد را به عدد مثبت وارد کنید.")
-  st["copies"]=int(t);st["mode"]="print";return await u.message.reply_text("📎 فایل‌ها را یکی‌یکی ارسال کنید؛ پایان با «تأیید».",reply_markup=kb([[OK,CANCEL]]))
+  st["copies"]=int(t);st["mode"]="print";return await u.message.reply_text(L(uid,"📎 فایل‌ها را یکی‌یکی ارسال کنید؛ پایان با «تأیید».","📎 Send files/images one by one; choose Confirm when finished.","📎 أرسل الملفات أو الصور واحداً تلو الآخر، ثم اختر تأكيد عند الانتهاء."),reply_markup=kb([[L(uid,OK,"✅ Confirm","✅ تأكيد"),L(uid,CANCEL,"❌ Cancel","❌ إلغاء")]]))
  if st.get("mode")=="print" and t==OK:
   if not st["files"]:return await u.message.reply_text("حداقل یک فایل بفرستید.")
   key="price_print_color" if st["color"]=="color" else "price_print_bw";amount=len(st["files"])*int(db.setting(key,"0"))*st["copies"];rid,code=db.create_request(st.get("partner_id") or db.user("telegram",uid,u.effective_user.username,u.effective_user.full_name),"print","telegram",amount)
