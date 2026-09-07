@@ -112,8 +112,6 @@ async def all_messages(_: Robot, message: Message):
             await message.reply("❌ تاریخ تولد را به شکل 1356/01/01 وارد کنید.\n\n" + CANCEL); return
         st["dob"] = text; st["step"] = "gov_carddoc"
         await message.reply("در صورت داشتن سند سیم‌کارت، تصویر آن را ارسال کنید؛ در غیر این صورت «ندارم» بنویسید.\n\n" + CANCEL); return
-    if step == "gov_carddoc"
-        await message.reply("در صورت داشتن سند سیم‌کارت، تصویر آن را ارسال کنید؛ در غیر این صورت «ندارم» بنویسید.\n\n" + CANCEL); return
     if step == "gov_carddoc":
         svc = db.service("government")
         amount = int(svc["price"] if svc else 500000)
