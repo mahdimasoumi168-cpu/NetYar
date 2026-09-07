@@ -153,7 +153,7 @@ async def router(u,c):
  if admin(uid):return await admin_text(u,c)
  if await ptext(u,c):return
  if await service_text(u,c):return
-async def build():
+def build():
  token=os.getenv("BOT_TOKEN")
  if not token:raise RuntimeError("BOT_TOKEN is missing")
  app=Application.builder().token(token).build();app.add_handler(CommandHandler("start",start));app.add_handler(CommandHandler("addpartner",addpartner));app.add_handler(CallbackQueryHandler(langcb,pattern=r"^lang:"));app.add_handler(CallbackQueryHandler(statuscb,pattern=r"^st:"));app.add_handler(CallbackQueryHandler(admin_cb,pattern=r"^tu:"));app.add_handler(MessageHandler(filters.PHOTO|filters.Document.ALL,media));app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,router));return app
