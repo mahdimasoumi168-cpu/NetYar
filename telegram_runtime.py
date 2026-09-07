@@ -1,5 +1,6 @@
 import os
 import bot as B
+from telegram import ReplyKeyboardMarkup
 from telegram.ext import MessageHandler, CallbackQueryHandler, filters
 
 
@@ -13,12 +14,19 @@ def advanced_amenu():
         ['⬅️ منوی اصلی']
     ])
 
+
+def platform_kb():
+    return B.kb([
+        ['🤖 Telegram', '🤖 Rubika'],
+        ['🤖 Bale', '🤖 Eitaa'],
+        ['⬅️ بازگشت']
+    ])
+
 B.amenu = advanced_amenu
 
 async def extra_text(u,c):
     uid=u.effective_user.id
     st=B.S.setdefault(uid,{})
-    # Persist the Telegram chat id after a partner logs in so status changes can be pushed automatically.
     if st.get('partner_id'):
         try:B.db.set_setting(f"partner_chat_{st['partner_id']}",str(u.effective_chat.id))
         except Exception:pass
@@ -34,15 +42,20 @@ async def extra_text(u,c):
         try:B.db.add_partner(a[0],a[1],a[2]); st['extra_step']=None; return await u.message.reply_text('✅ همکار با موفقیت اضافه شد.',reply_markup=B.amenu())
         except Exception:return await u.message.reply_text('❌ ثبت همکار انجام نشد؛ احتمالاً شماره تکراری است.',reply_markup=B.amenu())
     if t=='🤖 افزودن بات':
-        st['extra_step']='bot_platform'; return await u.message.reply_text('پیام‌رسان را انتخاب/ارسال کنید: telegram / rubika / bale / eitaa',reply_markup=B.amenu())
+        st['extra_step']='bot_platform'
+        return await u.message.reply_text('پیام‌رسان را انتخاب کنید یا نام آن را متنی ارسال کنید:\ntelegram / rubika / bale / eitaa',reply_markup=platform_kb())
     if step=='bot_platform':
-        p=t.lower().replace('تلگرام','telegram').replace('روبیکا','rubika').replace('بله','bale').replace('ایتا','eitaa')
-        if p not in {'telegram','rubika','bale','eitaa'}:return await u.message.reply_text('❌ یکی از telegram / rubika / bale / eitaa را وارد کنید.',reply_markup=B.amenu())
-        st['bot_platform']=p; st['extra_step']='bot_token'; return await u.message.reply_text('🔑 API Token بات را ارسال کنید.',reply_markup=B.amenu())
+        raw=t.lower().strip()
+        aliases={'🤖 telegram':'telegram','🤖 rubika':'rubika','🤖 bale':'bale','🤖 eitaa':'eitaa','تلگرام':'telegram','روبیکا':'rubika','بله':'bale','ایتا':'eitaa'}
+        p=aliases.get(raw,raw)
+        if p not in {'telegram','rubika','bale','eitaa'}:
+            return await u.message.reply_text('❌ یکی از Telegram / Rubika / Bale / Eitaa را انتخاب کنید.',reply_markup=platform_kb())
+        st['bot_platform']=p; st['extra_step']='bot_token'
+        return await u.message.reply_text('🔑 API Token بات را ارسال کنید.',reply_markup=B.amenu())
     if step=='bot_token':
         st['bot_token']=t; st['extra_step']='bot_name'; return await u.message.reply_text('🤖 نام بات را ارسال کنید.',reply_markup=B.amenu())
     if step=='bot_name':
-        B.db.add_bot(st['bot_platform'],t,st['bot_token']); st['extra_step']=None; return await u.message.reply_text('✅ بات ثبت شد. اتصال در رجیستری ذخیره شد و آماده Adapter پیام‌رسان است.',reply_markup=B.amenu())
+        B.db.add_bot(st['bot_platform'],t,st['bot_token']); st['extra_step']=None; return await u.message.reply_text('✅ بات ثبت شد.',reply_markup=B.amenu())
     if t=='🤖 بات‌های متصل':
         rows=B.db.bots(); txt='\n'.join(f"#{r['id']} | {r['platform']} | {r['bot_name']} | {'فعال' if r['active'] else 'غیرفعال'} | {r['status']}" for r in rows) or 'هیچ باتی ثبت نشده است.'
         return await u.message.reply_text(txt,reply_markup=B.amenu())
@@ -52,15 +65,13 @@ async def extra_text(u,c):
         r=B.db.conn.execute('SELECT * FROM requests WHERE tracking_code=?',(t,)).fetchone()
         if not r:return await u.message.reply_text('❌ کد پیگیری پیدا نشد.',reply_markup=B.amenu())
         B.db.conn.execute("UPDATE requests SET status='completed',updated_at=? WHERE id=?",(B.now(),r['id'])); B.db.conn.commit(); st['extra_step']=None
-        # Notify the original Telegram customer automatically.
         customer_chat=None
         try:
             ur=B.db.conn.execute("SELECT external_id FROM users WHERE id=? AND platform='telegram'",(r['user_id'],)).fetchone()
             if ur: customer_chat=ur['external_id']
         except Exception: pass
         if customer_chat:
-            try:
-                await c.bot.send_message(chat_id=customer_chat,text=f"🔔 خدمت شما بروزرسانی شد.\n🎫 کد پیگیری: {r['tracking_code']}\n📌 وضعیت جدید: انجام شد ✅")
+            try: await c.bot.send_message(chat_id=customer_chat,text=f"🔔 خدمت شما بروزرسانی شد.\n🎫 کد پیگیری: {r['tracking_code']}\n📌 وضعیت جدید: انجام شد ✅")
             except Exception: pass
         partner_id=None
         pr=B.db.conn.execute("SELECT answer FROM request_answers WHERE request_id=? AND field_key='partner_id' ORDER BY id DESC LIMIT 1",(r['id'],)).fetchone()
@@ -70,8 +81,7 @@ async def extra_text(u,c):
             if row and row['value']:
                 try: await c.bot.send_message(chat_id=row['value'],text=f"🔔 وضعیت درخواست شما تغییر کرد.\n🎫 کد پیگیری: {r['tracking_code']}\n📌 وضعیت جدید: انجام شد ✅")
                 except Exception: pass
-        await u.message.reply_text(f'✅ خدمت {t} به‌عنوان انجام‌شده ثبت شد.',reply_markup=B.amenu())
-        return
+        return await u.message.reply_text(f'✅ خدمت {t} به‌عنوان انجام‌شده ثبت شد.',reply_markup=B.amenu())
 
 async def extra_cb(u,c):
     return
