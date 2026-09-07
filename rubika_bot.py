@@ -104,7 +104,15 @@ async def all_messages(_: Robot, message: Message):
         st["step"] = "gov_sim"
         await message.reply("📱 شماره موبایل مشترک را وارد کنید.\nسیم‌کارت باید به نام خود مشترک باشد.\n\n" + CANCEL); return
     if step == "gov_sim":
-        st["phone"] = text; st["step"] = "gov_carddoc"
+        st["phone"] = text; st["step"] = "gov_dob"
+        await message.reply("🎂 تاریخ تولد مشترک را به صورت 1356/01/01 وارد کنید.\n\n" + CANCEL); return
+    if step == "gov_dob":
+        import re
+        if not re.fullmatch(r"1[34]\\d{2}/(0[1-9]|1[0-2])/(0[1-9]|[12]\\d|3[01])", text):
+            await message.reply("❌ تاریخ تولد را به شکل 1356/01/01 وارد کنید.\n\n" + CANCEL); return
+        st["dob"] = text; st["step"] = "gov_carddoc"
+        await message.reply("در صورت داشتن سند سیم‌کارت، تصویر آن را ارسال کنید؛ در غیر این صورت «ندارم» بنویسید.\n\n" + CANCEL); return
+    if step == "gov_carddoc"
         await message.reply("در صورت داشتن سند سیم‌کارت، تصویر آن را ارسال کنید؛ در غیر این صورت «ندارم» بنویسید.\n\n" + CANCEL); return
     if step == "gov_carddoc":
         svc = db.service("government")
