@@ -207,4 +207,12 @@ def build():
  token=os.getenv("BOT_TOKEN")
  if not token:raise RuntimeError("BOT_TOKEN is missing")
  app=Application.builder().token(token).build();app.add_handler(CommandHandler("start",start));app.add_handler(CommandHandler("addpartner",addpartner));app.add_handler(CallbackQueryHandler(langcb,pattern=r"^lang:"));app.add_handler(CallbackQueryHandler(statuscb,pattern=r"^st:"));app.add_handler(CallbackQueryHandler(admin_cb,pattern=r"^tu:"));app.add_handler(MessageHandler(filters.PHOTO|filters.Document.ALL,media));app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,router));return app
-if __name__=="__main__":build().run_polling(allowed_updates=Update.ALL_TYPES)
+if __name__=="__main__":
+ app=build()
+ webhook=os.getenv("TELEGRAM_WEBHOOK_URL","").strip()
+ if webhook:
+  port=int(os.getenv("PORT","8080"))
+  path=webhook.rstrip("/").split("/")[-1]
+  app.run_webhook(listen="0.0.0.0",port=port,url_path=path,webhook_url=webhook,allowed_updates=Update.ALL_TYPES)
+ else:
+  app.run_polling(allowed_updates=Update.ALL_TYPES)
