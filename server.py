@@ -34,6 +34,9 @@ async def telegram_update(request:Request):
         return {"ok":False}
 
 def _rubika_text(update):
+    # Rubika may wrap the actual update in an outer `update` object.
+    if isinstance(update,dict) and isinstance(update.get("update"),dict):
+        update=update["update"]
     m=update.get("message") or update.get("new_message") or update
     if not isinstance(m,dict): return ""
     for k in ("text","button_text"):
@@ -48,17 +51,19 @@ def _rubika_text(update):
     return ""
 
 def _rubika_chat(update):
+    if isinstance(update,dict) and isinstance(update.get("update"),dict): update=update["update"]
     m=update.get("message") or update.get("new_message") or update
     return str((m or {}).get("chat_id") or (m or {}).get("chat_key") or update.get("chat_id") or "")
 
 def _rubika_user(update):
+    if isinstance(update,dict) and isinstance(update.get("update"),dict): update=update["update"]
     m=update.get("message") or update.get("new_message") or update
     s=(m or {}).get("sender") or {}
     return str((s or {}).get("user_id") or (m or {}).get("sender_id") or (m or {}).get("user_id") or _rubika_chat(update))
 
 def _safe_rubika_rows(rows):
     out=[]
-    for row in rows or []:
+    for irow,row in enumerate(rows or []):
         buttons=[]
         for i,item in enumerate(row or []):
             if isinstance(item,(tuple,list)) and len(item)>=2:
@@ -81,18 +86,16 @@ def _normalize_rubika_button(update,rb):
     partner=bool(st.get("partner_id"))
     step=st.get("step") or st.get("mode") or ""
     maps={
-      "main":{"1":"🪪 فیدای غیر حضوری","2":"🖨 خدمات چاپ","3":"🪪 حل مشکل ورود اتباع دولت من","4":"🎫 کد رهگیری تمدید کارت‌ها","5":"📱 خدمات سیم کارت","6":"📝 آزمون غربالگری و پیگیری","7":"💰 کیف پول من","8":"👥 پنل همکاران","9":"📞 تماس با ما","0":rb.CANCEL},
+      "main":{"1":"🪪 فیدای غیر حضوری","2":"🖨 خدمات چاپ","3":"🏛 حل مشکل ورود اتباع دولت من","4":"🎫 پیگیری","5":"📱 خدمات سیم کارت","6":"📝 آزمون غربالگری و پیگیری","7":"💰 کیف پول من","8":"👥 پنل همکاران","9":"📞 تماس با ما","0":rb.CANCEL},
       "partner":{"1":"➕ شارژ حساب","2":"🔎 پیگیری کد","3":"📋 سوابق","4":"💰 موجودی","5":"🏛 حل مشکل سامانه دولت من","0":rb.CANCEL},
       "admin":{"1":"👥 همکاران","2":"💰 شارژها","3":"📋 درخواست‌ها","4":"💳 پرداخت‌های مشتری","5":"⚙️ قیمت‌ها","6":"🤖 افزودن بات","7":"🤖 بات‌های متصل","8":"📊 گزارش","0":"⬅️ منوی اصلی"}}
-    if admin and not partner and step in {"admin","admin_price","bot_platform","bot_name","bot_api"}:
-        key="admin"
-    elif partner and step=="partner":
-        key="partner"
-    else:
-        key="main"
+    if admin and not partner and step in {"admin","admin_price","bot_platform","bot_name","bot_api"}: key="admin"
+    elif partner and step=="partner": key="partner"
+    else: key="main"
     label=maps[key].get(raw)
     if not label:return update
-    m=update.get("message") or update.get("new_message")
+    target=update["update"] if isinstance(update,dict) and isinstance(update.get("update"),dict) else update
+    m=target.get("message") or target.get("new_message")
     if isinstance(m,dict): m["text"]=label
     return update
 
