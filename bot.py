@@ -44,13 +44,16 @@ async def statuscb(u,c):
  if S[uid]["status"]=="iranian":
   msg={"fa":"🇮🇷 فعلاً خدماتی برای ایرانی فعال نیست.","en":"🇮🇷 Services are currently unavailable for Iranian users.","ar":"🇮🇷 الخدمات غير متاحة حالياً للمستخدمين الإيرانيين."}[lang]
   partner={"fa":"👥 پنل همکاران","en":"👥 Partner panel","ar":"👥 لوحة الشركاء"}[lang]
- track={"fa":"🎫 پیگیری","en":"🎫 Track","ar":"🎫 متابعة"}[lang]
- cancel={"fa":CANCEL,"en":"❌ Cancel","ar":"❌ إلغاء"}[lang]
- return await q.message.reply_text(msg,reply_markup=kb([[partner,track],[cancel]]))
+  track={"fa":"🎫 پیگیری","en":"🎫 Track","ar":"🎫 متابعة"}[lang]
+  cancel={"fa":CANCEL,"en":"❌ Cancel","ar":"❌ إلغاء"}[lang]
+  return await q.message.reply_text(msg,reply_markup=kb([[partner,track],[cancel]]))
  msg={"fa":"منوی خدمات کمک یار مهاجر 👇","en":"Mohajer Helper services 👇","ar":"خدمات مساعد المهاجر 👇"}[lang]
  await q.message.reply_text(msg,reply_markup=main(uid))
 async def cancel(u,c):
- uid=u.effective_user.id; st=S.setdefault(uid,{}); partner=st.get("partner_id"); S[uid]={"status":"foreign","partner_id":partner} if partner else {"status":"foreign"}; await u.message.reply_text("لغو شد و به منوی اصلی برگشتید. ✅",reply_markup=partner_kb() if partner else main(uid))
+ uid=u.effective_user.id; st=S.setdefault(uid,{}); partner_id=st.get("partner_id"); lang=st.get("lang","fa")
+ S[uid]={"status":"foreign","lang":lang,"partner_id":partner_id} if partner_id else {"status":"foreign","lang":lang}
+ msg={"fa":"عملیات لغو شد. به منوی اصلی برگشتید. ✅","en":"Operation cancelled. Back to the main menu. ✅","ar":"تم إلغاء العملية والعودة إلى القائمة الرئيسية. ✅"}[lang]
+ await u.message.reply_text(msg,reply_markup=partner_kb(lang) if partner_id else main(uid))
 async def partner(u,c):
  uid=u.effective_user.id; st=S.setdefault(uid,{})
  if st.get("partner_id"):
