@@ -61,7 +61,7 @@ def main_rows(uid):
     if l=="en": return [[("1","🪪 FIDA non-in-person"),("2","🖨 Printing")],[("3","🏛 Government access issue"),("4","🎫 Tracking")],[("5","📱 SIM services"),("6","📝 Screening & follow-up")],[("7","💰 My wallet"),("8","👥 Partner panel")],[("9","📞 Contact us"),("0","❌ Cancel")]]
     if l=="ar": return [[("1","🪪 خدمة فيدا"),("2","🖨 الطباعة")],[("3","🏛 مشكلة خدمات الحكومة"),("4","🎫 متابعة")],[("5","📱 خدمات الشريحة"),("6","📝 الفحص والمتابعة")],[("7","💰 محفظتي"),("8","👥 لوحة الشركاء")],[("9","📞 اتصل بنا"),("0","❌ إلغاء")]]
     return [[("1","🪪 فیدای غیر حضوری"),("2","🖨 خدمات چاپ")],[("3","🏛 حل مشکل ورود اتباع دولت من"),("4","🎫 پیگیری")],[("5","📱 خدمات سیم کارت"),("6","📝 آزمون غربالگری و پیگیری")],[("7","💰 کیف پول من"),("8","👥 پنل همکاران")],[("9","📞 تماس با ما"),("0",CANCEL)]]
-def partner_rows(): return [[("1","➕ شارژ حساب"),("2","🔎 پیگیری کد")],[("3","📋 سوابق"),("4","💰 موجودی")],[("0",CANCEL)]]
+def partner_rows(): return [[("1","➕ شارژ حساب"),("2","🔎 پیگیری کد")],[("3","📋 سوابق"),("4","💰 موجودی")],[("5","🏛 حل مشکل سامانه دولت من")],[("0",CANCEL)]]
 def admin_rows(): return [[("1","👥 همکاران"),("2","💰 شارژها")],[("3","📋 درخواست‌ها"),("4","💳 پرداخت‌ها")],[("5","⚙️ قیمت‌ها"),("6","🤖 افزودن بات")],[("7","🤖 بات‌های متصل"),("8","📊 گزارش")],[("0","⬅️ منوی اصلی")]]
 def is_admin(uid): return str(uid) in ADMIN_IDS or STATE.get(str(uid),{}).get("admin") is True
 def notify_admins(s):
@@ -142,6 +142,11 @@ def handle(uid,chat,x,u):
         if not p or not check_password(x,p["password_hash"]): send(chat,T(uid,"bad_login")); return
         st["partner_id"]=p["id"]; st["step"]="partner"; send(chat,T(uid,"balance",amount=int(p["balance"])),partner_rows()); return
     if step=="partner":
+        if x.startswith("5") or "دولت من" in x:
+            st["step"]="partner_gov_fida"
+            send(chat,"🏛 حل مشکل سامانه دولت من\\n\\n🆔 شناسه فیدا/اختصاصی مشترک را وارد کنید:",[[("0",CANCEL)]])
+            return
+    if step=="partner":
         if x.startswith("1"): st["step"]="topup_amount"; send(chat,"💰 مبلغ شارژ را به تومان وارد کنید:",[[('0',CANCEL)]]); return
         if x.startswith("2"): st["step"]="track_partner"; send(chat,T(uid,"track"),[[('0',CANCEL)]]); return
         if x.startswith("3"):
@@ -163,8 +168,20 @@ def handle(uid,chat,x,u):
     if step=="print_files" and x in {OK,"1","تأیید","Confirm"}:
         amount=int(db.setting("price_print_bw" if st.get("print_color")=="bw" else "price_print_color","0") or 0)*int(st.get("copies",1)); request(uid,chat,"print",amount); return
     if step=="fida_phone": st["customer_phone"]=x; request(uid,chat,"fida",int(db.setting("price_fida","0") or 0)); return
-    if step=="gov_fida": st["gov_fida"]=x; st["step"]="gov_yekta"; send(chat,T(uid,"gov_yekta"),[[('0',CANCEL)]]); return
-    if step=="gov_yekta": st["gov_yekta"]=x; st["step"]="gov_dob"; send(chat,T(uid,"dob"),[[('0',CANCEL)]]); return
+    if step in {"gov_fida","partner_gov_fida"}:
+        if not x or x=="__MEDIA__":
+            send(chat,"❌ شناسه فیدا/اختصاصی را به‌صورت متنی وارد کنید.",[[("0",CANCEL)]])
+            return
+        st["gov_fida"]=x; st["step"]="gov_yekta"
+        send(chat,"🔢 شناسه یکتای مشترک را وارد کنید:",[[("0",CANCEL)]])
+        return
+    if step=="gov_yekta":
+        if not x or x=="__MEDIA__":
+            send(chat,"❌ شناسه یکتا را به‌صورت متنی وارد کنید.",[[("0",CANCEL)]])
+            return
+        st["gov_yekta"]=x; st["step"]="gov_dob"
+        send(chat,T(uid,"dob"),[[("0",CANCEL)]])
+        return
     if step=="gov_dob":
         if not re.fullmatch(r"\d{4}/\d{2}/\d{2}",x): send(chat,T(uid,"dob")); return
         request(uid,chat,"government",int(db.setting("price_government","500000") or 500000)); return
