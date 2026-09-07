@@ -174,6 +174,12 @@ async def addpartner(u,c):
  except:await u.message.reply_text("❌ ثبت نشد؛ شماره احتمالاً تکراری است.")
 async def router(u,c):
  t=(u.message.text or "").strip();uid=u.effective_user.id
+ lang=S.get(uid,{}).get("lang","fa")
+ aliases={
+  "en":{"🪪 FIDA non-in-person":"🪪 فیدای غیر حضوری","🖨 Printing service":"🖨 خدمات چاپ","🏛 Government access issue":"🪪 حل مشکل ورود اتباع دولت من","🎫 Track request":"🎫 کد رهگیری تمدید کارت‌ها","📱 SIM services":"📱 خدمات سیم کارت","📝 Screening & follow-up":"📝 آزمون غربالگری و پیگیری","💰 My wallet":"💰 کیف پول من","📞 Contact us":"📞 تماس با ما","📝 Customer complaint":"📝 ثبت شکایت مشتریان","👥 Partner panel":"👥 پنل همکاران","❌ Cancel":CANCEL},
+  "ar":{"🪪 خدمة فيدا":"🪪 فیدای غیر حضوری","🖨 خدمة الطباعة":"🖨 خدمات چاپ","🏛 مشكلة خدمات الحكومة":"🪪 حل مشکل ورود اتباع دولت من","🎫 متابعة الطلب":"🎫 کد رهگیری تمدید کارت‌ها","📱 خدمات الشريحة":"📱 خدمات سیم کارت","📝 الفحص والمتابعة":"📝 آزمون غربالگری و پیگیری","💰 محفظتي":"💰 کیف پول من","📞 اتصل بنا":"📞 تماس با ما","📝 شكوى العميل":"📝 ثبت شکایت مشتریان","👥 لوحة الشركاء":"👥 پنل همکاران","❌ إلغاء":CANCEL}
+ }
+ t=aliases.get(lang,{}).get(t,t)
  if t==CANCEL:return await cancel(u,c)
  if t=="🛠 پنل مدیریت بات":
   if not admin(uid): return await u.message.reply_text("❌ دسترسی ندارید.")
