@@ -52,6 +52,16 @@ async def extra_text(u,c):
         r=B.db.conn.execute('SELECT * FROM requests WHERE tracking_code=?',(t,)).fetchone()
         if not r:return await u.message.reply_text('❌ کد پیگیری پیدا نشد.',reply_markup=B.amenu())
         B.db.conn.execute("UPDATE requests SET status='completed',updated_at=? WHERE id=?",(B.now(),r['id'])); B.db.conn.commit(); st['extra_step']=None
+        # Notify the original Telegram customer automatically.
+        customer_chat=None
+        try:
+            ur=B.db.conn.execute("SELECT external_id FROM users WHERE id=? AND platform='telegram'",(r['user_id'],)).fetchone()
+            if ur: customer_chat=ur['external_id']
+        except Exception: pass
+        if customer_chat:
+            try:
+                await c.bot.send_message(chat_id=customer_chat,text=f"🔔 خدمت شما بروزرسانی شد.\n🎫 کد پیگیری: {r['tracking_code']}\n📌 وضعیت جدید: انجام شد ✅")
+            except Exception: pass
         partner_id=None
         pr=B.db.conn.execute("SELECT answer FROM request_answers WHERE request_id=? AND field_key='partner_id' ORDER BY id DESC LIMIT 1",(r['id'],)).fetchone()
         if pr: partner_id=pr['answer']
