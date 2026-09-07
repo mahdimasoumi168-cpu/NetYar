@@ -11,7 +11,6 @@ def platform_kb():
 
 B.amenu=advanced_amenu
 
-# Split the old combined screening/follow-up item into two independent buttons.
 _original_main=B.main
 _original_router=B.router
 
@@ -30,21 +29,32 @@ def split_main(uid):
                     if item==old: nr.extend([screening,follow])
                     else: nr.append(item)
                 rows.append(nr)
-            else:
-                rows.append(list(row))
+            else: rows.append(list(row))
         return B.kb(rows)
     except Exception:
         return markup
 B.main=split_main
 
 async def split_router(u,c):
-    # Keep existing service logic intact while exposing separate menu entries.
     t=(u.message.text or '').strip()
-    lang=B.S.get(u.effective_user.id,{}).get('lang','fa')
+    uid=u.effective_user.id
+    st=B.S.get(uid,{})
+    lang=st.get('lang','fa')
     screening={'fa':'📝 آزمون غربالگری','en':'📝 Screening test','ar':'📝 اختبار الفحص'}[lang]
     follow={'fa':'🎫 پیگیری','en':'🎫 Follow-up','ar':'🎫 متابعة'}[lang]
     old={'fa':'📝 آزمون غربالگری و پیگیری','en':'📝 Screening & follow-up','ar':'📝 الفحص والمتابعة'}[lang]
     track={'fa':'🎫 کد رهگیری تمدید کارت‌ها','en':'🎫 Track request','ar':'🎫 متابعة الطلب'}[lang]
+
+    # Advanced admin actions must run before bot.py's admin_text(), because
+    # bot.py otherwise consumes these messages and the group-1 compatibility
+    # handler never gets a chance to process them.
+    if B.admin(uid):
+        advanced={'➕ افزودن همکار','🤖 افزودن بات','🤖 بات‌های متصل','📣 اعلان خدمت','👥 همکاران','💰 شارژها','💳 پرداخت‌های مشتری','📋 درخواست‌ها','⚙️ قیمت‌ها','📊 گزارش','⬅️ منوی اصلی'}
+        if t in advanced or st.get('extra_step') in {'partner','bot_platform','bot_token','bot_name','done'}:
+            result=await extra_text(u,c)
+            if result is not None:
+                return result
+
     if t==screening:
         old_text=u.message.text
         try:
@@ -60,6 +70,7 @@ async def split_router(u,c):
         finally:
             u.message.text=old_text
     return await _original_router(u,c)
+
 B.router=split_router
 
 async def fixed_history(u,c):
