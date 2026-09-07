@@ -25,7 +25,9 @@ async def telegram_update(request:Request):
     try:
         from telegram import Update
         payload=await request.json()
-        await telegram_app.update_queue.put(Update.de_json(data=payload,bot=telegram_app.bot))
+        update=Update.de_json(data=payload,bot=telegram_app.bot)
+        await telegram_app.update_queue.put(update)
+        log.info("Telegram update accepted: update_id=%s",payload.get("update_id"))
         return {"ok":True}
     except Exception:
         log.exception("Telegram webhook update failed")
@@ -94,6 +96,14 @@ def _normalize_rubika_button(update,rb):
     if isinstance(m,dict): m["text"]=label
     return update
 
+async def _run_rubika(update,rb):
+    try:
+        normalized=_normalize_rubika_button(update,rb)
+        await asyncio.to_thread(rb.process,normalized)
+        log.info("Rubika update processed: type=%s text=%s",update.get("type"),_rubika_text(update))
+    except Exception:
+        log.exception("Rubika background update processing failed")
+
 @api.post("/rubika/update")
 async def rubika_update(request:Request):
     try:
@@ -105,15 +115,14 @@ async def rubika_update(request:Request):
             chat=str(update.get("chat_id") or msg.get("chat_id") or "")
             uid=str((msg or {}).get("sender_id") or (msg or {}).get("user_id") or chat)
             if chat:
-                # Do not reset an existing user's language/session every time Rubika sends StartedBot.
                 st=rb.STATE.setdefault(uid,{})
                 if not st.get("lang") or st.get("step") in {None,""}:
                     st.clear(); st.update({"lang":"fa","step":"language"})
-                    rb.send(chat,rb.T(uid,"lang"),[["1","🇮🇷 فارسی"],["2","🇬🇧 English"],["3","🇸🇦 العربية"]])
+                    asyncio.create_task(asyncio.to_thread(rb.send,chat,rb.T(uid,"lang"),[["1","🇮🇷 فارسی"],["2","🇬🇧 English"],["3","🇸🇦 العربية"]]))
                 elif st.get("step")=="language":
-                    rb.send(chat,rb.T(uid,"lang"),[["1","🇮🇷 فارسی"],["2","🇬🇧 English"],["3","🇸🇦 العربية"]])
+                    asyncio.create_task(asyncio.to_thread(rb.send,chat,rb.T(uid,"lang"),[["1","🇮🇷 فارسی"],["2","🇬🇧 English"],["3","🇸🇦 العربية"]]))
         else:
-            await asyncio.to_thread(rb.process,_normalize_rubika_button(update,rb))
+            asyncio.create_task(_run_rubika(update,rb))
         return {"ok":True}
     except Exception:
         log.exception("Rubika webhook update failed")
