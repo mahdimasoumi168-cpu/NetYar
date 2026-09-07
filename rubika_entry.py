@@ -7,6 +7,7 @@ TOKEN=os.getenv('RUBIKA_BOT_TOKEN','').strip()
 if not TOKEN: raise RuntimeError('RUBIKA_BOT_TOKEN is missing')
 BASE=f'https://botapi.rubika.ir/v3/{TOKEN}'
 ADMIN_COMMAND=os.getenv('ADMIN_COMMAND','/Admin2025').strip().lower()
+LABEL_TO_ID={'🇮🇷 فارسی':'1','فارسی':'1','🇬🇧 English':'2','English':'2','🇸🇦 العربية':'3','العربية':'3','🪪 اتباع هستم':'1','🪪 Foreign national':'1','🪪 أجنبي':'1','🇮🇷 ایرانی هستم':'2','🇮🇷 Iranian':'2','🇮🇷 إيراني':'2','🪪 فیدای غیر حضوری':'1','🪪 FIDA non-in-person':'1','🪪 خدمة فيدا':'1','🖨 خدمات چاپ':'2','🖨 Printing':'2','🖨 الطباعة':'2','🏛 حل مشکل ورود اتباع دولت من':'3','🏛 Government access issue':'3','🏛 مشكلة خدمات الحكومة':'3','🎫 پیگیری':'4','🎫 Tracking':'4','🎫 متابعة':'4','📱 خدمات سیم کارت':'5','📱 SIM services':'5','📱 خدمات الشريحة':'5','📝 آزمون غربالگری و پیگیری':'6','📝 Screening & follow-up':'6','📝 الفحص والمتابعة':'6','💰 کیف پول من':'7','💰 My wallet':'7','💰 محفظتي':'7','👥 پنل همکاران':'8','👥 Partner panel':'8','👥 لوحة الشركاء':'8','📞 تماس با ما':'9','📞 Contact us':'9','📞 اتصل بنا':'9','❌ انصراف':'0','❌ Cancel':'0','❌ إلغاء':'0','انصراف':'0','لغو':'0','Cancel':'0','cancel':'0','إلغاء':'0','➕ شارژ حساب':'1','🔎 پیگیری کد':'2','📋 سوابق':'3','💰 موجودی':'4','⚫ سیاه و سفید':'1','⚫ Black & white':'1','⚫ أبيض وأسود':'1','🌈 رنگی':'2','🌈 Color':'2','🌈 ملون':'2'}
 def api(method,payload=None):
  r=requests.post(f'{BASE}/{method}',json=payload or {},timeout=45);r.raise_for_status();data=r.json();return data.get('data',data) if isinstance(data,dict) else data
 def key(rows):return [[(str(i),label) for i,label in row] for row in rows]
@@ -16,14 +17,14 @@ def normalize(u):
  if not isinstance(msg,dict):return None
  chat=str(u.get('chat_id') or msg.get('chat_id') or '');uid=str(msg.get('sender_id') or '')
  if not chat or not uid:return None
- text=str(msg.get('text') or '').strip()
- if not text:
-  aux=msg.get('aux_data') or {}
-  if isinstance(aux,dict):text=str(aux.get('button_id') or '').strip()
+ text=str(msg.get('text') or '').strip();aux=msg.get('aux_data') or {}
+ if isinstance(aux,dict):
+  bid=str(aux.get('button_id') or '').strip()
+  if bid:text=bid
+ if text in LABEL_TO_ID:text=LABEL_TO_ID[text]
  fid='';f=msg.get('file')
  if isinstance(f,dict):fid=str(f.get('file_id') or '')
  return uid,chat,text,fid
-def is_admin(uid):return uid in {x.strip() for x in os.getenv('ADMIN_IDS','').replace(';',',').split(',') if x.strip()}
 def admin_flow(uid,chat,text):
  st=S.setdefault(uid,{});step=st.get('admin_step')
  if text=='a_bots':send(chat,render_bots(),key(admin_menu()));return True
@@ -33,10 +34,10 @@ def admin_flow(uid,chat,text):
  if text=='a_reports':
   p=db.conn.execute('SELECT COUNT(*) FROM partners').fetchone()[0];q=db.conn.execute('SELECT COUNT(*) FROM requests').fetchone()[0];t=db.conn.execute("SELECT COUNT(*) FROM topups WHERE status='pending'").fetchone()[0];send(chat,f'📊 گزارش کامل\n👥 همکاران: {p}\n📋 درخواست‌ها: {q}\n💰 شارژهای منتظر تأیید: {t}',key(admin_menu()));return True
  if text=='a_prices':st['admin_step']='price';send(chat,'💰 قیمت را این‌طور بفرستید:\ngovernment 500000',key(admin_menu()));return True
- if text=='a_notify':send(chat,'🔔 سیستم اعلان آماده است؛ وضعیت خدمات از همین پنل قابل مدیریت است.',key(admin_menu()));return True
+ if text=='a_notify':send(chat,'🔔 اعلان‌ها فعال هستند؛ برای هر تغییر وضعیت می‌توانیم ارسال خودکار پیام را به کانال/همکار وصل کنیم.',key(admin_menu()));return True
  if text=='a_exit':st['admin']=False;st.pop('admin_step',None);send(chat,'✅ از مدیریت خارج شدید.');return True
  if step=='platform' and text in PLATFORMS:st['bot_platform']=text;st['admin_step']='bot_name';send(chat,'📝 نام این بات را وارد کنید:');return True
- if step=='bot_name':st['bot_name']=text;st['admin_step']='bot_token';send(chat,'🔐 API Token را ارسال کنید. توکن خام در دیتابیس ذخیره نمی‌شود؛ فقط برای اعتبارسنجی لحظه‌ای استفاده می‌شود.');return True
+ if step=='bot_name':st['bot_name']=text;st['admin_step']='bot_token';send(chat,'🔐 API Token را ارسال کنید. توکن خام در دیتابیس ذخیره نمی‌شود؛ فقط اعتبارسنجی می‌شود.');return True
  if step=='bot_token':
   try:
    ok,ref=add_bot(st['bot_platform'],st['bot_name'],text);st.pop('admin_step',None);send(chat,(f'✅ API معتبر بود و بات ثبت شد.\n🔑 Secret reference: {ref}\n⚠️ برای اجرای دائمی، توکن را با همین نام در Railway Secrets تنظیم کن.' if ok else f'⚠️ رکورد ثبت شد ولی API اعتبارسنجی نشد.\n🔑 Secret reference: {ref}'),key(admin_menu()));return True
@@ -65,7 +66,7 @@ def main():
       from rubika_fixed import lang_menu
       send(chat,'🌐 زبان را انتخاب کنید:',lang_menu());continue
      if text.lower() in (ADMIN_COMMAND,'/admin2025','/admin'):
-      S.setdefault(uid,{})['admin']=True;send(chat,'🛠 پنل مدیریت پیشرفته فعال شد.',key(admin_menu()));continue
+      S.setdefault(uid,{})['admin']=True;S[uid]['admin_step']=None;send(chat,'🛠 پنل مدیریت پیشرفته فعال شد.',key(admin_menu()));continue
      if S.get(uid,{}).get('admin') and admin_flow(uid,chat,text):continue
      value=text or fid
      if value:handle(uid,chat,value)
