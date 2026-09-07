@@ -207,7 +207,14 @@ def send(chat_id, text, keypad=None):
             "resize_keyboard": True,
             "one_time_keyboard": False,
         }
-    return call("sendMessage", payload)
+    last = None
+    for attempt in range(3):
+        try:
+            return call("sendMessage", payload)
+        except requests.RequestException as e:
+            last = e
+            time.sleep(1.5 * (attempt + 1))
+    raise last
 
 def buttons(rows):
     return [[(str(i), label) for i, label in row] for row in rows]
