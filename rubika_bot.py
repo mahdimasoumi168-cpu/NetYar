@@ -1,258 +1,489 @@
 import os
+import time
 import logging
 import re
-from rubka.asynco import Robot, Message
-from core import db
+import requests
+from core import db, now, check_password
 
 logging.basicConfig(format="%(asctime)s | %(levelname)s | %(message)s", level=logging.INFO)
-TOKEN = os.getenv("RUBIKA_BOT_TOKEN")
+log = logging.getLogger("netyar.rubika")
+
+TOKEN = os.getenv("RUBIKA_BOT_TOKEN", "").strip()
 if not TOKEN:
     raise RuntimeError("RUBIKA_BOT_TOKEN environment variable is missing.")
 
-rubika = Robot(token=TOKEN, safeSendMode=True, max_cache_size=2000, max_msg_age=120)
-state = {}
+BASE = f"https://botapi.rubika.ir/v3/{TOKEN}"
+HTTP = requests.Session()
+HTTP.headers.update({"Content-Type": "application/json"})
 
 CANCEL = "❌ انصراف"
+OK = "✅ تأیید"
 
 TEXT = {
     "fa": {
-        "lang":"🌐 زبان را انتخاب کنید:\n1) فارسی\n2) English\n3) العربية",
-        "cit":"آیا اتباع هستید یا ایرانی؟\n1) اتباع\n2) ایرانی",
-        "iran":"🇮🇷 فعلاً خدماتی برای ایرانی فعال نیست.\n\n👥 پنل همکاران\n🎫 پیگیری",
-        "menu":"خدمات موردنظر را انتخاب کنید:\n\n1) 🪪 فیدای غیر حضوری\n2) 🖨 خدمات چاپ\n3) 🏛 حل مشکل ورود اتباع سامانه دولت من\n4) 👥 پنل همکاران\n5) 🎫 پیگیری",
-        "fida":"🪪 لطفاً تصویر مدرک شناسایی مشترک را ارسال کنید.",
-        "print":"🖨 نوع چاپ را انتخاب کنید:\n1) سیاه و سفید\n2) رنگی",
-        "side":"چاپ را انتخاب کنید:\n1) یک‌رو\n2) پشت‌ورو",
-        "count":"تعداد نسخه موردنیاز از هر صفحه را وارد کنید.",
-        "files":"📎 فایل‌ها یا عکس‌های موردنظر را ارسال کنید. پس از ارسال همه موارد، «تأیید» را بزنید.",
-        "govf":"شناسه فیدای مشترک را وارد کنید.",
-        "govy":"شناسه یکتای مشترک را وارد کنید.",
-        "id":"🪪 تصویر مدرک شناسایی مشترک را ارسال کنید.",
-        "phone":"📱 شماره موبایل مشترک را وارد کنید. سیم‌کارت باید به نام خود مشترک باشد.",
-        "dob":"🎂 تاریخ تولد مشترک را به صورت 1356/01/01 وارد کنید.",
-        "doc":"در صورت داشتن سند سیم‌کارت، تصویر آن را ارسال کنید؛ در غیر این صورت «ندارم» بنویسید.",
-        "confirm":"برای ادامه «تأیید» و برای لغو «انصراف» را انتخاب کنید.",
-        "track":"🎫 کد پیگیری را وارد کنید.",
-        "notrack":"❌ کد پیگیری پیدا نشد.",
-        "cancel":"عملیات لغو شد.\n\n",
-        "bad":"لطفاً یکی از گزینه‌های نمایش‌داده‌شده را انتخاب کنید.",
-        "thanks":"درخواست شما ثبت شد ✅\nکد پیگیری: {code}\n\nبرای پیگیری، گزینه 🎫 پیگیری را انتخاب کنید.",
-        "received":"✅ دریافت شد. اگر مورد دیگری دارید ارسال کنید؛ در پایان «تأیید» را بزنید.",
-        "amount":"💳 هزینه خدمات: {amount:,} تومان\n\n{confirm}",
+        "lang": "🌐 زبان را انتخاب کنید:",
+        "cit": "آیا اتباع هستید یا ایرانی؟",
+        "iran": "🇮🇷 فعلاً خدماتی برای ایرانی فعال نیست.",
+        "menu": "سلام 👋\nخدمت موردنظر را انتخاب کنید:",
+        "fida": "🪪 تصویر مدرک شناسایی مشترک را ارسال کنید.",
+        "fida_phone": "📱 شماره موبایل مشترک را وارد کنید.",
+        "gov_fida": "🆔 شناسه فیدا/اختصاصی مشترک را وارد کنید.",
+        "gov_yekta": "🔢 شناسه یکتای مشترک را وارد کنید.",
+        "id": "🪪 تصویر مدرک شناسایی مشترک را ارسال کنید.",
+        "phone": "📱 شماره موبایل مشترک را وارد کنید. سیم‌کارت باید به نام خود مشترک باشد.",
+        "dob": "🎂 تاریخ تولد مشترک را به صورت 1356/01/01 وارد کنید.",
+        "doc": "📄 اگر سند سیم‌کارت دارید تصویر آن را ارسال کنید؛ در غیر این صورت «ندارم» را بزنید.",
+        "print": "🖨 نوع چاپ را انتخاب کنید:",
+        "side": "📄 نوع چاپ را انتخاب کنید:",
+        "copies": "🔢 تعداد نسخه موردنیاز از هر صفحه را وارد کنید.",
+        "files": "📎 فایل‌ها یا عکس‌ها را یکی‌یکی ارسال کنید. در پایان «تأیید» را بزنید.",
+        "received": "✅ دریافت شد. مورد بعدی را بفرستید یا «تأیید» را بزنید.",
+        "track": "🎫 کد پیگیری را وارد کنید.",
+        "bad": "لطفاً یکی از گزینه‌های نمایش‌داده‌شده را انتخاب کنید.",
+        "cancel": "عملیات لغو شد. به منوی اصلی برگشتید. ✅",
+        "confirm": "برای ادامه «تأیید» و برای لغو «انصراف» را انتخاب کنید.",
+        "thanks": "درخواست شما ثبت شد ✅\n🎫 کد پیگیری: {code}\n💰 مبلغ: {amount:,} تومان",
+        "no_track": "❌ کد پیگیری پیدا نشد.",
+        "payment": "🧾 فاکتور\n🎫 کد پیگیری: {code}\n💰 مبلغ: {amount:,} تومان\n\n💳 شماره کارت: {card}\nبه نام: {owner}\n\nپس از واریز، رسید را ارسال کنید.",
+        "balance": "💰 موجودی اعتبار شما: {amount:,} تومان",
+        "login_phone": "📱 شماره همراه همکار را وارد کنید.",
+        "login_pass": "🔐 رمز عبور همکار را وارد کنید.",
+        "no_partner": "❌ همکار پیدا نشد.",
+        "bad_login": "❌ شماره همراه یا رمز عبور نادرست است.",
+        "topup_amount": "💰 مبلغ شارژ را به تومان وارد کنید.",
+        "topup_receipt": "📸 رسید واریز را ارسال کنید.",
+        "topup_sent": "رسید شارژ #{id} ثبت شد و منتظر تأیید مدیر است. ✅",
+        "gov_done": "درخواست ثبت شد و برای بررسی/انجام خدمت به اپراتور ارسال شد. ✅\n🎫 کد پیگیری: {code}",
+        "gov_retry": "سامانه دولتی در حال حاضر پاسخ قابل اتکا نداد. لطفاً بعداً دوباره امتحان کنید. برای این شناسه یکتا، پرداخت مجدد لازم نیست.",
     },
     "en": {
-        "lang":"🌐 Choose your language:\n1) فارسی\n2) English\n3) العربية",
-        "cit":"Are you a foreign national or Iranian?\n1) Foreign national\n2) Iranian",
-        "iran":"🇮🇷 Services are currently unavailable for Iranian users.\n\n👥 Partner Panel\n🎫 Track",
-        "menu":"Please choose a service:\n\n1) 🪪 FIDA non‑in-person service\n2) 🖨 Printing service\n3) 🏛 Government My Services access issue\n4) 👥 Partner Panel\n5) 🎫 Track",
-        "fida":"🪪 Please send the customer's identification document image.",
-        "print":"🖨 Choose print type:\n1) Black & white\n2) Color",
-        "side":"Choose printing mode:\n1) Single-sided\n2) Double-sided",
-        "count":"Enter the number of copies required for each page.",
-        "files":"📎 Send the required files/images. When finished, choose Confirm.",
-        "govf":"Enter the customer's FIDA ID.",
-        "govy":"Enter the customer's unique ID.",
-        "id":"🪪 Please send the customer's identification document image.",
-        "phone":"📱 Enter the customer's mobile number. The SIM must be registered to the customer.",
-        "dob":"🎂 Enter the customer's birth date as 1356/01/01.",
-        "doc":"If there is a SIM ownership document, send its image; otherwise type No.",
-        "confirm":"Choose Confirm to continue or Cancel to stop.",
-        "track":"🎫 Enter the tracking code.",
-        "notrack":"❌ Tracking code not found.",
-        "cancel":"Operation cancelled.\n\n",
-        "bad":"Please choose one of the displayed options.",
-        "thanks":"Your request was registered ✅\nTracking code: {code}\n\nChoose 🎫 Track to follow it.",
-        "received":"✅ Received. Send another item if needed; choose Confirm when finished.",
-        "amount":"💳 Service fee: {amount:,} toman\n\n{confirm}",
+        "lang": "🌐 Choose your language:",
+        "cit": "Are you a foreign national or Iranian?",
+        "iran": "🇮🇷 Services are currently unavailable for Iranian users.",
+        "menu": "Hello 👋\nChoose a service:",
+        "fida": "🪪 Send the customer's identification document.",
+        "fida_phone": "📱 Enter the customer's mobile number.",
+        "gov_fida": "🆔 Enter the customer's FIDA/special ID.",
+        "gov_yekta": "🔢 Enter the customer's unique ID.",
+        "id": "🪪 Send the customer's identification document.",
+        "phone": "📱 Enter the customer's mobile number. The SIM must be registered to the customer.",
+        "dob": "🎂 Enter the customer's birth date as 1356/01/01.",
+        "doc": "📄 Send the SIM ownership document, or choose No.",
+        "print": "🖨 Choose print type:",
+        "side": "📄 Choose printing mode:",
+        "copies": "🔢 Enter copies per page.",
+        "files": "📎 Send files/images one by one. Choose Confirm when finished.",
+        "received": "✅ Received. Send another item or choose Confirm.",
+        "track": "🎫 Enter the tracking code.",
+        "bad": "Please choose one of the displayed options.",
+        "cancel": "Operation cancelled. Back to the main menu. ✅",
+        "confirm": "Choose Confirm to continue or Cancel to stop.",
+        "thanks": "Request registered ✅\n🎫 Tracking code: {code}\n💰 Amount: {amount:,} toman",
+        "no_track": "❌ Tracking code not found.",
+        "payment": "🧾 Invoice\n🎫 Tracking code: {code}\n💰 Amount: {amount:,} toman\n\n💳 Card: {card}\nOwner: {owner}\n\nSend the payment receipt after transfer.",
+        "balance": "💰 Your balance: {amount:,} toman",
+        "login_phone": "📱 Enter your partner phone number.",
+        "login_pass": "🔐 Enter your partner password.",
+        "no_partner": "❌ Partner not found.",
+        "bad_login": "❌ Invalid phone or password.",
+        "topup_amount": "💰 Enter the top-up amount in toman.",
+        "topup_receipt": "📸 Send the transfer receipt.",
+        "topup_sent": "Top-up receipt #{id} submitted for manager approval. ✅",
+        "gov_done": "Request submitted for operator review. ✅\n🎫 Tracking code: {code}",
+        "gov_retry": "The government system did not respond reliably. Please try again later. No second payment is required for the same unique ID.",
     },
     "ar": {
-        "lang":"🌐 اختر اللغة:\n1) فارسی\n2) English\n3) العربية",
-        "cit":"هل أنت من الرعايا الأجانب أم إيراني؟\n1) أجنبي\n2) إيراني",
-        "iran":"🇮🇷 الخدمات غير متاحة حالياً للمستخدمين الإيرانيين.\n\n👥 لوحة الشركاء\n🎫 متابعة",
-        "menu":"اختر الخدمة المطلوبة:\n\n1) 🪪 خدمة فيدا عن بُعد\n2) 🖨 خدمة الطباعة\n3) 🏛 حل مشكلة الدخول إلى نظام خدمات الحكومة\n4) 👥 لوحة الشركاء\n5) 🎫 متابعة",
-        "fida":"🪪 يرجى إرسال صورة وثيقة هوية العميل.",
-        "print":"🖨 اختر نوع الطباعة:\n1) أبيض وأسود\n2) ملون",
-        "side":"اختر طريقة الطباعة:\n1) وجه واحد\n2) وجهان",
-        "count":"أدخل عدد النسخ المطلوبة لكل صفحة.",
-        "files":"📎 أرسل الملفات أو الصور المطلوبة. عند الانتهاء اختر تأكيد.",
-        "govf":"أدخل رقم فيدا الخاص بالعميل.",
-        "govy":"أدخل المعرف الفريد الخاص بالعميل.",
-        "id":"🪪 يرجى إرسال صورة وثيقة هوية العميل.",
-        "phone":"📱 أدخل رقم هاتف العميل. يجب أن تكون الشريحة مسجلة باسم العميل.",
-        "dob":"🎂 أدخل تاريخ ميلاد العميل بهذا الشكل 1356/01/01.",
-        "doc":"إذا كان هناك مستند ملكية الشريحة فأرسل صورته، وإلا اكتب لا يوجد.",
-        "confirm":"اختر تأكيد للمتابعة أو إلغاء للتوقف.",
-        "track":"🎫 أدخل رمز المتابعة.",
-        "notrack":"❌ لم يتم العثور على رمز المتابعة.",
-        "cancel":"تم إلغاء العملية.\n\n",
-        "bad":"يرجى اختيار أحد الخيارات المعروضة.",
-        "thanks":"تم تسجيل طلبك ✅\nرمز المتابعة: {code}\n\nاختر 🎫 متابعة لمتابعة الطلب.",
-        "received":"✅ تم الاستلام. أرسل عنصراً آخر إذا لزم؛ وعند الانتهاء اختر تأكيد.",
-        "amount":"💳 تكلفة الخدمة: {amount:,} تومان\n\n{confirm}",
+        "lang": "🌐 اختر اللغة:",
+        "cit": "هل أنت من الرعايا الأجانب أم إيراني؟",
+        "iran": "🇮🇷 الخدمات غير متاحة حالياً للمستخدمين الإيرانيين.",
+        "menu": "مرحباً 👋\nاختر الخدمة:",
+        "fida": "🪪 أرسل صورة وثيقة هوية العميل.",
+        "fida_phone": "📱 أدخل رقم هاتف العميل.",
+        "gov_fida": "🆔 أدخل رقم فيدا/الرقم الخاص بالعميل.",
+        "gov_yekta": "🔢 أدخل المعرف الفريد للعميل.",
+        "id": "🪪 أرسل صورة وثيقة هوية العميل.",
+        "phone": "📱 أدخل رقم هاتف العميل. يجب أن تكون الشريحة مسجلة باسم العميل.",
+        "dob": "🎂 أدخل تاريخ الميلاد بالشكل 1356/01/01.",
+        "doc": "📄 أرسل وثيقة ملكية الشريحة أو اختر لا يوجد.",
+        "print": "🖨 اختر نوع الطباعة:",
+        "side": "📄 اختر طريقة الطباعة:",
+        "copies": "🔢 أدخل عدد النسخ لكل صفحة.",
+        "files": "📎 أرسل الملفات أو الصور. عند الانتهاء اختر تأكيد.",
+        "received": "✅ تم الاستلام. أرسل المزيد أو اختر تأكيد.",
+        "track": "🎫 أدخل رمز المتابعة.",
+        "bad": "يرجى اختيار أحد الخيارات المعروضة.",
+        "cancel": "تم إلغاء العملية والعودة إلى القائمة الرئيسية. ✅",
+        "confirm": "اختر تأكيد للمتابعة أو إلغاء للتوقف.",
+        "thanks": "تم تسجيل الطلب ✅\n🎫 رمز المتابعة: {code}\n💰 المبلغ: {amount:,} تومان",
+        "no_track": "❌ لم يتم العثور على رمز المتابعة.",
+        "payment": "🧾 الفاتورة\n🎫 رمز المتابعة: {code}\n💰 المبلغ: {amount:,} تومان\n\n💳 البطاقة: {card}\nالمالك: {owner}\n\nأرسل إيصال الدفع بعد التحويل.",
+        "balance": "💰 رصيدك: {amount:,} تومان",
+        "login_phone": "📱 أدخل رقم هاتف الشريك.",
+        "login_pass": "🔐 أدخل كلمة مرور الشريك.",
+        "no_partner": "❌ لم يتم العثور على الشريك.",
+        "bad_login": "❌ رقم الهاتف أو كلمة المرور غير صحيحة.",
+        "topup_amount": "💰 أدخل مبلغ الشحن بالتومان.",
+        "topup_receipt": "📸 أرسل إيصال التحويل.",
+        "topup_sent": "تم إرسال إيصال الشحن #{id} للمراجعة. ✅",
+        "gov_done": "تم إرسال الطلب للمراجعة من قبل المشغل. ✅\n🎫 رمز المتابعة: {code}",
+        "gov_retry": "لم يستجب النظام الحكومي بشكل موثوق. يرجى المحاولة لاحقاً. لا يلزم دفع ثانٍ لنفس المعرف الفريد.",
     },
 }
 
-def uid_of(message): return str(getattr(message, "sender_id", "") or "")
-def name_of(message): return getattr(message, "first_name", None) or getattr(message, "username", None) or "کاربر"
+STATES = {}
 
-def lang(uid):
-    x = state.get(uid, {}).get("language", "fa")
-    return x if x in TEXT else "fa"
+def call(method, payload=None):
+    r = HTTP.post(f"{BASE}/{method}", json=payload or {}, timeout=35)
+    r.raise_for_status()
+    body = r.json()
+    if isinstance(body, dict) and isinstance(body.get("data"), dict):
+        return body["data"]
+    return body
 
-def tr(uid, key, **kw):
-    return TEXT[lang(uid)][key].format(**kw)
+def send(chat_id, text, keypad=None):
+    payload = {"chat_id": str(chat_id), "text": text}
+    if keypad:
+        payload["chat_keypad_type"] = "New"
+        payload["chat_keypad"] = {
+            "rows": [{"buttons": [{"id": b[0], "type": "Simple", "button_text": b[1]} for b in row]} for row in keypad],
+            "resize_keyboard": True,
+            "one_time_keyboard": False,
+        }
+    return call("sendMessage", payload)
 
-def is_cancel(t): return t.strip() in (CANCEL, "انصراف", "Cancel", "لغو", "إلغاء")
-def is_confirm(t): return t.strip() in ("تأیید", "تایید", "Confirm", "تأكيد", "تأكيد")
+def buttons(rows):
+    return [[(str(i), label) for i, label in row] for row in rows]
 
-async def show_language(message):
-    state[uid_of(message)] = {"step":"language"}
-    await message.reply(TEXT["fa"]["lang"])
+def t(uid, key, **kw):
+    lang = STATES.get(uid, {}).get("lang", "fa")
+    return TEXT.get(lang, TEXT["fa"])[key].format(**kw)
 
-def set_citizenship(st, value):
-    st["citizenship"] = value
-    st["step"] = "menu"
+def is_cancel(text):
+    return text.strip() in {CANCEL, "انصراف", "لغو", "Cancel", "cancel", "إلغاء"}
 
-@rubika.on_message(commands=["start"])
-async def start(_: Robot, message: Message):
-    uid = uid_of(message)
-    if not uid: return
-    db.user("rubika", uid, "", name_of(message))
-    if db.setting("bot_open", "1") != "1":
-        await message.reply("⏳ ربات موقتاً در حال بروزرسانی است.")
-        return
-    await show_language(message)
+def is_confirm(text):
+    return text.strip() in {OK, "تأیید", "تایید", "Confirm", "confirm", "تأكيد"}
 
-@rubika.on_message()
-async def all_messages(_: Robot, message: Message):
-    uid = uid_of(message)
-    text = (getattr(message, "text", "") or "").strip()
-    if not uid: return
-    internal_id = db.user("rubika", uid, "", name_of(message))
+def main_menu(lang):
+    if lang == "en":
+        return buttons([
+            [("1","🪪 FIDA non-in-person"),("2","🖨 Printing")],
+            [("3","🏛 Government access issue"),("4","🎫 Tracking")],
+            [("5","📱 SIM services"),("6","📝 Screening & follow-up")],
+            [("7","💰 My wallet"),("8","👥 Partner panel")],
+            [("9","📞 Contact us")],[("0","❌ Cancel")]])
+    if lang == "ar":
+        return buttons([
+            [("1","🪪 خدمة فيدا"),("2","🖨 الطباعة")],
+            [("3","🏛 مشكلة خدمات الحكومة"),("4","🎫 متابعة")],
+            [("5","📱 خدمات الشريحة"),("6","📝 الفحص والمتابعة")],
+            [("7","💰 محفظتي"),("8","👥 لوحة الشركاء")],
+            [("9","📞 اتصل بنا")],[("0","❌ إلغاء")]])
+    return buttons([
+        [("1","🪪 فیدای غیر حضوری"),("2","🖨 خدمات چاپ")],
+        [("3","🏛 حل مشکل ورود اتباع دولت من"),("4","🎫 پیگیری")],
+        [("5","📱 خدمات سیم کارت"),("6","📝 آزمون غربالگری و پیگیری")],
+        [("7","💰 کیف پول من"),("8","👥 پنل همکاران")],
+        [("9","📞 تماس با ما")],[("0",CANCEL)]])
 
-    if text in ("/start", "شروع"):
-        await show_language(message); return
+def lang_menu():
+    return buttons([[("1","🇮🇷 فارسی"),("2","🇬🇧 English"),("3","🇸🇦 العربية")]])
+
+def citizenship_menu(lang):
+    if lang == "en":
+        return buttons([[("1","🪪 Foreign national"),("2","🇮🇷 Iranian")]])
+    if lang == "ar":
+        return buttons([[("1","🪪 أجنبي"),("2","🇮🇷 إيراني")]])
+    return buttons([[("1","🪪 اتباع هستم"),("2","🇮🇷 ایرانی هستم")]])
+
+def print_menu(lang):
+    if lang == "en": return buttons([[("1","⚫ Black & white"),("2","🌈 Color")],[("0","❌ Cancel")]])
+    if lang == "ar": return buttons([[("1","⚫ أبيض وأسود"),("2","🌈 ملون")],[("0","❌ إلغاء")]])
+    return buttons([[("1","⚫ سیاه و سفید"),("2","🌈 رنگی")],[("0",CANCEL)])
+
+def side_menu(lang):
+    if lang == "en": return buttons([[("1","📄 Single-sided"),("2","🔄 Double-sided")],[("0","❌ Cancel")]])
+    if lang == "ar": return buttons([[("1","📄 وجه واحد"),("2","🔄 وجهان")],[("0","❌ إلغاء")]])
+    return buttons([[("1","📄 یک‌رو"),("2","🔄 پشت‌ورو")],[("0",CANCEL)])
+
+def partner_menu(lang):
+    if lang == "en": return buttons([[("1","➕ Top up"),("2","🔎 Track")],[("3","📋 History"),("4","💰 Balance")],[("0","❌ Cancel")]])
+    if lang == "ar": return buttons([[("1","➕ شحن"),("2","🔎 متابعة")],[("3","📋 السجل"),("4","💰 الرصيد")],[("0","❌ إلغاء")]])
+    return buttons([["➕ شارژ حساب","🔎 پیگیری کد"],["📋 سوابق","💰 موجودی"],[CANCEL]])
+
+def normalize_lang_choice(text):
+    return {"1":"fa","2":"en","3":"ar","فارسی":"fa","English":"en","العربية":"ar"}.get(text.strip())
+
+def message_payload(update):
+    msg = update.get("new_message") or update.get("updated_message") or {}
+    if not isinstance(msg, dict): msg = {}
+    return msg
+
+def sender_id(msg):
+    return str(msg.get("sender_id") or msg.get("author_id") or "")
+
+def message_text(msg):
+    return str(msg.get("text") or "").strip()
+
+def media_id(msg):
+    if msg.get("file_id"): return str(msg["file_id"])
+    for key in ("photo", "image", "document", "file"):
+        v = msg.get(key)
+        if isinstance(v, dict) and v.get("file_id"): return str(v["file_id"])
+        if isinstance(v, str) and v: return v
+    return ""
+
+def new_state(uid):
+    return STATES.setdefault(uid, {"lang":"fa","step":"language"})
+
+def cancel(uid, chat):
+    old = STATES.get(uid, {})
+    lang = old.get("lang","fa")
+    STATES[uid] = {"lang":lang,"step":"menu","status":"foreign","partner_id":old.get("partner_id")}
+    send(chat, t(uid,"cancel"), main_menu(lang))
+
+def create_request(uid, key, amount, platform="rubika"):
+    internal = db.user(platform, uid, "", "")
+    return db.create_request(internal, key, platform, amount)
+
+def handle_text(uid, chat, text):
+    st = new_state(uid)
+    step = st.get("step")
+    lang = st.get("lang","fa")
 
     if is_cancel(text):
-        state.pop(uid, None)
-        await message.reply(tr(uid, "cancel") + tr(uid, "menu")); return
-
-    if db.setting("bot_open", "1") != "1":
-        await message.reply("⏳ ربات موقتاً در حال بروزرسانی است."); return
-
-    st = state.setdefault(uid, {"step":"language"})
-    step = st.get("step")
+        cancel(uid, chat); return
 
     if step == "language":
-        choices = {"1":"fa","فارسی":"fa","2":"en","English":"en","3":"ar","العربية":"ar"}
-        if text not in choices:
-            await message.reply(TEXT["fa"]["lang"]); return
-        st["language"] = choices[text]
-        st["step"] = "citizenship"
-        await message.reply(tr(uid,"cit")); return
+        chosen = normalize_lang_choice(text)
+        if not chosen:
+            send(chat, TEXT["fa"]["lang"], lang_menu()); return
+        st["lang"] = chosen; st["step"] = "citizenship"
+        send(chat, TEXT[chosen]["cit"], citizenship_menu(chosen)); return
 
     if step == "citizenship":
-        if text in ("2","ایرانی","Iranian","2) Iranian","إيراني","2) إيراني"):
-            st["citizenship"]="iranian"; st["step"]="iranian_menu"
-            await message.reply(tr(uid,"iran")); return
-        if text in ("1","اتباع","Foreign national","أجنبي","1) Foreign national","1) أجنبي"):
-            set_citizenship(st,"foreign")
-            await message.reply(tr(uid,"menu")); return
-        await message.reply(tr(uid,"bad")); return
+        if text in {"1","🪪 اتباع هستم","🪪 Foreign national","🪪 أجنبي"}:
+            st["status"]="foreign"; st["step"]="menu"; send(chat,t(uid,"menu"),main_menu(lang)); return
+        if text in {"2","🇮🇷 ایرانی هستم","🇮🇷 Iranian","🇮🇷 إيراني"}:
+            st["status"]="iranian"; st["step"]="iranian_menu"
+            send(chat,t(uid,"iran"),buttons([[("1","👥 Partner panel"),("2","🎫 Track")],[("0","❌ Cancel")]])); return
+        send(chat,t(uid,"bad"),citizenship_menu(lang)); return
 
     if step == "iranian_menu":
-        if text in ("👥 پنل همکاران","🎫 پیگیری","Track","متابعة"):
-            if "پیگیری" in text or text in ("Track","متابعة","🎫 پیگیری"):
-                st["step"]="track"; await message.reply(tr(uid,"track")); return
-            st["step"]="partner_phone"; await message.reply("📱 شماره همراه همکار را وارد کنید.\n\n"+CANCEL); return
-        await message.reply(tr(uid,"iran")); return
-
-    if text in ("5","🎫 پیگیری","پیگیری","Track","متابعة"):
-        st["step"]="track"; await message.reply(tr(uid,"track")); return
-
-    if step == "track":
-        r = db.conn.execute("SELECT * FROM requests WHERE tracking_code=?", (text,)).fetchone()
-        if r: await message.reply(tr(uid,"thanks",code=text).replace(tr(uid,"thanks",code=text).split("\n")[0],"🎫 وضعیت درخواست شما"))
-        else: await message.reply(tr(uid,"notrack"))
-        state.pop(uid, None); return
+        if text in {"2","🎫 Track","🎫 پیگیری","🎫 متابعة"}:
+            st["step"]="track"; send(chat,t(uid,"track"),buttons([[("0","❌ Cancel")]])); return
+        if text in {"1","👥 Partner panel","👥 پنل همکاران","👥 لوحة الشركاء"}:
+            st["step"]="partner_phone"; send(chat,t(uid,"login_phone"),buttons([[("0","❌ Cancel")]])); return
+        send(chat,t(uid,"iran"),buttons([[("1","👥 Partner panel"),("2","🎫 Track")],[("0","❌ Cancel")]])); return
 
     if step == "menu":
-        if text in ("1","🪪 فیدای غیر حضوری","FIDA non‑in-person service","خدمة فيدا عن بُعد"):
-            st["step"]="fida_id"; await message.reply(tr(uid,"fida")); return
-        if text in ("2","🖨 خدمات چاپ","Printing service","خدمة الطباعة"):
-            st["step"]="print_color"; await message.reply(tr(uid,"print")); return
-        if text in ("3","🪪 حل مشکل ورود اتباع سامانه دولت من","Government My Services access issue","حل مشكلة الدخول إلى نظام خدمات الحكومة"):
-            st["step"]="gov_fida"; await message.reply(tr(uid,"govf")); return
-        if text in ("4","👥 پنل همکاران","Partner Panel","لوحة الشركاء"):
-            st["step"]="partner_phone"; await message.reply("📱 شماره همراه همکار را وارد کنید.\n\n"+CANCEL); return
-        await message.reply(tr(uid,"menu")); return
+        if text.startswith("1") or "فیدا" in text.lower() or "FIDA" in text or "فيدا" in text:
+            st["step"]="fida_doc"; send(chat,t(uid,"fida"),buttons([[("0","❌ Cancel")]])); return
+        if text.startswith("2") or "چاپ" in text or "Printing" in text or "الطباعة" in text:
+            st["step"]="print_color"; send(chat,t(uid,"print"),print_menu(lang)); return
+        if text.startswith("3") or "دولت" in text or "Government" in text or "الحكومة" in text:
+            st["step"]="gov_fida"; send(chat,t(uid,"gov_fida"),buttons([[("0","❌ Cancel")]])); return
+        if text.startswith("4") or "پیگیری" in text or "Tracking" in text or "متابعة" in text:
+            st["step"]="track"; send(chat,t(uid,"track"),buttons([[("0","❌ Cancel")]])); return
+        if text.startswith("7") or "کیف پول" in text or "wallet" in text.lower() or "محفظ" in text:
+            p=st.get("partner_id")
+            if p:
+                row=db.conn.execute("SELECT balance FROM partners WHERE id=?",(p,)).fetchone()
+                send(chat,t(uid,"balance",amount=int(row["balance"]) if row else 0),main_menu(lang))
+            else:
+                send(chat,"💰 برای استفاده از کیف پول، ابتدا وارد پنل همکاران شوید.",main_menu(lang))
+            return
+        if text.startswith("8") or "همکار" in text or "Partner" in text or "الشركاء" in text:
+            st["step"]="partner_phone"; send(chat,t(uid,"login_phone"),buttons([[("0","❌ Cancel")]])); return
+        send(chat,t(uid,"menu"),main_menu(lang)); return
 
     if step == "track":
-        return
+        row=db.conn.execute("SELECT * FROM requests WHERE tracking_code=?",(text,)).fetchone()
+        if row:
+            send(chat,f"🎫 {row['tracking_code']}\n📌 وضعیت: {row['status']}\n💳 پرداخت: {row['payment_status']}\n💰 مبلغ: {row['amount']:,} تومان",main_menu(lang))
+        else: send(chat,t(uid,"no_track"),main_menu(lang))
+        st["step"]="menu"; return
+
+    if step == "partner_phone":
+        p=db.partner(text)
+        if not p: send(chat,t(uid,"no_partner"),buttons([[("0","❌ Cancel")]])); return
+        st["phone"]=text; st["step"]="partner_pass"; send(chat,t(uid,"login_pass"),buttons([[("0","❌ Cancel")]])); return
+
+    if step == "partner_pass":
+        p=db.partner(st.get("phone",""))
+        if not p or not check_password(text,p["password_hash"]):
+            send(chat,t(uid,"bad_login"),buttons([[("0","❌ Cancel")]])); return
+        st["partner_id"]=p["id"]; st["step"]="partner_menu"; send(chat,t(uid,"balance",amount=int(p["balance"])),partner_menu(lang)); return
+
+    if step == "partner_menu":
+        if text.startswith("1") or "شارژ" in text or "Top up" in text or "شحن" in text:
+            st["step"]="topup_amount"; send(chat,t(uid,"topup_amount"),buttons([[("0","❌ Cancel")]])); return
+        if text.startswith("2") or "پیگیری" in text or "Track" in text or "متابعة" in text:
+            st["step"]="partner_track"; send(chat,t(uid,"track"),buttons([[("0","❌ Cancel")]])); return
+        if text.startswith("3") or "سوابق" in text or "History" in text or "السجل" in text:
+            rows=db.conn.execute("SELECT tracking_code,service_key,status,amount FROM requests WHERE user_id=? ORDER BY id DESC LIMIT 20",(st["partner_id"],)).fetchall()
+            send(chat,"\n".join(f"{r['tracking_code']} | {r['service_key']} | {r['status']} | {r['amount']:,}" for r in rows) or "سابقه‌ای نیست.",partner_menu(lang)); return
+        if text.startswith("4") or "موجودی" in text or "Balance" in text or "الرصيد" in text:
+            p=db.conn.execute("SELECT balance FROM partners WHERE id=?",(st["partner_id"],)).fetchone()
+            send(chat,t(uid,"balance",amount=int(p["balance"]) if p else 0),partner_menu(lang)); return
+        send(chat,t(uid,"bad"),partner_menu(lang)); return
+
+    if step == "partner_track":
+        row=db.conn.execute("SELECT * FROM requests WHERE tracking_code=? AND user_id=?",(text,st["partner_id"])).fetchone()
+        send(chat,(f"🎫 {row['tracking_code']}\n📌 وضعیت: {row['status']}\n💰 مبلغ: {row['amount']:,} تومان" if row else t(uid,"no_track")),partner_menu(lang)); st["step"]="partner_menu"; return
+
+    if step == "topup_amount":
+        try: amount=int(re.sub(r"[^\d]","",text))
+        except: amount=0
+        if amount<=0: send(chat,t(uid,"topup_amount"),buttons([[("0","❌ Cancel")]])); return
+        st["topup_amount"]=amount; st["step"]="topup_receipt"; send(chat,f"💳 {amount:,} تومان\nکارت: {db.setting('card_number')}\nبه نام: {db.setting('card_owner')}\n\n"+t(uid,"topup_receipt"),buttons([[("0","❌ Cancel")]])); return
 
     if step == "gov_fida":
-        st["fida"]=text; st["step"]="gov_yekta"; await message.reply(tr(uid,"govy")); return
+        st["fida_id"]=text; st["step"]="gov_yekta"; send(chat,t(uid,"gov_yekta"),buttons([[("0","❌ Cancel")]])); return
+
     if step == "gov_yekta":
-        st["yekta"]=text; st["step"]="gov_id"; await message.reply(tr(uid,"id")); return
-    if step == "gov_id":
-        st["step"]="gov_sim"; await message.reply(tr(uid,"phone")); return
-    if step == "gov_sim":
-        st["phone"]=text; st["step"]="gov_dob"; await message.reply(tr(uid,"dob")); return
+        st["yekta"]=text; st["step"]="gov_id"; send(chat,t(uid,"id"),buttons([[("0","❌ Cancel")]])); return
+
+    if step == "gov_phone":
+        st["phone"]=text; st["step"]="gov_dob"; send(chat,t(uid,"dob"),buttons([[("0","❌ Cancel")]])); return
+
     if step == "gov_dob":
-        if not re.fullmatch(r"1[34]\d{2}/(0[1-9]|1[0-2])/(0[1-9]|[12]\d|3[01])", text):
-            await message.reply("❌ "+tr(uid,"dob")); return
-        st["dob"]=text; st["step"]="gov_carddoc"; await message.reply(tr(uid,"doc")); return
-    if step == "gov_carddoc":
-        svc=db.service("government"); amount=int(svc["price"] if svc else 500000)
-        st["step"]="gov_confirm"; st["amount"]=amount
-        await message.reply(tr(uid,"amount",amount=amount)); return
+        if not re.fullmatch(r"1[34]\d{2}/(0[1-9]|1[0-2])/(0[1-9]|[12]\d|3[01])",text):
+            send(chat,t(uid,"dob"),buttons([[("0","❌ Cancel")]])); return
+        st["dob"]=text; st["step"]="gov_doc"; send(chat,t(uid,"doc"),buttons([[("1","ندارم")],[("0","❌ Cancel")]])); return
 
     if step == "print_color":
-        if text in ("1","سیاه و سفید","Black & white","أبيض وأسود"): st["color"]="bw"
-        elif text in ("2","رنگی","Color","ملون"): st["color"]="color"
-        else: await message.reply(tr(uid,"print")); return
-        st["step"]="print_side"; await message.reply(tr(uid,"side")); return
+        if text.startswith("1"): st["color"]="bw"
+        elif text.startswith("2"): st["color"]="color"
+        else: send(chat,t(uid,"print"),print_menu(lang)); return
+        st["step"]="print_side"; send(chat,t(uid,"side"),side_menu(lang)); return
+
     if step == "print_side":
-        if text in ("1","یک‌رو","Single-sided","وجه واحد"): st["side"]="single"
-        elif text in ("2","پشت‌ورو","Double-sided","وجهان"): st["side"]="double"
-        else: await message.reply(tr(uid,"side")); return
-        st["step"]="print_count"; await message.reply(tr(uid,"count")); return
-    if step == "print_count":
-        if not text.isdigit() or int(text)<1: await message.reply(tr(uid,"count")); return
-        st["count"]=int(text); st["step"]="print_files"; st["files"]=[]; await message.reply(tr(uid,"files")); return
+        if text.startswith("1"): st["side"]="single"
+        elif text.startswith("2"): st["side"]="double"
+        else: send(chat,t(uid,"side"),side_menu(lang)); return
+        st["step"]="print_copies"; send(chat,t(uid,"copies"),buttons([[("0","❌ Cancel")]])); return
+
+    if step == "print_copies":
+        if not text.isdigit() or int(text)<1: send(chat,t(uid,"copies"),buttons([[("0","❌ Cancel")]])); return
+        st["copies"]=int(text); st["step"]="print_files"; st["files"]=[]; send(chat,t(uid,"files"),buttons([[("1",OK)],[("0","❌ Cancel")]])); return
 
     if step == "print_files":
         if is_confirm(text):
-            svc=db.service("print"); amount=int(svc["price"] if svc else 0)
-            st["step"]="print_confirm"; st["amount"]=amount
-            await message.reply(tr(uid,"amount",amount=amount)); return
-        st.setdefault("files",[]).append(text)
-        await message.reply(tr(uid,"received")); return
+            if not st.get("files"): send(chat,"❌ حداقل یک فایل/عکس ارسال کنید.",buttons([[("0","❌ Cancel")]])); return
+            key="price_print_color" if st["color"]=="color" else "price_print_bw"
+            amount=len(st["files"])*int(db.setting(key,"0"))*st["copies"]
+            rid,code=create_request(uid,"print",amount)
+            for i,fid in enumerate(st["files"],1): db.answer(rid,f"file_{i}",file_id=fid)
+            db.answer(rid,"color",st["color"]); db.answer(rid,"side",st["side"]); db.answer(rid,"copies",str(st["copies"]))
+            st.update({"rid":rid,"code":code,"step":"payment"})
+            send(chat,t(uid,"payment",code=code,amount=amount,card=db.setting("card_number"),owner=db.setting("card_owner")),buttons([[("1","📸 ارسال رسید پرداخت")],[("0","❌ Cancel")]])); return
+        send(chat,t(uid,"received"),buttons([[("1",OK)],[("0","❌ Cancel")]])); return
 
-    if step == "fida_id":
-        if is_confirm(text):
-            svc=db.service("fida"); amount=int(svc["price"] if svc else 0)
-            st["step"]="fida_confirm"; st["amount"]=amount
-            await message.reply(tr(uid,"amount",amount=amount)); return
-        st["fida_document"]=text; await message.reply(tr(uid,"received")); return
+    if step == "fida_phone":
+        st["phone"]=text; amount=int(db.setting("price_fida","0"))
+        rid,code=create_request(uid,"fida",amount)
+        db.answer(rid,"document",file_id=st["doc"]); db.answer(rid,"phone",text)
+        if st.get("partner_id"):
+            p=db.conn.execute("SELECT * FROM partners WHERE id=?",(st["partner_id"],)).fetchone()
+            if p and int(p["balance"])>=amount:
+                db.conn.execute("UPDATE requests SET status='submitted',payment_status='paid',payment_method='partner_balance' WHERE id=?",(rid,))
+                db.conn.execute("UPDATE partners SET balance=balance-?,updated_at=? WHERE id=?",(amount,now(),p["id"])); db.conn.commit()
+                send(chat,t(uid,"thanks",code=code,amount=amount),partner_menu(lang)); st["step"]="partner_menu"; return
+        st.update({"rid":rid,"code":code,"step":"payment"})
+        send(chat,t(uid,"payment",code=code,amount=amount,card=db.setting("card_number"),owner=db.setting("card_owner")),buttons([[("1","📸 ارسال رسید پرداخت")],[("0","❌ Cancel")]])); return
 
-    if step in ("fida_confirm","print_confirm","gov_confirm"):
-        if is_confirm(text):
-            svc_key="government" if step=="gov_confirm" else ("print" if step=="print_confirm" else "fida")
-            rid,code=db.create_request(internal_id,svc_key,"rubika",int(st.get("amount",0)))
-            state.pop(uid,None)
-            await message.reply(tr(uid,"thanks",code=code)); return
-        await message.reply(tr(uid,"confirm")); return
+    if step == "gov_doc":
+        if text in {"ندارم","No","No document","لا يوجد"}:
+            st["sim_doc"]="ندارد"; finish_government(uid,chat,st); return
+        send(chat,t(uid,"doc"),buttons([[("1","ندارم")],[("0","❌ Cancel")]])); return
 
-    if step == "partner_phone":
-        await message.reply("پنل همکاران از مسیر اختصاصی همکاران مدیریت می‌شود.\n\n"+CANCEL); return
+    if step == "payment":
+        if text.startswith("1"):
+            st["step"]="payment_receipt"; send(chat,"📸 رسید پرداخت را ارسال کنید.",buttons([[("0","❌ Cancel")]])); return
+        send(chat,t(uid,"payment",code=st.get("code",""),amount=int(st.get("amount",0)),card=db.setting("card_number"),owner=db.setting("card_owner")),buttons([[("1","📸 ارسال رسید پرداخت")],[("0","❌ Cancel")]])); return
 
-    await message.reply(tr(uid,"menu"))
+    if step == "menu":
+        send(chat,t(uid,"menu"),main_menu(lang)); return
 
-async def run():
-    logging.info("NetYar Rubika bot starting...")
-    await rubika.run()
+def finish_government(uid,chat,st):
+    lang=st.get("lang","fa")
+    amount=int(db.setting("price_government","500000"))
+    rid,code=create_request(uid,"government",amount)
+    db.answer(rid,"fida_id",st.get("fida_id",""))
+    db.answer(rid,"yekta",st.get("yekta",""))
+    db.answer(rid,"dob",st.get("dob",""))
+    db.answer(rid,"phone",st.get("phone",""))
+    db.answer(rid,"id_document",file_id=st.get("id_document",""))
+    db.answer(rid,"sim_document",file_id=st.get("sim_document",""))
+    st.update({"rid":rid,"code":code,"amount":amount,"step":"payment"})
+    send(chat,t(uid,"payment",code=code,amount=amount,card=db.setting("card_number"),owner=db.setting("card_owner")),buttons([[("1","📸 ارسال رسید پرداخت")],[("0","❌ Cancel")]]))
 
-if __name__ == "__main__":
-    import asyncio
-    asyncio.run(run())
+def handle_media(uid,chat,msg):
+    st=new_state(uid); fid=media_id(msg)
+    if not fid: send(chat,t(uid,"bad")); return
+    step=st.get("step")
+    if step=="fida_doc":
+        st["doc"]=fid; st["step"]="fida_phone"; send(chat,t(uid,"fida_phone"),buttons([[("0","❌ Cancel")]])); return
+    if step=="gov_id":
+        st["id_document"]=fid; st["step"]="gov_sim"; send(chat,t(uid,"doc"),buttons([[("1","ندارم")],[("0","❌ Cancel")]])); return
+    if step=="gov_sim":
+        st["sim_document"]=fid; st["step"]="gov_phone"; send(chat,t(uid,"phone"),buttons([[("0","❌ Cancel")]])); return
+    if step=="topup_receipt":
+        tid=db.add_topup(st["partner_id"],int(st["topup_amount"]),fid); st["step"]="partner_menu"; send(chat,t(uid,"topup_sent",id=tid),partner_menu(st.get("lang","fa"))); return
+    if step=="print_files":
+        st.setdefault("files",[]).append(fid); send(chat,t(uid,"received"),buttons([[("1",OK)],[("0","❌ Cancel")]])); return
+    if step=="payment_receipt":
+        rid=int(st["rid"]); db.conn.execute("UPDATE requests SET payment_status='pending',status='payment_review',payment_note=?,updated_at=? WHERE id=?",(fid,now(),rid)); db.conn.commit()
+        st["step"]="menu"; send(chat,"✅ رسید دریافت شد و برای بررسی مدیر ارسال شد.",main_menu(st.get("lang","fa"))); return
+    send(chat,t(uid,"bad"))
+
+def process_update(update):
+    if not isinstance(update,dict): return
+    chat=str(update.get("chat_id") or "")
+    msg=message_payload(update)
+    uid=sender_id(msg)
+    if not chat or not uid: return
+    if msg.get("sender_type")=="Bot": return
+    db.user("rubika",uid,"",str(msg.get("first_name") or msg.get("username") or ""))
+    if update.get("type")=="StartedBot":
+        STATES[uid]={"lang":"fa","step":"language"}
+        send(chat,TEXT["fa"]["lang"],lang_menu()); return
+    text=message_text(msg)
+    if text=="/start":
+        STATES[uid]={"lang":"fa","step":"language"}; send(chat,TEXT["fa"]["lang"],lang_menu()); return
+    if text and is_cancel(text):
+        cancel(uid,chat); return
+    if media_id(msg):
+        handle_media(uid,chat,msg); return
+    handle_text(uid,chat,text)
+
+def run():
+    try:
+        me=call("getMe")
+        log.info("Rubika getMe OK: %s", me)
+    except Exception:
+        log.exception("Rubika getMe failed")
+        raise
+    offset=None
+    log.info("NetYar Rubika long-polling started")
+    while True:
+        try:
+            payload={"limit":20}
+            if offset: payload["offset_id"]=offset
+            data=call("getUpdates",payload)
+            for upd in data.get("updates",[]) or []:
+                try: process_update(upd)
+                except Exception: log.exception("Rubika update failed")
+            nxt=data.get("next_offset_id")
+            if nxt: offset=str(nxt)
+            time.sleep(0.5)
+        except requests.RequestException:
+            log.exception("Rubika API/network error")
+            time.sleep(5)
+        except Exception:
+            log.exception("Rubika loop error")
+            time.sleep(5)
+
+if __name__=="__main__":
+    run()
