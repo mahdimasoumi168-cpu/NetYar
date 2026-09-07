@@ -204,7 +204,7 @@ def print_menu(lang):
 def side_menu(lang):
     if lang == "en": return buttons([[("1","📄 Single-sided"),("2","🔄 Double-sided")],[("0","❌ Cancel")]])
     if lang == "ar": return buttons([[("1","📄 وجه واحد"),("2","🔄 وجهان")],[("0","❌ إلغاء")]])
-    return buttons([[("1","📄 یک‌رو"),("2","🔄 پشت‌ورو")],[("0",CANCEL)])
+    return buttons([[("1","📄 یک‌رو"),("2","🔄 پشت‌ورو")],[("0",CANCEL)]])
 
 def partner_menu(lang):
     if lang == "en": return buttons([[("1","➕ Top up"),("2","🔎 Track")],[("3","📋 History"),("4","💰 Balance")],[("0","❌ Cancel")]])
