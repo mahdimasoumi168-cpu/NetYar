@@ -33,10 +33,14 @@ async def telegram_update(request:Request):
         log.exception("Telegram webhook update failed")
         return {"ok":False}
 
-def _rubika_text(update):
-    # Rubika may wrap the actual update in an outer `update` object.
+def _rubika_inner(update):
     if isinstance(update,dict) and isinstance(update.get("update"),dict):
-        update=update["update"]
+        return update["update"]
+    return update
+
+def _rubika_text(update):
+    update=_rubika_inner(update)
+    if not isinstance(update,dict): return ""
     m=update.get("message") or update.get("new_message") or update
     if not isinstance(m,dict): return ""
     for k in ("text","button_text"):
@@ -51,12 +55,14 @@ def _rubika_text(update):
     return ""
 
 def _rubika_chat(update):
-    if isinstance(update,dict) and isinstance(update.get("update"),dict): update=update["update"]
+    update=_rubika_inner(update)
+    if not isinstance(update,dict): return ""
     m=update.get("message") or update.get("new_message") or update
     return str((m or {}).get("chat_id") or (m or {}).get("chat_key") or update.get("chat_id") or "")
 
 def _rubika_user(update):
-    if isinstance(update,dict) and isinstance(update.get("update"),dict): update=update["update"]
+    update=_rubika_inner(update)
+    if not isinstance(update,dict): return ""
     m=update.get("message") or update.get("new_message") or update
     s=(m or {}).get("sender") or {}
     return str((s or {}).get("user_id") or (m or {}).get("sender_id") or (m or {}).get("user_id") or _rubika_chat(update))
@@ -86,7 +92,7 @@ def _normalize_rubika_button(update,rb):
     partner=bool(st.get("partner_id"))
     step=st.get("step") or st.get("mode") or ""
     maps={
-      "main":{"1":"🪪 فیدای غیر حضوری","2":"🖨 خدمات چاپ","3":"🏛 حل مشکل ورود اتباع دولت من","4":"🎫 پیگیری","5":"📱 خدمات سیم کارت","6":"📝 آزمون غربالگری و پیگیری","7":"💰 کیف پول من","8":"👥 پنل همکاران","9":"📞 تماس با ما","0":rb.CANCEL},
+      "main":{"1":"🪪 فیدای غیر حضوری","2":"🖨 خدمات چاپ","3":"🏛 حل مشکل ورود اتباع دولت من","4":"🎫 پیگیری","5":"📱 خدمات سیم کارت","6":"📝 آزمون غربالگری","7":"💰 کیف پول من","8":"👥 پنل همکاران","9":"📞 تماس با ما","0":rb.CANCEL},
       "partner":{"1":"➕ شارژ حساب","2":"🔎 پیگیری کد","3":"📋 سوابق","4":"💰 موجودی","5":"🏛 حل مشکل سامانه دولت من","0":rb.CANCEL},
       "admin":{"1":"👥 همکاران","2":"💰 شارژها","3":"📋 درخواست‌ها","4":"💳 پرداخت‌های مشتری","5":"⚙️ قیمت‌ها","6":"🤖 افزودن بات","7":"🤖 بات‌های متصل","8":"📊 گزارش","0":"⬅️ منوی اصلی"}}
     if admin and not partner and step in {"admin","admin_price","bot_platform","bot_name","bot_api"}: key="admin"
@@ -94,8 +100,8 @@ def _normalize_rubika_button(update,rb):
     else: key="main"
     label=maps[key].get(raw)
     if not label:return update
-    target=update["update"] if isinstance(update,dict) and isinstance(update.get("update"),dict) else update
-    m=target.get("message") or target.get("new_message")
+    target=_rubika_inner(update)
+    m=target.get("message") or target.get("new_message") if isinstance(target,dict) else None
     if isinstance(m,dict): m["text"]=label
     return update
 
@@ -103,14 +109,16 @@ async def _run_rubika(update,rb):
     try:
         normalized=_normalize_rubika_button(update,rb)
         await asyncio.to_thread(rb.process,normalized)
-        log.info("Rubika update processed: type=%s text=%s",update.get("type"),_rubika_text(update))
+        inner=_rubika_inner(update)
+        log.info("Rubika update processed: type=%s text=%s",inner.get("type") if isinstance(inner,dict) else None,_rubika_text(update))
     except Exception:
         log.exception("Rubika background update processing failed")
 
 @api.post("/rubika/update")
 async def rubika_update(request:Request):
     try:
-        update=await request.json()
+        body=await request.json()
+        update=_rubika_inner(body)
         import rubika_v2 as rb
         _patch_rubika(rb)
         if isinstance(update,dict) and update.get("type")=="StartedBot":
@@ -121,9 +129,7 @@ async def rubika_update(request:Request):
                 st=rb.STATE.setdefault(uid,{})
                 if not st.get("lang") or st.get("step") in {None,""}:
                     st.clear(); st.update({"lang":"fa","step":"language"})
-                    asyncio.create_task(asyncio.to_thread(rb.send,chat,rb.T(uid,"lang"),[["1","🇮🇷 فارسی"],["2","🇬🇧 English"],["3","🇸🇦 العربية"]]))
-                elif st.get("step")=="language":
-                    asyncio.create_task(asyncio.to_thread(rb.send,chat,rb.T(uid,"lang"),[["1","🇮🇷 فارسی"],["2","🇬🇧 English"],["3","🇸🇦 العربية"]]))
+                asyncio.create_task(asyncio.to_thread(rb.send,chat,rb.T(uid,"lang"),[["1","🇮🇷 فارسی"],["2","🇬🇧 English"],["3","🇸🇦 العربية"]]))
         else:
             asyncio.create_task(_run_rubika(update,rb))
         return {"ok":True}
