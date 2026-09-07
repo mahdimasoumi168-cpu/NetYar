@@ -49,10 +49,10 @@ def monitor():
    if p.poll() is not None:
     try: children.remove((p,name))
     except ValueError: pass
-    cmd='telegram_runtime.py' if name=='telegram' else 'rubika_entry_v2.py'
+    cmd='telegram_runtime.py' if name=='telegram' else 'rubika_entry_stable.py'
     try: children.append((subprocess.Popen([sys.executable,cmd],env={**os.environ,'TELEGRAM_WEBHOOK_URL':''}),name))
     except Exception: pass
 def main():
- init_db(); start_child('telegram_runtime.py','telegram'); start_child('rubika_entry_v2.py','rubika'); threading.Thread(target=monitor,daemon=True).start()
+ init_db(); start_child('telegram_runtime.py','telegram'); start_child('rubika_entry_stable.py','rubika'); threading.Thread(target=monitor,daemon=True).start()
  import uvicorn; uvicorn.run(api,host='0.0.0.0',port=int(os.getenv('PORT','8080')),log_level='info')
 if __name__=='__main__': main()
