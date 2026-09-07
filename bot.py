@@ -7,31 +7,34 @@ ADM={x.strip() for x in os.getenv("ADMIN_IDS","").replace(";",",").split(",") if
 def admin(u): return str(u) in ADM
 def kb(rows): return ReplyKeyboardMarkup(rows,resize_keyboard=True)
 def main(uid):
- rows=[
-  ["🪪 فیدای غیر حضوری","🖨 خدمات چاپ"],
-  ["🪪 حل مشکل ورود اتباع دولت من","🎫 کد رهگیری تمدید کارت‌ها"],
-  ["📱 خدمات سیم کارت","📝 آزمون غربالگری و پیگیری"],
-  ["💰 کیف پول من","📞 تماس با ما"],
-  ["📝 ثبت شکایت مشتریان"],
-  [CANCEL],
- ]
- if admin(uid):
-  rows.insert(-1,["🛠 پنل مدیریت بات"])
- rows.append(["👥 پنل همکاران"])
+ lang=S.get(uid,{}).get("lang","fa")
+ labels={
+  "fa":["🪪 فیدای غیر حضوری","🖨 خدمات چاپ","🪪 حل مشکل ورود اتباع دولت من","🎫 کد رهگیری تمدید کارت‌ها","📱 خدمات سیم کارت","📝 آزمون غربالگری و پیگیری","💰 کیف پول من","📞 تماس با ما","📝 ثبت شکایت مشتریان","👥 پنل همکاران"],
+  "en":["🪪 FIDA non-in-person","🖨 Printing service","🏛 Government access issue","🎫 Track request","📱 SIM services","📝 Screening & follow-up","💰 My wallet","📞 Contact us","📝 Customer complaint","👥 Partner panel"],
+  "ar":["🪪 خدمة فيدا","🖨 خدمة الطباعة","🏛 مشكلة خدمات الحكومة","🎫 متابعة الطلب","📱 خدمات الشريحة","📝 الفحص والمتابعة","💰 محفظتي","📞 اتصل بنا","📝 شكوى العميل","👥 لوحة الشركاء"]
+ }
+ a=labels.get(lang,labels["fa"])
+ rows=[[a[0],a[1]],[a[2],a[3]],[a[4],a[5]],[a[6],a[7]],[a[8]]]
+ if admin(uid): rows.append(["🛠 پنل مدیریت بات"])
+ rows.extend([["❌ Cancel" if lang=="en" else "❌ إلغاء" if lang=="ar" else CANCEL],[a[9]]])
  return kb(rows)
 def cancel_kb(): return kb([[CANCEL]])
 def partner_kb(): return kb([["➕ شارژ حساب","🪪 ثبت درخواست همکار"],["🔎 پیگیری کد","📋 سوابق"],[CANCEL]])
 def amenu(): return kb([["👥 همکاران","💰 شارژها"],["💰 پرداخت‌های مشتری","📋 درخواست‌ها"],["⚙️ قیمت‌ها","📊 گزارش"],["⬅️ منوی اصلی"]])
 async def start(u,c):
  uid=u.effective_user.id; db.user("telegram",uid,u.effective_user.username,u.effective_user.full_name); S[uid]={}
- await u.message.reply_text("سلام و خوش آمدید 🌷\nلطفاً زبان را انتخاب کنید:",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🇮🇷 فارسی",callback_data="lang:fa"),InlineKeyboardButton("🇬🇧 English",callback_data="lang:en"),InlineKeyboardButton("🇸🇦 العربية",callback_data="lang:ar")]]))
+ await u.message.reply_text("سلام و خوش آمدید 🌷\nلطفاً زبان را انتخاب کنید / Choose your language / اختر اللغة:",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🇮🇷 فارسی",callback_data="lang:fa"),InlineKeyboardButton("🇬🇧 English",callback_data="lang:en"),InlineKeyboardButton("🇸🇦 العربية",callback_data="lang:ar")]]))
 async def langcb(u,c):
  q=u.callback_query; await q.answer(); uid=q.from_user.id; S[uid]={"lang":q.data.split(":")[1]}
  await q.message.reply_text("آیا اتباع هستید یا ایرانی؟",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🪪 اتباع هستم",callback_data="st:foreign"),InlineKeyboardButton("🇮🇷 ایرانی هستم",callback_data="st:iranian")]]))
 async def statuscb(u,c):
  q=u.callback_query; await q.answer(); uid=q.from_user.id; S.setdefault(uid,{})["status"]=q.data.split(":")[1]
- if S[uid]["status"]=="iranian": return await q.message.reply_text("🇮🇷 فعلاً خدماتی برای ایرانی فعال نیست.",reply_markup=kb([["👥 پنل همکاران","🎫 پیگیری"],[CANCEL]]))
- await q.message.reply_text("منوی خدمات کمک یار مهاجر 👇",reply_markup=main(uid))
+ lang=S[uid].get("lang","fa")
+ if S[uid]["status"]=="iranian":
+  msg={"fa":"🇮🇷 فعلاً خدماتی برای ایرانی فعال نیست.","en":"🇮🇷 Services are currently unavailable for Iranian users.","ar":"🇮🇷 الخدمات غير متاحة حالياً للمستخدمين الإيرانيين."}[lang]
+  return await q.message.reply_text(msg,reply_markup=kb([["👥 پنل همکاران","🎫 پیگیری"],[CANCEL]]))
+ msg={"fa":"منوی خدمات کمک یار مهاجر 👇","en":"Mohajer Helper services 👇","ar":"خدمات مساعد المهاجر 👇"}[lang]
+ await q.message.reply_text(msg,reply_markup=main(uid))
 async def cancel(u,c):
  uid=u.effective_user.id; st=S.setdefault(uid,{}); partner=st.get("partner_id"); S[uid]={"status":"foreign","partner_id":partner} if partner else {"status":"foreign"}; await u.message.reply_text("لغو شد و به منوی اصلی برگشتید. ✅",reply_markup=partner_kb() if partner else main(uid))
 async def partner(u,c):
