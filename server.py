@@ -49,10 +49,15 @@ def monitor():
    if p.poll() is not None:
     try: children.remove((p,name))
     except ValueError: pass
+    if name=='telegram' and os.getenv('RUN_TELEGRAM_IN_SERVER','0')!='1': continue
     cmd='telegram_runtime.py' if name=='telegram' else 'rubika_entry_stable.py'
     try: children.append((subprocess.Popen([sys.executable,cmd],env={**os.environ,'TELEGRAM_WEBHOOK_URL':''}),name))
     except Exception: pass
 def main():
- init_db(); start_child('telegram_runtime.py','telegram'); start_child('rubika_entry_stable.py','rubika'); threading.Thread(target=monitor,daemon=True).start()
+ init_db()
+ # Telegram has a dedicated Worker in this deployment; never start a second getUpdates owner here unless explicitly enabled.
+ if os.getenv('RUN_TELEGRAM_IN_SERVER','0')=='1': start_child('telegram_runtime.py','telegram')
+ else: logmsg='Telegram polling disabled in NetYar server (dedicated Worker owns Telegram)'; print(logmsg,flush=True)
+ start_child('rubika_entry_stable.py','rubika'); threading.Thread(target=monitor,daemon=True).start()
  import uvicorn; uvicorn.run(api,host='0.0.0.0',port=int(os.getenv('PORT','8080')),log_level='info')
 if __name__=='__main__': main()
