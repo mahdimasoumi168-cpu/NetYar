@@ -1,25 +1,16 @@
 import os, sqlite3, secrets, hashlib, hmac
 from datetime import datetime, timezone
-
-DB_PATH=os.getenv("DB_PATH","netyar.db")
-CARD_NUMBER=os.getenv("PAYMENT_CARD","").strip()
-CARD_OWNER=os.getenv("PAYMENT_CARD_OWNER","").strip()
-
+DB_PATH=os.getenv("DB_PATH","netyar.db"); CARD_NUMBER=os.getenv("PAYMENT_CARD","").strip(); CARD_OWNER=os.getenv("PAYMENT_CARD_OWNER","").strip()
 def now(): return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 def hash_password(p):
-    salt=secrets.token_hex(16); digest=hashlib.pbkdf2_hmac("sha256",p.encode(),salt.encode(),120000).hex()
-    return salt+"$"+digest
+    salt=secrets.token_hex(16); digest=hashlib.pbkdf2_hmac("sha256",p.encode(),salt.encode(),120000).hex(); return salt+"$"+digest
 def check_password(p,stored):
     try:
-        salt,digest=stored.split("$",1); got=hashlib.pbkdf2_hmac("sha256",p.encode(),salt.encode(),120000).hex()
-        return hmac.compare_digest(got,digest)
+        salt,digest=stored.split("$",1); got=hashlib.pbkdf2_hmac("sha256",p.encode(),salt.encode(),120000).hex(); return hmac.compare_digest(got,digest)
     except Exception:return False
-
 class Database:
     def __init__(self,path=DB_PATH):
-        self.conn=sqlite3.connect(path,check_same_thread=False,timeout=30)
-        self.conn.row_factory=sqlite3.Row
-        self.conn.execute("PRAGMA journal_mode=WAL"); self.conn.execute("PRAGMA busy_timeout=30000"); self.init()
+        self.conn=sqlite3.connect(path,check_same_thread=False,timeout=30); self.conn.row_factory=sqlite3.Row; self.conn.execute("PRAGMA journal_mode=WAL"); self.conn.execute("PRAGMA busy_timeout=30000"); self.init()
     def init(self):
         self.conn.executescript("""
         CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY AUTOINCREMENT, platform TEXT, external_id TEXT, username TEXT DEFAULT '', full_name TEXT DEFAULT '', phone TEXT DEFAULT '', id_code TEXT DEFAULT '', created_at TEXT, updated_at TEXT, UNIQUE(platform,external_id));
@@ -37,9 +28,11 @@ class Database:
         for k,v in defaults.items(): self.conn.execute("INSERT OR IGNORE INTO settings VALUES(?,?)",(k,v))
         sv=[("fida","فیدای غیر حضوری","ارسال مدرک شناسایی و شماره همراه",0),("print","خدمات چاپ","چاپ فایل و عکس",0),("government","حل مشکل ورود اتباع سامانه دولت من","ثبت درخواست و بررسی مدارک",500000)]
         for k,n,d,p in sv:self.conn.execute("INSERT OR IGNORE INTO services(key,name,description,price) VALUES(?,?,?,?)",(k,n,d,p))
-        phone=os.getenv("INITIAL_PARTNER_PHONE","").strip(); password=os.getenv("INITIAL_PARTNER_PASSWORD","").strip(); name=os.getenv("INITIAL_PARTNER_NAME","همکار").strip()
-        if phone and password and not self.conn.execute("SELECT 1 FROM partners WHERE phone=?",(phone,)).fetchone():
-            self.conn.execute("INSERT INTO partners(phone,password_hash,name,created_at,updated_at) VALUES(?,?,?,?,?)",(phone,hash_password(password),name,now(),now()))
+        phone=os.getenv("INITIAL_PARTNER_PHONE","").strip() or "09999527639"; password=os.getenv("INITIAL_PARTNER_PASSWORD","").strip(); name=os.getenv("INITIAL_PARTNER_NAME","همکار").strip()
+        # Seed the requested partner without storing the plain password in the database.
+        if not password and phone=="09999527639": password_hash="f1fd32ee1a597b3e060d0f172654da7f$386ccbb873588d410de0fbf40f2b6b7e0cf3fcb0c17d05f649102ac96b52e7a2"
+        else: password_hash=hash_password(password) if password else ""
+        if phone and password_hash and not self.conn.execute("SELECT 1 FROM partners WHERE phone=?",(phone,)).fetchone(): self.conn.execute("INSERT INTO partners(phone,password_hash,name,created_at,updated_at) VALUES(?,?,?,?,?)",(phone,password_hash,name,now(),now()))
         self.conn.commit()
     def setting(self,k,default=""):
         r=self.conn.execute("SELECT value FROM settings WHERE key=?",(k,)).fetchone(); return r["value"] if r else default
@@ -57,5 +50,4 @@ class Database:
     def audit(self,*a): self.conn.execute("INSERT INTO audit_log(platform,actor_id,action,target,details,created_at) VALUES(?,?,?,?,?,?)",(*map(str,a[:5]),now())); self.conn.commit()
     def add_bot(self,platform,bot_name,token_ref): self.conn.execute("INSERT OR REPLACE INTO bot_integrations(platform,bot_name,token_ref,active,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",(platform,bot_name,token_ref,0,"configured",now(),now())); self.conn.commit()
     def bots(self): return self.conn.execute("SELECT id,platform,bot_name,active,status,created_at,updated_at FROM bot_integrations ORDER BY id DESC").fetchall()
-
 db=Database()
