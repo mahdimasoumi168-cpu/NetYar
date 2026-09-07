@@ -7,6 +7,9 @@ from rubka.asynco import Robot, Message
 # Reuse NetYar's database/settings/service logic so Telegram and Rubika share one backend.
 from core import db, now
 
+def setting(key, default=""):
+    return db.setting(key, default)
+
 logging.basicConfig(format="%(asctime)s | %(levelname)s | %(message)s", level=logging.INFO)
 TOKEN = os.getenv("RUBIKA_BOT_TOKEN")
 if not TOKEN:
