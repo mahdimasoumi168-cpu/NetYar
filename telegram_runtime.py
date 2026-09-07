@@ -83,10 +83,16 @@ async def extra_text(u,c):
         except Exception: pass
         return await u.message.reply_text(f'✅ خدمت {t} به‌عنوان انجام‌شده ثبت شد.',reply_markup=B.amenu())
 
-async def extra_cb(u,c): return
+async def extra_cb(u,c):
+    return
 
 def build():
-    app=B.build(); app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,extra_text),group=-1); app.add_handler(CallbackQueryHandler(extra_cb),group=-1); return app
+    app=B.build()
+    # IMPORTANT: keep the extra compatibility handlers AFTER bot.py's main handlers.
+    # A group=-1 handler here used to intercept every text/callback and prevent the main router.
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,extra_text),group=1)
+    app.add_handler(CallbackQueryHandler(extra_cb),group=1)
+    return app
 
 if __name__=='__main__':
     app=build(); webhook=os.getenv('TELEGRAM_WEBHOOK_URL','').strip()
