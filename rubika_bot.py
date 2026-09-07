@@ -131,6 +131,64 @@ TEXT = {
 }
 
 STATES = {}
+ADMIN_COMMAND = os.getenv("ADMIN_COMMAND", "/" + "Admin" + "2025").strip()
+ADMIN_IDS = {x.strip() for x in os.getenv("ADMIN_IDS", "").replace(";", ",").split(",") if x.strip()}
+def is_admin(uid):
+    return str(uid) in ADMIN_IDS or STATES.get(uid, {}).get("admin") is True
+def admin_menu():
+    return buttons([
+        [("1","👥 همکاران"),("2","💰 شارژها")],
+        [("3","💳 پرداخت‌های مشتری"),("4","📋 درخواست‌ها")],
+        [("5","⚙️ قیمت‌ها"),("6","📊 گزارش")],
+        [("7","🚪 خروج از پنل")]
+    ])
+def admin_action(uid, chat, text):
+    if not is_admin(uid): return False
+    if text in {"👥 همکاران","1"}:
+        rows=db.conn.execute("SELECT id,name,phone,balance,active FROM partners ORDER BY id DESC LIMIT 50").fetchall()
+        send(chat,"\n".join(f"#{r['id']} | {r['name']} | {r['phone']} | {int(r['balance']):,} تومان" for r in rows) or "همکاری ثبت نشده است.",admin_menu()); return True
+    if text in {"💰 شارژها","2"}:
+        rows=db.conn.execute("SELECT t.id,t.amount,t.status,p.name FROM topups t JOIN partners p ON p.id=t.partner_id ORDER BY t.id DESC LIMIT 30").fetchall()
+        extra=[(f"تأیید شارژ #{r['id']}",f"رد شارژ #{r['id']}") for r in rows if r["status"]=="pending"]
+        send(chat,"\n".join(f"#{r['id']} | {r['name']} | {int(r['amount']):,} | {r['status']}" for r in rows) or "شارژی وجود ندارد.",extra+admin_menu()); return True
+    if text in {"💳 پرداخت‌های مشتری","3"}:
+        rows=db.conn.execute("SELECT id,tracking_code,service_key,amount,payment_status FROM requests WHERE payment_status='pending' ORDER BY id DESC LIMIT 30").fetchall()
+        extra=[(f"تأیید پرداخت #{r['id']}",f"رد پرداخت #{r['id']}") for r in rows]
+        send(chat,"\n".join(f"#{r['id']} | {r['tracking_code']} | {r['service_key']} | {int(r['amount']):,} تومان" for r in rows) or "پرداخت معلقی نیست.",extra+admin_menu()); return True
+    if text in {"📋 درخواست‌ها","4"}:
+        rows=db.conn.execute("SELECT tracking_code,service_key,status,amount,payment_status FROM requests ORDER BY id DESC LIMIT 50").fetchall()
+        send(chat,"\n".join(f"{r['tracking_code']} | {r['service_key']} | {r['status']} | {int(r['amount']):,} | {r['payment_status']}" for r in rows) or "درخواستی نیست.",admin_menu()); return True
+    if text in {"⚙️ قیمت‌ها","5"}:
+        STATES[uid]["step"]="admin_price"; send(chat,"⚙️ قیمت را بفرستید؛ مثال: government 500000",admin_menu()); return True
+    if text in {"📊 گزارش","6"}:
+        partners=db.conn.execute("SELECT COUNT(*) FROM partners").fetchone()[0]
+        requests=db.conn.execute("SELECT COUNT(*) FROM requests").fetchone()[0]
+        pending=db.conn.execute("SELECT COUNT(*) FROM requests WHERE payment_status='pending'").fetchone()[0]
+        topups=db.conn.execute("SELECT COUNT(*) FROM topups WHERE status='pending'").fetchone()[0]
+        send(chat,f"📊 گزارش\n👥 همکاران: {partners}\n📋 درخواست‌ها: {requests}\n💳 پرداخت‌های معلق: {pending}\n💰 شارژهای در انتظار: {topups}",admin_menu()); return True
+    if text in {"🚪 خروج از پنل","7"}:
+        STATES[uid]["admin"]=False; STATES[uid]["step"]="menu"; send(chat,"✅ از پنل مدیریت خارج شدید.",main_menu(STATES[uid].get("lang","fa"))); return True
+    m=re.fullmatch(r"تأیید شارژ #(\d+)",text)
+    if m:
+        tid=int(m.group(1)); row=db.conn.execute("SELECT * FROM topups WHERE id=?",(tid,)).fetchone()
+        if row and row["status"]=="pending":
+            db.conn.execute("UPDATE topups SET status='approved',reviewed_at=? WHERE id=?",(now(),tid))
+            db.conn.execute("UPDATE partners SET balance=balance+?,updated_at=? WHERE id=?",(row["amount"],now(),row["partner_id"])); db.conn.commit()
+        send(chat,f"✅ شارژ #{tid} بررسی شد.",admin_menu()); return True
+    m=re.fullmatch(r"رد شارژ #(\d+)",text)
+    if m:
+        tid=int(m.group(1)); db.conn.execute("UPDATE topups SET status='rejected',reviewed_at=? WHERE id=? AND status='pending'",(now(),tid)); db.conn.commit(); send(chat,f"❌ شارژ #{tid} رد شد.",admin_menu()); return True
+    m=re.fullmatch(r"تأیید پرداخت #(\d+)",text)
+    if m:
+        rid=int(m.group(1)); db.conn.execute("UPDATE requests SET payment_status='paid',status='submitted',updated_at=? WHERE id=? AND payment_status='pending'",(now(),rid)); db.conn.commit(); send(chat,f"✅ پرداخت #{rid} تأیید شد.",admin_menu()); return True
+    m=re.fullmatch(r"رد پرداخت #(\d+)",text)
+    if m:
+        rid=int(m.group(1)); db.conn.execute("UPDATE requests SET payment_status='rejected',status='payment_rejected',updated_at=? WHERE id=? AND payment_status='pending'",(now(),rid)); db.conn.commit(); send(chat,f"❌ پرداخت #{rid} رد شد.",admin_menu()); return True
+    if STATES.get(uid,{}).get("step")=="admin_price":
+        a=text.split()
+        if len(a)==2 and a[1].isdigit(): db.set_setting("price_"+a[0],int(a[1])); send(chat,"✅ قیمت ذخیره شد.",admin_menu()); STATES[uid]["step"]="admin_menu"; return True
+        send(chat,"❌ قالب نادرست است.",admin_menu()); return True
+    return False
 
 def call(method, payload=None):
     r = HTTP.post(f"{BASE}/{method}", json=payload or {}, timeout=35)
@@ -251,6 +309,12 @@ def handle_text(uid, chat, text):
     step = st.get("step")
     lang = st.get("lang","fa")
 
+    if text == ADMIN_COMMAND:
+        STATES[uid]["admin"] = True
+        STATES[uid]["step"] = "admin_menu"
+        send(chat,"🛠 پنل مدیریت کامل بات\nلطفاً گزینه موردنظر را انتخاب کنید:",admin_menu()); return
+    if is_admin(uid) and STATES.get(uid,{}).get("admin"):
+        if admin_action(uid,chat,text): return
     if is_cancel(text):
         cancel(uid, chat); return
 
@@ -477,12 +541,15 @@ def run():
             payload={"limit":20}
             if offset: payload["offset_id"]=offset
             data=call("getUpdates",payload)
-            for upd in data.get("updates",[]) or []:
+            if isinstance(data, list):
+                updates=data; nxt=None
+            else:
+                updates=(data or {}).get("updates",[]) or []; nxt=(data or {}).get("next_offset_id")
+            for upd in updates:
                 try: process_update(upd)
                 except Exception: log.exception("Rubika update failed")
-            nxt=data.get("next_offset_id")
             if nxt: offset=str(nxt)
-            time.sleep(0.5)
+            time.sleep(0.8)
         except requests.RequestException:
             log.exception("Rubika API/network error")
             time.sleep(5)
