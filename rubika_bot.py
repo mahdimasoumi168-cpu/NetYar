@@ -53,7 +53,7 @@ async def start(_: Robot, message: Message):
     uid = rubika_user_id(message)
     if not uid:
         return
-    internal_id = db.user("rubika", uid, "", user_name(message))
+    internal_id = db.user("rubika", uid, "", await user_name(message))
     if not db.setting("bot_open","1")=="1":
         await message.reply("⏳ ربات موقتاً در حال بروزرسانی است.")
         return
