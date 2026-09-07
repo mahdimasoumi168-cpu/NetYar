@@ -7,10 +7,21 @@ ADM={x.strip() for x in os.getenv("ADMIN_IDS","").replace(";",",").split(",") if
 def admin(u): return str(u) in ADM
 def kb(rows): return ReplyKeyboardMarkup(rows,resize_keyboard=True)
 def main(uid):
- return kb([["👥 پنل همکاران","🪪 فیدای غیر حضوری"],["🖨 خدمات چاپ","🪪 حل مشکل ورود اتباع دولت من"],["🎫 کد رهگیری تمدید کارت‌ها","📱 خدمات سیم کارت"],["📝 آزمون غربالگری و پیگیری"],["🌐 تغییر زبان",CANCEL]])
+ rows=[
+  ["🪪 فیدای غیر حضوری","🖨 خدمات چاپ"],
+  ["🪪 حل مشکل ورود اتباع دولت من","🎫 کد رهگیری تمدید کارت‌ها"],
+  ["📱 خدمات سیم کارت","📝 آزمون غربالگری و پیگیری"],
+  ["💰 کیف پول من","📞 تماس با ما"],
+  ["📝 ثبت شکایت مشتریان"],
+  [CANCEL],
+ ]
+ if admin(uid):
+  rows.insert(-1,["🛠 پنل مدیریت بات"])
+ rows.append(["👥 پنل همکاران"])
+ return kb(rows)
 def cancel_kb(): return kb([[CANCEL]])
 def partner_kb(): return kb([["➕ شارژ حساب","🪪 ثبت درخواست همکار"],["🔎 پیگیری کد","📋 سوابق"],[CANCEL]])
-def amenu(): return kb([["👥 همکاران","💰 شارژها"],["📋 درخواست‌ها","⚙️ قیمت‌ها"],["📊 گزارش","⬅️ منوی اصلی"]])
+def amenu(): return kb([["👥 همکاران","💰 شارژها"],["💰 پرداخت‌های مشتری","📋 درخواست‌ها"],["⚙️ قیمت‌ها","📊 گزارش"],["⬅️ منوی اصلی"]])
 async def start(u,c):
  uid=u.effective_user.id; db.user("telegram",uid,u.effective_user.username,u.effective_user.full_name); S[uid]={}
  await u.message.reply_text("سلام و خوش آمدید 🌷\nلطفاً زبان را انتخاب کنید:",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🇮🇷 فارسی",callback_data="lang:fa"),InlineKeyboardButton("🇬🇧 English",callback_data="lang:en"),InlineKeyboardButton("🇸🇦 العربية",callback_data="lang:ar")]]))
@@ -66,7 +77,7 @@ async def media(u,c):
   tid=db.add_topup(st["partner_id"],st["amount"],fid); st["mode"]=None; return await u.message.reply_text(f"رسید شارژ #{tid} ثبت شد و منتظر تأیید مدیر است. ✅",reply_markup=partner_kb())
  if st.get("mode")=="fida_doc":
   if not fid:return await u.message.reply_text("تصویر مدرک را بفرستید.")
-  st["doc"]=fid; st["mode"]="fida_phone"; return await u.message.reply_text("📱 شماره همراه مشتری را بفرستید.",reply_markup=cancel_kb())
+  st["doc"]=fid; st["mode"]="fida_phone"; return await u.message.reply_text("📱 شماره موبایل مشترک را وارد کنید.",reply_markup=cancel_kb())
  if st.get("mode")=="gov_doc":
   if not fid:return await u.message.reply_text("تصویر را بفرستید.")
   st["gov_files"][st["field"]]=fid
@@ -88,8 +99,7 @@ async def prt(u,c):
 async def service_text(u,c):
  uid=u.effective_user.id; st=S.setdefault(uid,{}); t=(u.message.text or "").strip()
  if st.get("mode")=="fida_phone":
-  amount=int(db.setting("price_fida","0")); rid,code=db.create_request(st.get("partner_id") or db.user("telegram",uid,u.effective_user.username,u.effective_user.full_name),"fida","telegram",amount); db.answer(rid,"document",file_id=st["doc"]); db.answer(rid,"phone",st["gov_phone"])
-  db.answer(rid,"dob",st["dob"])
+  amount=int(db.setting("price_fida","0")); rid,code=db.create_request(st.get("partner_id") or db.user("telegram",uid,u.effective_user.username,u.effective_user.full_name),"fida","telegram",amount); db.answer(rid,"document",file_id=st["doc"]); db.answer(rid,"phone",st["phone"])
   if st.get("partner_id"):
    p=db.conn.execute("SELECT * FROM partners WHERE id=?",(st["partner_id"],)).fetchone()
    if p and p["balance"]>=amount: db.conn.execute("UPDATE requests SET status='submitted',payment_status='paid',payment_method='partner_balance' WHERE id=?",(rid,)); db.conn.execute("UPDATE partners SET balance=balance-?,updated_at=? WHERE id=?",(amount,now(),p["id"])); db.conn.commit(); st["mode"]=None; return await u.message.reply_text(f"✅ ثبت شد.\n🎫 {code}\n💰 کسر: {amount:,} تومان",reply_markup=partner_kb())
@@ -128,13 +138,28 @@ async def admin_text(u,c):
  if not admin(u.effective_user.id):return
  t=(u.message.text or "").strip()
  if t=="👥 همکاران":rows=db.conn.execute("SELECT id,name,phone,balance,active FROM partners ORDER BY id DESC").fetchall();return await u.message.reply_text("\n".join(f"#{r['id']} {r['name']} | {r['phone']} | {r['balance']:,}" for r in rows) or "همکاری نیست.",reply_markup=amenu())
+ if t=="💰 پرداخت‌های مشتری":
+  rows=db.conn.execute("SELECT id,tracking_code,service_key,amount,payment_note FROM requests WHERE payment_status='pending' ORDER BY id DESC LIMIT 30").fetchall()
+  buttons=[]
+  for r in rows:
+   buttons.append([InlineKeyboardButton(f"#{r['id']} تأیید",callback_data=f"pay:a:{r['id']}"),InlineKeyboardButton("رد",callback_data=f"pay:r:{r['id']}")])
+  txt="\n".join(f"{r['tracking_code']} | {r['service_key']} | {r['amount']:,}" for r in rows) or "پرداخت معلقی نیست."
+  return await u.message.reply_text(txt,reply_markup=InlineKeyboardMarkup(buttons) if buttons else amenu())
  if t=="💰 شارژها":rows=db.conn.execute("SELECT t.id,t.amount,t.status,p.name FROM topups t JOIN partners p ON p.id=t.partner_id ORDER BY t.id DESC LIMIT 30").fetchall();kbv=[[InlineKeyboardButton(f"#{r['id']} تأیید {r['amount']:,}",callback_data=f"tu:a:{r['id']}"),InlineKeyboardButton("رد",callback_data=f"tu:r:{r['id']}")] for r in rows if r['status']=="pending"];return await u.message.reply_text("\n".join(f"#{r['id']} {r['name']} | {r['amount']:,} | {r['status']}" for r in rows) or "شارژی نیست.",reply_markup=InlineKeyboardMarkup(kbv) if kbv else None)
  if t=="📋 درخواست‌ها":rows=db.conn.execute("SELECT tracking_code,service_key,status,amount,payment_status FROM requests ORDER BY id DESC LIMIT 50").fetchall();return await u.message.reply_text("\n".join(f"{r['tracking_code']} | {r['service_key']} | {r['status']} | {r['amount']:,} | {r['payment_status']}" for r in rows) or "درخواستی نیست.",reply_markup=amenu())
  if t=="⚙️ قیمت‌ها":S[u.effective_user.id]["mode"]="price";return await u.message.reply_text("مثال: government 500000\nfida 100000\nprint_bw 10000\nprint_color 25000",reply_markup=cancel_kb())
+ if t=="⬅️ منوی اصلی": return await u.message.reply_text("منوی اصلی",reply_markup=main(uid))
  if t=="📊 گزارش":return await u.message.reply_text(f"همکاران: {db.conn.execute('SELECT COUNT(*) FROM partners').fetchone()[0]}\nدرخواست‌ها: {db.conn.execute('SELECT COUNT(*) FROM requests').fetchone()[0]}",reply_markup=amenu())
 async def admin_cb(u,c):
  q=u.callback_query;await q.answer()
  if not admin(q.from_user.id):return
+ parts=q.data.split(":")
+ if parts[0]=="pay":
+  _,a,tid=parts; r=db.conn.execute("SELECT * FROM requests WHERE id=?",(int(tid),)).fetchone()
+  if not r:return
+  status="paid" if a=="a" else "rejected"; req_status="submitted" if a=="a" else "payment_rejected"
+  db.conn.execute("UPDATE requests SET payment_status=?,status=?,updated_at=? WHERE id=? AND payment_status='pending'",(status,req_status,now(),int(tid)));db.conn.commit()
+  return await q.edit_message_text("پرداخت تأیید شد ✅" if a=="a" else "پرداخت رد شد ❌")
  _,a,tid=q.data.split(":");t=db.conn.execute("SELECT * FROM topups WHERE id=?",(int(tid),)).fetchone()
  if not t:return
  if a=="a":db.conn.execute("UPDATE topups SET status='approved',reviewed_at=? WHERE id=? AND status='pending'",(now(),tid));db.conn.execute("UPDATE partners SET balance=balance+?,updated_at=? WHERE id=?",(t["amount"],now(),t["partner_id"]));db.conn.commit();return await q.edit_message_text("شارژ تأیید شد ✅")
@@ -147,6 +172,17 @@ async def addpartner(u,c):
 async def router(u,c):
  t=(u.message.text or "").strip();uid=u.effective_user.id
  if t==CANCEL:return await cancel(u,c)
+ if t=="🛠 پنل مدیریت بات":
+  if not admin(uid): return await u.message.reply_text("❌ دسترسی ندارید.")
+  return await u.message.reply_text("🛠 پنل مدیریت بات",reply_markup=amenu())
+ if t=="💰 کیف پول من":
+  st=S.get(uid,{})
+  if st.get("partner_id"):
+   p=db.conn.execute("SELECT balance FROM partners WHERE id=?",(st["partner_id"],)).fetchone()
+   return await u.message.reply_text(f"💰 موجودی کیف پول شما: {p['balance']:,} تومان" if p else "کیف پول یافت نشد.",reply_markup=main(uid))
+  return await u.message.reply_text("💰 کیف پول پس از ورود به پنل همکاران قابل استفاده است.",reply_markup=main(uid))
+ if t=="📞 تماس با ما": return await u.message.reply_text("📞 برای ارتباط با پشتیبانی با مدیریت تماس بگیرید.",reply_markup=main(uid))
+ if t=="📝 ثبت شکایت مشتریان": return await u.message.reply_text("📝 ثبت شکایت مشتریان فعلاً غیرفعال است.",reply_markup=main(uid))
  if t=="👥 پنل همکاران":return await partner(u,c)
  if t=="➕ شارژ حساب":return await topup(u,c)
  if t=="🔎 پیگیری کد":return await ptrack(u,c)
