@@ -35,13 +35,34 @@ def rubika_chat_id(message):
     return str(getattr(message, "chat_id", ""))
 
 
+def is_admin(internal_id):
+    """Check if a user is admin by looking up their Rubika external ID in admins table."""
+    from core import db
+    # internal_id is the database user.id, but we need platform+external_id to check admins table.
+    # For now, query users to get the Rubika external_id.
+    user = db.conn.execute("SELECT external_id FROM users WHERE id=? AND platform='rubika'", (internal_id,)).fetchone()
+    if not user:
+        return False
+    external_id = user["external_id"]
+    admin = db.conn.execute("SELECT * FROM admins WHERE platform='rubika' AND external_id=? AND active=1", (external_id,)).fetchone()
+    return admin is not None
+
+
 def main_text():
-    labels = [button(k)[0] for k in ("register", "services", "track", "announcements", "support", "about") if button(k)[1]]
+    """Build main menu text from available features."""
+    # Simple hardcoded menu for Rubika; customize as needed
+    labels = [
+        "🏢 خدمات دفتر",
+        "📢 اطلاعیه‌ها", 
+        "🔎 پیگیری درخواست",
+        "☎️ پشتیبانی",
+        "ℹ️ درباره ما"
+    ]
     return "\n".join("• " + x for x in labels)
 
 
 async def send_main(message, extra=""):
-    text = setting("welcome").replace("\\n", "\n")
+    text = db.setting("welcome_fa", "سلام و خوش آمدید 🌷").replace("\\n", "\n")
     text += "\n\n" + main_text()
     if extra:
         text += "\n\n" + extra
@@ -53,8 +74,8 @@ async def start(_: Robot, message: Message):
     uid = rubika_user_id(message)
     if not uid:
         return
-    internal_id = db.user("rubika", uid, "", await user_name(message))
-    if not db.setting("bot_open","1")=="1":
+    internal_id = db.user("rubika", uid, "", user_name(message))
+    if db.setting("bot_open", "1") != "1":
         await message.reply("⏳ ربات موقتاً در حال بروزرسانی است.")
         return
     await send_main(message)
@@ -73,7 +94,7 @@ async def all_messages(_: Robot, message: Message):
         await send_main(message)
         return
 
-    if not db.setting("bot_open","1")=="1":
+    if db.setting("bot_open", "1") != "1":
         await message.reply("⏳ ربات موقتاً در حال بروزرسانی است.")
         return
 
@@ -82,16 +103,15 @@ async def all_messages(_: Robot, message: Message):
         await handle_service_answer(message, internal_id)
         return
 
-    labels = {k: button(k)[0] for k in ("services", "announcements", "support", "about", "track")}
-    if text == labels["services"] or text in ("🏢 خدمات دفتر", "خدمات"):
+    if text == "🏢 خدمات دفتر" or text in ("خدمات", "🏢 خدمات"):
         await services_menu(message, internal_id)
-    elif text == labels["announcements"] or text == "📢 اطلاعیه‌ها":
-        await message.reply(setting("announcements"))
-    elif text == labels["support"] or text == "☎️ پشتیبانی":
-        await message.reply(setting("support"))
-    elif text == labels["about"] or text == "ℹ️ درباره ما":
-        await message.reply(setting("about"))
-    elif text == labels["track"] or text == "🔎 پیگیری درخواست":
+    elif text == "📢 اطلاعیه‌ها":
+        await message.reply(db.setting("announcements", "اطلاعیه‌ای موجود نیست."))
+    elif text == "☎️ پشتیبانی":
+        await message.reply(db.setting("support", "با ما تماس بگیرید."))
+    elif text == "ℹ️ درباره ما":
+        await message.reply(db.setting("about", "درباره ما اطلاعاتی موجود نیست."))
+    elif text == "🔎 پیگیری درخواست":
         await message.reply("شماره درخواست را ارسال کنید.")
     elif text in ("📝 ثبت نام", "ثبت نام"):
         await message.reply("ثبت‌نام روبیکا در این نسخه به صورت پایه فعال است؛ شماره موبایل، کد شناسایی و شهر را می‌توانیم در مرحله بعد اضافه کنیم.")
@@ -105,11 +125,12 @@ async def all_messages(_: Robot, message: Message):
 
 
 async def services_menu(message, internal_id):
-    rows = db.execute("SELECT * FROM services WHERE active=1 ORDER BY id").fetchall()
+    """Display available services."""
+    rows = db.conn.execute("SELECT * FROM services WHERE active=1 ORDER BY id").fetchall()
     if not rows:
         await message.reply("هنوز خدمتی تعریف نشده است.")
         return
-    # Simple text menu is intentionally used first for maximum compatibility with Rubika versions.
+    # Simple text menu for maximum compatibility with Rubika versions.
     state.setdefault("_services", {})
     state["_services"][rubika_user_id(message)] = {"internal_id": internal_id, "services": {str(r["id"]): dict(r) for r in rows}}
     lines = ["🏢 خدمات دفتر:\n"]
@@ -121,6 +142,7 @@ async def services_menu(message, internal_id):
 
 
 async def handle_service_answer(message, internal_id):
+    """Handle user responses in multi-step service request flow."""
     uid = rubika_user_id(message)
     # Selecting a service from the service list.
     svc_store = state.get("_services", {}).get(uid)
@@ -131,33 +153,35 @@ async def handle_service_answer(message, internal_id):
             sid = (getattr(message, "text", "") or "").strip()
             if sid in svc_store["services"]:
                 s = svc_store["services"][sid]
-                steps = db.execute("SELECT * FROM service_steps WHERE service_id=? ORDER BY step_no", (int(sid),)).fetchall()
+                steps = db.conn.execute("SELECT * FROM services WHERE active=1 AND id=? ORDER BY id", (int(sid),)).fetchall()
                 if not steps:
                     await message.reply(f"🏢 {s['name']}\n{s['description']}\n💰 {s['price'] or 'اعلام نشده'}\n\nاین خدمت هنوز مرحله‌ای ندارد.")
                     return
-                cur = db.execute("INSERT INTO requests(user_id,service_id,status,created_at,updated_at) VALUES(?,?,?,?,?)", (internal_id, int(sid), "new", now(), now()))
+                cur = db.conn.execute("INSERT INTO requests(user_id,service_id,status,created_at,updated_at) VALUES(?,?,?,?,?)", (internal_id, int(sid), "new", now(), now()))
                 rid = cur.lastrowid
-                db.commit()
+                db.conn.commit()
                 state[uid] = {"request_id": rid, "steps": [dict(x) for x in steps], "index": 0, "internal_id": internal_id}
                 state["_services"].pop(uid, None)
-                await message.reply(f"درخواست #{rid} ثبت شد.\n\n{steps[0]['prompt']}")
+                await message.reply(f"درخواست #{rid} ثبت شد.")
             return
         return
 
     ctx = state[uid]
     idx = ctx["index"]
     steps = ctx["steps"]
-    st = steps[idx]
+    st = steps[idx] if idx < len(steps) else None
+    if not st:
+        return
     answer = getattr(message, "text", "") or ""
-    db.execute("INSERT INTO request_answers(request_id,step_id,answer,file_id,created_at) VALUES(?,?,?,?,?)", (ctx["request_id"], st["id"], answer, "", now()))
+    db.conn.execute("INSERT INTO request_answers(request_id,step_id,answer,file_id,created_at) VALUES(?,?,?,?,?)", (ctx["request_id"], st["id"], answer, "", now()))
     idx += 1
     ctx["index"] = idx
     if idx < len(steps):
-        db.commit()
-        await message.reply(steps[idx]["prompt"])
+        db.conn.commit()
+        await message.reply("سوال بعدی:")
         return
-    db.execute("UPDATE requests SET status='submitted',updated_at=? WHERE id=?", (now(), ctx["request_id"]))
-    db.commit()
+    db.conn.execute("UPDATE requests SET status='submitted',updated_at=? WHERE id=?", (now(), ctx["request_id"]))
+    db.conn.commit()
     rid = ctx["request_id"]
     state.pop(uid, None)
     await message.reply(f"درخواست #{rid} کامل ثبت شد ✅")
@@ -172,3 +196,4 @@ async def run():
 if __name__ == "__main__":
     import asyncio
     asyncio.run(run())
+
