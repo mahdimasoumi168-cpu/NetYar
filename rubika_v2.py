@@ -76,7 +76,8 @@ def request(uid,chat,key,amount):
         p=db.conn.execute("SELECT balance FROM partners WHERE id=? AND active=1",(pid,)).fetchone()
         if not p or int(p["balance"])<amount: send(chat,T(uid,"need_balance"),partner_rows()); return
         db.conn.execute("UPDATE partners SET balance=balance-?,updated_at=? WHERE id=?",(amount,now(),pid)); db.conn.commit()
-    user=db.user("rubika",uid,"",uid); rid,code=db.create_request(user,key,"rubika",amount); st["request_id"]=rid; if pid:
+    user=db.user("rubika",uid,"",uid); rid,code=db.create_request(user,key,"rubika",amount); st["request_id"]=rid
+    if pid:
         db.answer(rid,"partner_id",str(pid))
     db.audit("rubika",uid,"create_request",code,key)
     send(chat,T(uid,"payment",code=code,amount=amount),partner_rows() if pid else main_rows(uid)); notify_admins(f"🔔 درخواست جدید\n🎫 {code}\n🧩 {key}\n💰 {amount:,} تومان")
@@ -87,7 +88,7 @@ def admin(uid,chat,x):
         if len(a)==2 and a[1].isdigit(): db.set_setting(a[0],a[1]); st["step"]="admin"; send(chat,"✅ قیمت ذخیره شد.",admin_rows()); return
         send(chat,"❌ قالب: price_government 500000"); return
     if step=="bot_platform":
-        p={"1":"eitaa","2":"bale","3":"telegram","4":"rubika"}.get(x)
+        p={"1":"eitaa","2":"bale","3":"telegram","4":"rubika","🤖 Eitaa":"eitaa","🤖 Bale":"bale","🤖 Telegram":"telegram","🤖 Rubika":"rubika"}.get(str(x).strip())
         if not p: send(chat,T(uid,"bot_platform"),[[("1","🤖 Eitaa"),("2","🤖 Bale")],[("3","🤖 Telegram"),("4","🤖 Rubika")],[("0",CANCEL)]]); return
         st["bot_platform"]=p; st["step"]="bot_name"; send(chat,T(uid,"bot_name"),[[("0",CANCEL)]]); return
     if step=="bot_name": st["bot_name"]=x; st["step"]="bot_api"; send(chat,T(uid,"bot_api"),[[("0",CANCEL)]]); return
