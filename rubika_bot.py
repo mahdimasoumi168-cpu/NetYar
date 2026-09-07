@@ -5,10 +5,7 @@ from types import SimpleNamespace
 from rubka.asynco import Robot, Message
 
 # Reuse NetYar's database/settings/service logic so Telegram and Rubika share one backend.
-from bot import (
-    db, init_db, setting, button, bot_open, is_admin, ADMIN_IDS,
-    now, upsert_user
-)
+from core import db, now
 
 logging.basicConfig(format="%(asctime)s | %(levelname)s | %(message)s", level=logging.INFO)
 TOKEN = os.getenv("RUBIKA_BOT_TOKEN")
@@ -56,9 +53,9 @@ async def start(_: Robot, message: Message):
     uid = rubika_user_id(message)
     if not uid:
         return
-    internal_id = upsert_user(SimpleNamespace(id=uid, username="", full_name=user_name(message)), platform="rubika", external_id=uid)
-    if not bot_open() and not is_admin(internal_id):
-        await message.reply(setting("maintenance"))
+    internal_id = db.user("rubika", uid, "", user_name(message))
+    if not db.setting("bot_open","1")=="1":
+        await message.reply("⏳ ربات موقتاً در حال بروزرسانی است.")
         return
     await send_main(message)
 
@@ -70,14 +67,14 @@ async def all_messages(_: Robot, message: Message):
     if not uid or not chat_id:
         return
     text = (getattr(message, "text", "") or "").strip()
-    internal_id = upsert_user(SimpleNamespace(id=uid, username="", full_name=user_name(message)), platform="rubika", external_id=uid)
+    internal_id = db.user("rubika", uid, "", user_name(message))
 
     if text in ("/start", "شروع"):
         await send_main(message)
         return
 
-    if not bot_open() and not is_admin(internal_id):
-        await message.reply(setting("maintenance"))
+    if not db.setting("bot_open","1")=="1":
+        await message.reply("⏳ ربات موقتاً در حال بروزرسانی است.")
         return
 
     # Continue a service request.
