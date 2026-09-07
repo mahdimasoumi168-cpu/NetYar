@@ -76,8 +76,10 @@ def request(uid,chat,key,amount):
         p=db.conn.execute("SELECT balance FROM partners WHERE id=? AND active=1",(pid,)).fetchone()
         if not p or int(p["balance"])<amount: send(chat,T(uid,"need_balance"),partner_rows()); return
         db.conn.execute("UPDATE partners SET balance=balance-?,updated_at=? WHERE id=?",(amount,now(),pid)); db.conn.commit()
-    user=db.user("rubika",uid,"",uid); rid,code=db.create_request(user,key,"rubika",amount); st["request_id"]=rid; db.audit("rubika",uid,"create_request",code,key)
-    send(chat,T(uid,"payment",code=code,amount=amount),main_rows(uid)); notify_admins(f"🔔 درخواست جدید\n🎫 {code}\n🧩 {key}\n💰 {amount:,} تومان")
+    user=db.user("rubika",uid,"",uid); rid,code=db.create_request(user,key,"rubika",amount); st["request_id"]=rid; if pid:
+        db.answer(rid,"partner_id",str(pid))
+    db.audit("rubika",uid,"create_request",code,key)
+    send(chat,T(uid,"payment",code=code,amount=amount),partner_rows() if pid else main_rows(uid)); notify_admins(f"🔔 درخواست جدید\n🎫 {code}\n🧩 {key}\n💰 {amount:,} تومان")
 def admin(uid,chat,x):
     st=STATE[str(uid)]; step=st.get("step")
     if step=="admin_price":
