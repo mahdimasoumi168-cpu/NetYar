@@ -1,4 +1,4 @@
-import os,sys,subprocess,threading,asyncio,json,logging,time
+import os,asyncio,logging
 from fastapi import FastAPI,Request
 from fastapi.responses import HTMLResponse
 from app.config import PUBLIC_BASE_URL,RAILWAY_PUBLIC_DOMAIN,SIZPAY_MERCHANT_ID,SIZPAY_TERMINAL_ID
@@ -8,7 +8,8 @@ from app.sizpay import confirm,payment_post_html
 logging.basicConfig(level=logging.INFO)
 log=logging.getLogger("netyar.server")
 api=FastAPI(title="NetYar")
-children=[]
+telegram_app=None
+telegram_ready=False
 rubika_ready=False
 
 def public_url(path=""):
@@ -16,14 +17,9 @@ def public_url(path=""):
     if not base: raise RuntimeError("Railway public domain is not set")
     return base+path
 
-def children_alive(name):
-    for p,n in children:
-        if n==name:return p.poll() is None
-    return False
-
 @api.get("/health")
 async def health():
-    return {"ok":True,"service":"NetYar","telegram":children_alive("telegram"),"rubika":rubika_ready}
+    return {"ok":True,"service":"NetYar","telegram":telegram_ready,"rubika":rubika_ready}
 
 @api.get("/pay/{order_id}",response_class=HTMLResponse)
 async def pay(order_id:str):
@@ -54,12 +50,24 @@ async def sizpay_callback_post(request:Request): return await callback_data({k:s
 @api.get("/sizpay/callback")
 async def sizpay_callback_get(request:Request): return await callback_data({k:str(v) for k,v in request.query_params.items()})
 
+@api.post("/telegram/update")
+async def telegram_update(request:Request):
+    if telegram_app is None: return {"ok":False,"error":"telegram_not_ready"}
+    try:
+        from telegram import Update
+        data=await request.json()
+        await telegram_app.update_queue.put(Update.de_json(data=data,bot=telegram_app.bot))
+        return {"ok":True}
+    except Exception:
+        log.exception("Telegram webhook update failed")
+        return {"ok":False}
+
 @api.post("/rubika/update")
 async def rubika_update(request:Request):
     try:
         update=await request.json()
-        from rubika_v2 import process,STATE,T,send,lang,main_rows
-        # StartedBot may have no message.text; initialize the conversation explicitly.
+        from rubika_v2 import process,STATE,T,send
+        # Rubika StartedBot can arrive without message.text; initialize language explicitly.
         if isinstance(update,dict) and update.get("type")=="StartedBot":
             msg=update.get("new_message") or update.get("message") or {}
             chat=str(update.get("chat_id") or msg.get("chat_id") or "")
@@ -74,46 +82,50 @@ async def rubika_update(request:Request):
         log.exception("Rubika webhook update failed")
         return {"ok":False}
 
-def start_child(cmd,name):
-    env=os.environ.copy()
-    env.pop("TELEGRAM_WEBHOOK_URL",None)
-    p=subprocess.Popen([sys.executable,cmd],env=env)
-    children.append((p,name))
-    log.info("started %s pid=%s",name,p.pid)
-    return p
-
-def monitor():
-    while True:
-        time.sleep(5)
-        for p,name in list(children):
-            if p.poll() is not None:
-                try: children.remove((p,name))
-                except ValueError: pass
-                if name=="telegram":
-                    try:
-                        children.append((subprocess.Popen([sys.executable,"telegram_runtime.py"],env={**os.environ,"TELEGRAM_WEBHOOK_URL":""}),name))
-                    except Exception: log.exception("telegram restart failed")
-
-def register_rubika_webhook():
-    global rubika_ready
+@api.on_event("startup")
+async def startup():
+    global telegram_app,telegram_ready,rubika_ready
+    init_db()
     try:
-        import rubika_v2 as bot
+        import telegram_runtime as tg
+        telegram_app=tg.build()
+        await telegram_app.initialize()
+        await telegram_app.start()
+        tg_url=public_url("/telegram/update")
+        secret=os.getenv("TELEGRAM_WEBHOOK_SECRET","").strip() or None
+        await telegram_app.bot.set_webhook(url=tg_url,allowed_updates=None,secret_token=secret)
+        telegram_ready=True
+        log.info("Telegram webhook registered: %s",tg_url)
+    except Exception:
+        log.exception("Telegram webhook startup failed")
+        telegram_ready=False
+    try:
+        import rubika_v2 as rb
         endpoint=public_url("/rubika/update")
-        result=bot.call("updateBotEndpoints",{"url":endpoint,"type":"ReceiveUpdate"})
-        log.info("Rubika ReceiveUpdate endpoint registered: %s",endpoint)
-        log.info("Rubika getMe: %s",bot.call("getMe"))
+        result=rb.call("updateBotEndpoints",{"url":endpoint,"type":"ReceiveUpdate"})
+        log.info("Rubika ReceiveUpdate endpoint registered: %s | %s",endpoint,result)
+        log.info("Rubika getMe: %s",rb.call("getMe"))
         rubika_ready=True
-        return result
     except Exception:
         log.exception("Rubika webhook registration failed")
         rubika_ready=False
-        return None
+
+@api.on_event("shutdown")
+async def shutdown():
+    global telegram_app
+    if telegram_app is not None:
+        try:
+            await telegram_app.bot.delete_webhook(drop_pending_updates=False)
+        except Exception: pass
+        try:
+            await telegram_app.stop()
+        except Exception: pass
+        try:
+            await telegram_app.shutdown()
+        except Exception: pass
+    telegram_app=None
 
 def main():
-    init_db()
-    start_child("telegram_runtime.py","telegram")
-    register_rubika_webhook()
-    threading.Thread(target=monitor,daemon=True).start()
     import uvicorn
     uvicorn.run(api,host="0.0.0.0",port=int(os.getenv("PORT","8080")),log_level="info")
 
