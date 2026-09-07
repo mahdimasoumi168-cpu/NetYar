@@ -11,6 +11,57 @@ def platform_kb():
 
 B.amenu=advanced_amenu
 
+# Split the old combined screening/follow-up item into two independent buttons.
+_original_main=B.main
+_original_router=B.router
+
+def split_main(uid):
+    markup=_original_main(uid)
+    try:
+        lang=B.S.get(uid,{}).get('lang','fa')
+        screening={'fa':'📝 آزمون غربالگری','en':'📝 Screening test','ar':'📝 اختبار الفحص'}[lang]
+        follow={'fa':'🎫 پیگیری','en':'🎫 Follow-up','ar':'🎫 متابعة'}[lang]
+        old={'fa':'📝 آزمون غربالگری و پیگیری','en':'📝 Screening & follow-up','ar':'📝 الفحص والمتابعة'}[lang]
+        rows=[]
+        for row in markup.keyboard:
+            if old in row:
+                nr=[]
+                for item in row:
+                    if item==old: nr.extend([screening,follow])
+                    else: nr.append(item)
+                rows.append(nr)
+            else:
+                rows.append(list(row))
+        return B.kb(rows)
+    except Exception:
+        return markup
+B.main=split_main
+
+async def split_router(u,c):
+    # Keep existing service logic intact while exposing separate menu entries.
+    t=(u.message.text or '').strip()
+    lang=B.S.get(u.effective_user.id,{}).get('lang','fa')
+    screening={'fa':'📝 آزمون غربالگری','en':'📝 Screening test','ar':'📝 اختبار الفحص'}[lang]
+    follow={'fa':'🎫 پیگیری','en':'🎫 Follow-up','ar':'🎫 متابعة'}[lang]
+    old={'fa':'📝 آزمون غربالگری و پیگیری','en':'📝 Screening & follow-up','ar':'📝 الفحص والمتابعة'}[lang]
+    track={'fa':'🎫 کد رهگیری تمدید کارت‌ها','en':'🎫 Track request','ar':'🎫 متابعة الطلب'}[lang]
+    if t==screening:
+        old_text=u.message.text
+        try:
+            u.message.text=old
+            return await _original_router(u,c)
+        finally:
+            u.message.text=old_text
+    if t==follow:
+        old_text=u.message.text
+        try:
+            u.message.text=track
+            return await _original_router(u,c)
+        finally:
+            u.message.text=old_text
+    return await _original_router(u,c)
+B.router=split_router
+
 async def fixed_history(u,c):
     uid=u.effective_user.id; st=B.S.get(uid,{})
     if not st.get('partner_id'):
@@ -88,8 +139,6 @@ async def extra_cb(u,c):
 
 def build():
     app=B.build()
-    # IMPORTANT: keep the extra compatibility handlers AFTER bot.py's main handlers.
-    # A group=-1 handler here used to intercept every text/callback and prevent the main router.
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,extra_text),group=1)
     app.add_handler(CallbackQueryHandler(extra_cb),group=1)
     return app
