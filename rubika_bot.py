@@ -39,8 +39,15 @@ def rubika_chat_id(message):
 
 
 def main_text():
-    labels = [button(k)[0] for k in ("register", "services", "track", "announcements", "support", "about") if button(k)[1]]
-    return "\n".join("• " + x for x in labels)
+    return "\n".join([
+        "• 🪪 فیدای غیر حضوری",
+        "• 🖨 خدمات چاپ",
+        "• 🪪 حل مشکل ورود اتباع دولت من",
+        "• 👥 پنل همکاران",
+        "• 🎫 کد رهگیری تمدید کارت‌ها",
+        "• 📱 خدمات سیم کارت",
+        "• 📝 آزمون غربالگری و پیگیری",
+    ])
 
 
 async def send_main(message, extra=""):
@@ -56,7 +63,7 @@ async def start(_: Robot, message: Message):
     uid = rubika_user_id(message)
     if not uid:
         return
-    internal_id = db.user("rubika", uid, "", await user_name(message))
+    internal_id = db.user("rubika", uid, "", user_name(message))
     if not db.setting("bot_open","1")=="1":
         await message.reply("⏳ ربات موقتاً در حال بروزرسانی است.")
         return
@@ -85,16 +92,15 @@ async def all_messages(_: Robot, message: Message):
         await handle_service_answer(message, internal_id)
         return
 
-    labels = {k: button(k)[0] for k in ("services", "announcements", "support", "about", "track")}
-    if text == labels["services"] or text in ("🏢 خدمات دفتر", "خدمات"):
+        if text in ("🏢 خدمات دفتر", "خدمات", "🪪 فیدای غیر حضوری", "🖨 خدمات چاپ", "🪪 حل مشکل ورود اتباع دولت من"):
         await services_menu(message, internal_id)
-    elif text == labels["announcements"] or text == "📢 اطلاعیه‌ها":
+    elif text == "📢 اطلاعیه‌ها":
         await message.reply(setting("announcements"))
-    elif text == labels["support"] or text == "☎️ پشتیبانی":
+    elif text == "☎️ پشتیبانی":
         await message.reply(setting("support"))
-    elif text == labels["about"] or text == "ℹ️ درباره ما":
+    elif text == "ℹ️ درباره ما":
         await message.reply(setting("about"))
-    elif text == labels["track"] or text == "🔎 پیگیری درخواست":
+    elif text == "🔎 پیگیری درخواست":
         await message.reply("شماره درخواست را ارسال کنید.")
     elif text in ("📝 ثبت نام", "ثبت نام"):
         await message.reply("ثبت‌نام روبیکا در این نسخه به صورت پایه فعال است؛ شماره موبایل، کد شناسایی و شهر را می‌توانیم در مرحله بعد اضافه کنیم.")
