@@ -19,7 +19,7 @@ async def langcb(u,c):
  await q.message.reply_text("آیا اتباع هستید یا ایرانی؟",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🪪 اتباع هستم",callback_data="st:foreign"),InlineKeyboardButton("🇮🇷 ایرانی هستم",callback_data="st:iranian")]]))
 async def statuscb(u,c):
  q=u.callback_query; await q.answer(); uid=q.from_user.id; S.setdefault(uid,{})["status"]=q.data.split(":")[1]
- if S[uid]["status"]=="iranian": return await q.message.reply_text("🇮🇷 خدمات ویژه اتباع برای شما فعال نیست.",reply_markup=main(uid))
+ if S[uid]["status"]=="iranian": return await q.message.reply_text("🇮🇷 فعلاً خدماتی برای ایرانی فعال نیست.",reply_markup=kb([["👥 پنل همکاران","🎫 پیگیری"],[CANCEL]]))
  await q.message.reply_text("منوی خدمات کمک یار مهاجر 👇",reply_markup=main(uid))
 async def cancel(u,c):
  uid=u.effective_user.id; st=S.setdefault(uid,{}); partner=st.get("partner_id"); S[uid]={"status":"foreign","partner_id":partner} if partner else {"status":"foreign"}; await u.message.reply_text("لغو شد و به منوی اصلی برگشتید. ✅",reply_markup=partner_kb() if partner else main(uid))
@@ -71,7 +71,7 @@ async def media(u,c):
   if not fid:return await u.message.reply_text("تصویر را بفرستید.")
   st["gov_files"][st["field"]]=fid
   if st["field"]=="id": st["field"]="sim"; return await u.message.reply_text("📄 اگر سند سیم‌کارت دارید بفرستید؛ اگر ندارید «ندارم» بنویسید.",reply_markup=cancel_kb())
-  st["mode"]="gov_phone"; return await u.message.reply_text("📱 شماره موبایل مشتری را بفرستید.",reply_markup=cancel_kb())
+  st["mode"]="gov_phone"; return await u.message.reply_text("📱 لطفاً شماره موبایل مشترک را وارد کنید.",reply_markup=cancel_kb())
  if st.get("mode")=="print":
   if not fid:return await u.message.reply_text("عکس یا فایل بفرستید.")
   st.setdefault("files",[]).append(fid); return await u.message.reply_text(f"📎 دریافت شد ({len(st['files'])}). برای پایان «تأیید» را بزنید.",reply_markup=kb([[OK,CANCEL]]))
@@ -88,7 +88,8 @@ async def prt(u,c):
 async def service_text(u,c):
  uid=u.effective_user.id; st=S.setdefault(uid,{}); t=(u.message.text or "").strip()
  if st.get("mode")=="fida_phone":
-  amount=int(db.setting("price_fida","0")); rid,code=db.create_request(st.get("partner_id") or db.user("telegram",uid,u.effective_user.username,u.effective_user.full_name),"fida","telegram",amount); db.answer(rid,"document",file_id=st["doc"]); db.answer(rid,"phone",t)
+  amount=int(db.setting("price_fida","0")); rid,code=db.create_request(st.get("partner_id") or db.user("telegram",uid,u.effective_user.username,u.effective_user.full_name),"fida","telegram",amount); db.answer(rid,"document",file_id=st["doc"]); db.answer(rid,"phone",st["gov_phone"])
+  db.answer(rid,"dob",st["dob"])
   if st.get("partner_id"):
    p=db.conn.execute("SELECT * FROM partners WHERE id=?",(st["partner_id"],)).fetchone()
    if p and p["balance"]>=amount: db.conn.execute("UPDATE requests SET status='submitted',payment_status='paid',payment_method='partner_balance' WHERE id=?",(rid,)); db.conn.execute("UPDATE partners SET balance=balance-?,updated_at=? WHERE id=?",(amount,now(),p["id"])); db.conn.commit(); st["mode"]=None; return await u.message.reply_text(f"✅ ثبت شد.\n🎫 {code}\n💰 کسر: {amount:,} تومان",reply_markup=partner_kb())
@@ -98,7 +99,11 @@ async def service_text(u,c):
   if st["field"]=="yekta":st["gov_files"]["yekta"]=t;st["field"]="id";st["mode"]="gov_doc";return await u.message.reply_text("🪪 تصویر مدرک شناسایی را بفرستید.",reply_markup=cancel_kb())
  if st.get("mode")=="gov_doc" and st.get("field")=="sim" and t=="ندارم":st["gov_files"]["sim"]="ندارد";st["mode"]="gov_phone";return await u.message.reply_text("📱 شماره موبایل مشتری را بفرستید.",reply_markup=cancel_kb())
  if st.get("mode")=="gov_phone":
-  amount=int(db.setting("price_government","500000")); rid,code=db.create_request(st.get("partner_id") or db.user("telegram",uid,u.effective_user.username,u.effective_user.full_name),"government","telegram",amount)
+  st["gov_phone"]=t; st["mode"]="gov_dob"; return await u.message.reply_text("🎂 تاریخ تولد مشترک را به صورت 1356/01/01 وارد کنید.",reply_markup=cancel_kb())
+ if st.get("mode")=="gov_dob":
+  import re
+  if not re.fullmatch(r"1[34]\d{2}/(0[1-9]|1[0-2])/(0[1-9]|[12]\d|3[01])",t): return await u.message.reply_text("❌ تاریخ تولد را به شکل 1356/01/01 وارد کنید.",reply_markup=cancel_kb())
+  st["dob"]=t; amount=int(db.setting("price_government","500000")); rid,code=db.create_request(st.get("partner_id") or db.user("telegram",uid,u.effective_user.username,u.effective_user.full_name),"government","telegram",amount)
   for k,v in st["gov_files"].items():db.answer(rid,k,file_id=v if k in ("id","sim") and v!="ندارد" else "",answer=v if k not in ("id","sim") or v=="ندارد" else "")
   db.answer(rid,"phone",t)
   if st.get("partner_id"):
