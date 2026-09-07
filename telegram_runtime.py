@@ -1,6 +1,5 @@
 import os
 import bot as B
-from telegram import ReplyKeyboardMarkup
 from telegram.ext import MessageHandler, CallbackQueryHandler, filters
 
 
@@ -18,9 +17,13 @@ B.amenu = advanced_amenu
 
 async def extra_text(u,c):
     uid=u.effective_user.id
+    st=B.S.setdefault(uid,{})
+    # Persist the Telegram chat id after a partner logs in so status changes can be pushed automatically.
+    if st.get('partner_id'):
+        try:B.db.set_setting(f"partner_chat_{st['partner_id']}",str(u.effective_chat.id))
+        except Exception:pass
     if not B.admin(uid):
         return
-    st=B.S.setdefault(uid,{})
     t=(u.message.text or '').strip()
     step=st.get('extra_step')
     if t=='➕ افزودن همکار':
@@ -33,11 +36,13 @@ async def extra_text(u,c):
     if t=='🤖 افزودن بات':
         st['extra_step']='bot_platform'; return await u.message.reply_text('پیام‌رسان را انتخاب/ارسال کنید: telegram / rubika / bale / eitaa',reply_markup=B.amenu())
     if step=='bot_platform':
-        st['bot_platform']=t.lower(); st['extra_step']='bot_token'; return await u.message.reply_text('🔑 API Token بات را ارسال کنید.',reply_markup=B.amenu())
+        p=t.lower().replace('تلگرام','telegram').replace('روبیکا','rubika').replace('بله','bale').replace('ایتا','eitaa')
+        if p not in {'telegram','rubika','bale','eitaa'}:return await u.message.reply_text('❌ یکی از telegram / rubika / bale / eitaa را وارد کنید.',reply_markup=B.amenu())
+        st['bot_platform']=p; st['extra_step']='bot_token'; return await u.message.reply_text('🔑 API Token بات را ارسال کنید.',reply_markup=B.amenu())
     if step=='bot_token':
         st['bot_token']=t; st['extra_step']='bot_name'; return await u.message.reply_text('🤖 نام بات را ارسال کنید.',reply_markup=B.amenu())
     if step=='bot_name':
-        B.db.add_bot(st['bot_platform'],t,st['bot_token']); st['extra_step']=None; return await u.message.reply_text('✅ بات ثبت شد. این اتصال در رجیستری بات‌ها ذخیره شد و برای Adapter پیام‌رسان مربوطه آماده است.',reply_markup=B.amenu())
+        B.db.add_bot(st['bot_platform'],t,st['bot_token']); st['extra_step']=None; return await u.message.reply_text('✅ بات ثبت شد. اتصال در رجیستری ذخیره شد و آماده Adapter پیام‌رسان است.',reply_markup=B.amenu())
     if t=='🤖 بات‌های متصل':
         rows=B.db.bots(); txt='\n'.join(f"#{r['id']} | {r['platform']} | {r['bot_name']} | {'فعال' if r['active'] else 'غیرفعال'} | {r['status']}" for r in rows) or 'هیچ باتی ثبت نشده است.'
         return await u.message.reply_text(txt,reply_markup=B.amenu())
@@ -47,6 +52,14 @@ async def extra_text(u,c):
         r=B.db.conn.execute('SELECT * FROM requests WHERE tracking_code=?',(t,)).fetchone()
         if not r:return await u.message.reply_text('❌ کد پیگیری پیدا نشد.',reply_markup=B.amenu())
         B.db.conn.execute("UPDATE requests SET status='completed',updated_at=? WHERE id=?",(B.now(),r['id'])); B.db.conn.commit(); st['extra_step']=None
+        partner_id=None
+        pr=B.db.conn.execute("SELECT answer FROM request_answers WHERE request_id=? AND field_key='partner_id' ORDER BY id DESC LIMIT 1",(r['id'],)).fetchone()
+        if pr: partner_id=pr['answer']
+        if partner_id:
+            row=B.db.conn.execute("SELECT value FROM settings WHERE key=?",(f'partner_chat_{partner_id}',)).fetchone()
+            if row and row['value']:
+                try: await c.bot.send_message(chat_id=row['value'],text=f"🔔 وضعیت درخواست شما تغییر کرد.\n🎫 کد پیگیری: {r['tracking_code']}\n📌 وضعیت جدید: انجام شد ✅")
+                except Exception: pass
         await u.message.reply_text(f'✅ خدمت {t} به‌عنوان انجام‌شده ثبت شد.',reply_markup=B.amenu())
         return
 
@@ -56,7 +69,6 @@ async def extra_cb(u,c):
 
 def build():
     app=B.build()
-    # Group -1 runs before the original generic text router, so admin-only extensions are not swallowed.
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, extra_text), group=-1)
     app.add_handler(CallbackQueryHandler(extra_cb), group=-1)
     return app
