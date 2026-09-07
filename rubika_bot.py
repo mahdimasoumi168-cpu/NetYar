@@ -344,6 +344,11 @@ def handle_text(uid, chat, text):
     if step == "gov_yekta":
         st["yekta"]=text; st["step"]="gov_id"; send(chat,t(uid,"id"),buttons([[("0","❌ Cancel")]])); return
 
+    if step == "gov_sim" and text in {"ندارم","No","No document","لا يوجد"}:
+        st["sim_document"]=""
+        st["step"]="gov_phone"
+        send(chat,t(uid,"phone"),buttons([[("0","❌ Cancel")]])); return
+
     if step == "gov_phone":
         st["phone"]=text; st["step"]="gov_dob"; send(chat,t(uid,"dob"),buttons([[("0","❌ Cancel")]])); return
 
@@ -442,7 +447,7 @@ def process_update(update):
     if not isinstance(update,dict): return
     chat=str(update.get("chat_id") or "")
     msg=message_payload(update)
-    uid=sender_id(msg)
+    uid=sender_id(msg) or chat
     if not chat or not uid: return
     if msg.get("sender_type")=="Bot": return
     db.user("rubika",uid,"",str(msg.get("first_name") or msg.get("username") or ""))
