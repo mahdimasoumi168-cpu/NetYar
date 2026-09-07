@@ -62,13 +62,13 @@ def monitor():
             if p.poll() is not None:
                 try: children.remove((p,name))
                 except ValueError: pass
-                try: children.append((subprocess.Popen([sys.executable,"bot.py" if name=="telegram" else "rubika_hotfix.py"],env={**os.environ,"TELEGRAM_WEBHOOK_URL":""}),name))
+                try: children.append((subprocess.Popen([sys.executable,"bot.py" if name=="telegram" else "rubika_entry.py"],env={**os.environ,"TELEGRAM_WEBHOOK_URL":""}),name))
                 except Exception: pass
 
 def main():
     init_db()
     start_child("bot.py","telegram")
-    start_child("rubika_hotfix.py","rubika")
+    start_child("rubika_entry.py","rubika")
     threading.Thread(target=monitor,daemon=True).start()
     import uvicorn
     uvicorn.run(api,host="0.0.0.0",port=int(os.getenv("PORT","8080")),log_level="info")
