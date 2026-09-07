@@ -1,151 +1,177 @@
-import os, time, logging, requests
-from core import db, check_password
-
-logging.basicConfig(format='%(asctime)s | %(levelname)s | %(message)s', level=logging.INFO)
-log=logging.getLogger('netyar.rubika')
-TOKEN=os.getenv('RUBIKA_BOT_TOKEN','').strip()
+import os,time,re,logging,requests
+from core import db,check_password,now
+logging.basicConfig(level=logging.INFO,format='%(asctime)s | %(levelname)s | %(message)s'); log=logging.getLogger('rubika')
+TOKEN=os.getenv('RUBIKA_BOT_TOKEN','').strip(); BASE=f'https://botapi.rubika.ir/v3/{TOKEN}'
 if not TOKEN: raise RuntimeError('RUBIKA_BOT_TOKEN is missing')
-BASE=f'https://botapi.rubika.ir/v3/{TOKEN}'
-S={}
-CANCEL='❌ انصراف'; OK='✅ تأیید'
-TEXT={
-'fa':{'lang':'🌐 زبان را انتخاب کنید:','cit':'آیا اتباع هستید یا ایرانی؟','iran':'🇮🇷 فعلاً خدماتی برای ایرانی فعال نیست.','menu':'سلام 👋\nخدمت موردنظر را انتخاب کنید:','track':'🎫 کد پیگیری را وارد کنید.','login_phone':'📱 شماره همراه همکار را وارد کنید.','login_pass':'🔐 رمز عبور همکار را وارد کنید.','bad_login':'❌ شماره همراه یا رمز عبور نادرست است.','no_partner':'❌ همکار پیدا نشد.','balance':'💰 موجودی اعتبار شما: {amount:,} تومان','cancel':'عملیات لغو شد. به منوی اصلی برگشتید. ✅','bad':'لطفاً یکی از گزینه‌های نمایش‌داده‌شده را انتخاب کنید.','print':'🖨 نوع چاپ را انتخاب کنید:','side':'📄 نوع چاپ را انتخاب کنید:','copies':'🔢 تعداد نسخه موردنیاز از هر صفحه را وارد کنید.','files':'📎 فایل‌ها یا عکس‌ها را یکی‌یکی ارسال کنید. در پایان «تأیید» را بزنید.','fida':'🪪 تصویر مدرک شناسایی مشترک را ارسال کنید.','fida_phone':'📱 شماره موبایل مشترک را وارد کنید.','gov_fida':'🆔 شناسه فیدا/اختصاصی مشترک را وارد کنید.','gov_yekta':'🔢 شناسه یکتای مشترک را وارد کنید.','id':'🪪 تصویر مدرک شناسایی مشترک را ارسال کنید.','phone':'📱 شماره موبایل مشترک را وارد کنید. سیم‌کارت باید به نام خود مشترک باشد.','dob':'🎂 تاریخ تولد مشترک را به صورت 1356/01/01 وارد کنید.','doc':'📄 اگر سند سیم‌کارت دارید تصویر آن را ارسال کنید؛ در غیر این صورت «ندارم» را بزنید.'},
-'en':{'lang':'🌐 Choose your language:','cit':'Are you a foreign national or Iranian?','iran':'🇮🇷 Services are currently unavailable for Iranian users.','menu':'Hello 👋\nChoose a service:','track':'🎫 Enter the tracking code.','login_phone':'📱 Enter your partner phone number.','login_pass':'🔐 Enter your partner password.','bad_login':'❌ Invalid phone or password.','no_partner':'❌ Partner not found.','balance':'💰 Your balance: {amount:,} toman','cancel':'Operation cancelled. Back to the main menu. ✅','bad':'Please choose one of the displayed options.','print':'🖨 Choose print type:','side':'📄 Choose printing mode:','copies':'🔢 Enter copies per page.','files':'📎 Send files/images one by one. Choose Confirm when finished.','fida':'🪪 Send the customer identification document.','fida_phone':'📱 Enter the customer mobile number.','gov_fida':'🆔 Enter the customer FIDA/special ID.','gov_yekta':'🔢 Enter the customer unique ID.','id':'🪪 Send the customer identification document.','phone':'📱 Enter the customer mobile number. The SIM must be registered to the customer.','dob':'🎂 Enter the customer birth date as 1356/01/01.','doc':'📄 Send the SIM ownership document, or choose No.'},
-'ar':{'lang':'🌐 اختر اللغة:','cit':'هل أنت من الرعايا الأجانب أم إيراني؟','iran':'🇮🇷 الخدمات غير متاحة حالياً للمستخدمين الإيرانيين.','menu':'مرحباً 👋\nاختر الخدمة:','track':'🎫 أدخل رمز المتابعة.','login_phone':'📱 أدخل رقم هاتف الشريك.','login_pass':'🔐 أدخل كلمة مرور الشريك.','bad_login':'❌ رقم الهاتف أو كلمة المرور غير صحيحة.','no_partner':'❌ لم يتم العثور على الشريك.','balance':'💰 رصيدك: {amount:,} تومان','cancel':'تم إلغاء العملية والعودة إلى القائمة الرئيسية. ✅','bad':'يرجى اختيار أحد الخيارات المعروضة.','print':'🖨 اختر نوع الطباعة:','side':'📄 اختر طريقة الطباعة:','copies':'🔢 أدخل عدد النسخ لكل صفحة.','files':'📎 أرسل الملفات أو الصور. عند الانتهاء اختر تأكيد.','fida':'🪪 أرسل صورة وثيقة هوية العميل.','fida_phone':'📱 أدخل رقم هاتف العميل.','gov_fida':'🆔 أدخل رقم فيدا/الرقم الخاص بالعميل.','gov_yekta':'🔢 أدخل المعرف الفريد للعميل.','id':'🪪 أرسل صورة وثيقة هوية العميل.','phone':'📱 أدخل رقم هاتف العميل. يجب أن تكون الشريحة مسجلة باسم العميل.','dob':'🎂 أدخل تاريخ الميلاد بالشكل 1356/01/01.','doc':'📄 أرسل وثيقة ملكية الشريحة أو اختر لا يوجد.'}}
-
-def call(method,payload=None):
- r=requests.post(f'{BASE}/{method}',json=payload or {},timeout=35); r.raise_for_status(); b=r.json(); return b.get('data',b) if isinstance(b,dict) else b
-
-def kb(rows): return [[(str(i),label) for i,label in row] for row in rows]
-def send(chat,text,rows=None):
- p={'chat_id':str(chat),'text':text}
- if rows:
-  p.update(chat_keypad_type='New',chat_keypad={'rows':[{'buttons':[{'id':i,'type':'Simple','button_text':label} for i,label in row]} for row in rows],'resize_keyboard':True,'one_time_keyboard':False})
- for n in range(3):
-  try:return call('sendMessage',p)
+S={}; CANCEL='❌ انصراف'; OK='✅ تأیید'; ADM={x.strip() for x in os.getenv('ADMIN_IDS','').replace(';',',').split(',') if x.strip()}; ACMD=os.getenv('ADMIN_COMMAND','/Admin2025')
+T={'fa':{'lang':'🌐 زبان را انتخاب کنید:','cit':'آیا اتباع هستید یا ایرانی؟','iran':'🇮🇷 فعلاً خدماتی برای ایرانی فعال نیست.','menu':'سلام 👋\nبه بات «کمک یار مهاجر» خوش آمدید.\nخدمت موردنظر را انتخاب کنید:','phone':'📱 شماره موبایل مشترک را وارد کنید.','pass':'🔐 رمز عبور همکار را وارد کنید.','bad':'❌ اطلاعات واردشده صحیح نیست.','bal':'💰 موجودی: {n:,} تومان','track':'🎫 کد پیگیری را وارد کنید.','id':'🪪 تصویر مدرک شناسایی مشترک را ارسال کنید.','fida':'🆔 فیدا/اختصاصی مشترک را وارد کنید.','yekta':'🔢 یکتای مشترک را وارد کنید.','dob':'🎂 تاریخ تولد مشترک را مثل 1356/01/01 وارد کنید.','govphone':'📱 شماره موبایل مشترک را وارد کنید.','print':'🖨 سیاه‌وسفید یا رنگی؟','side':'📄 یک‌رو یا پشت‌ورو؟','copies':'🔢 تعداد نسخه از هر صفحه را وارد کنید.','files':'📎 فایل‌ها/عکس‌ها را بفرستید؛ پایان: تأیید.','admin':'🛠 پنل مدیریت پیشرفته','saved':'✅ ذخیره شد.','no':'❌ موردی پیدا نشد.'},'en':{'lang':'🌐 Choose language:','cit':'Foreign national or Iranian?','iran':'🇮🇷 Services are currently unavailable for Iranian users.','menu':'Hello 👋\nWelcome to Mohajer Helper.\nChoose a service:','phone':'📱 Enter customer mobile.','pass':'🔐 Enter partner password.','bad':'❌ Invalid information.','bal':'💰 Balance: {n:,} toman','track':'🎫 Enter tracking code.','id':'🪪 Send customer ID document.','fida':'🆔 Enter customer FIDA/special ID.','yekta':'🔢 Enter customer unique ID.','dob':'🎂 Enter birth date like 1356/01/01.','govphone':'📱 Enter customer mobile.','print':'🖨 Black/white or color?','side':'📄 One-sided or two-sided?','copies':'🔢 Enter copies per page.','files':'📎 Send files/images; Confirm when finished.','admin':'🛠 Advanced admin panel','saved':'✅ Saved.','no':'❌ Not found.'},'ar':{'lang':'🌐 اختر اللغة:','cit':'هل أنت أجنبي أم إيراني؟','iran':'🇮🇷 الخدمات غير متاحة حالياً للمستخدمين الإيرانيين.','menu':'مرحباً 👋\nأهلاً بكم في مساعد المهاجر.\nاختر الخدمة:','phone':'📱 أدخل رقم هاتف العميل.','pass':'🔐 أدخل كلمة مرور الشريك.','bad':'❌ المعلومات غير صحيحة.','bal':'💰 الرصيد: {n:,} تومان','track':'🎫 أدخل رمز المتابعة.','id':'🪪 أرسل وثيقة هوية العميل.','fida':'🆔 أدخل رقم فيدا.','yekta':'🔢 أدخل المعرف الفريد.','dob':'🎂 أدخل تاريخ الميلاد مثل 1356/01/01.','govphone':'📱 أدخل هاتف العميل.','print':'🖨 أبيض وأسود أم ملون؟','side':'📄 أحادي أم مزدوج؟','copies':'🔢 أدخل عدد النسخ.','files':'📎 أرسل الملفات ثم تأكيد.','admin':'🛠 لوحة الإدارة المتقدمة','saved':'✅ تم الحفظ.','no':'❌ غير موجود.'}}
+def api(m,p=None):
+ r=requests.post(f'{BASE}/{m}',json=p or {},timeout=30);r.raise_for_status();b=r.json();return b.get('data',b) if isinstance(b,dict) else b
+def btn(*rs):return [[{'id':str(i),'type':'Simple','button_text':t} for i,t in r] for r in rs]
+def send(c,text,rs=None):
+ p={'chat_id':str(c),'text':text}
+ if rs:p.update(chat_keypad_type='New',chat_keypad={'rows':btn(*rs),'resize_keyboard':True,'one_time_keyboard':False})
+ for i in range(3):
+  try:return api('sendMessage',p)
   except requests.RequestException:
-   if n==2: raise
-   time.sleep(1+n)
-
-def lang(uid): return S.get(uid,{}).get('lang','fa')
-def T(uid,k,**kw): return TEXT[lang(uid)][k].format(**kw)
-def lang_menu(): return kb([[('1','🇮🇷 فارسی'),('2','🇬🇧 English'),('3','🇸🇦 العربية')]])
-def choose_lang(x): return {'1':'fa','2':'en','3':'ar','فارسی':'fa','🇮🇷 فارسی':'fa','English':'en','🇬🇧 English':'en','العربية':'ar','🇸🇦 العربية':'ar'}.get(x.strip())
-def cit_menu(l): return kb([[('1','🪪 اتباع هستم' if l=='fa' else '🪪 Foreign national' if l=='en' else '🪪 أجنبي'),('2','🇮🇷 ایرانی هستم' if l=='fa' else '🇮🇷 Iranian' if l=='en' else '🇮🇷 إيراني')]])
-def main(l):
- if l=='en': rows=[[('1','🪪 FIDA non-in-person'),('2','🖨 Printing')],[('3','🏛 Government access issue'),('4','🎫 Tracking')],[('5','📱 SIM services'),('6','📝 Screening & follow-up')],[('7','💰 My wallet'),('8','👥 Partner panel')],[('9','📞 Contact us'),('0','❌ Cancel')]]
- elif l=='ar': rows=[[('1','🪪 خدمة فيدا'),('2','🖨 الطباعة')],[('3','🏛 مشكلة خدمات الحكومة'),('4','🎫 متابعة')],[('5','📱 خدمات الشريحة'),('6','📝 الفحص والمتابعة')],[('7','💰 محفظتي'),('8','👥 لوحة الشركاء')],[('9','📞 اتصل بنا'),('0','❌ إلغاء')]]
- else: rows=[[('1','🪪 فیدای غیر حضوری'),('2','🖨 خدمات چاپ')],[('3','🏛 حل مشکل ورود اتباع دولت من'),('4','🎫 پیگیری')],[('5','📱 خدمات سیم کارت'),('6','📝 آزمون غربالگری و پیگیری')],[('7','💰 کیف پول من'),('8','👥 پنل همکاران')],[('9','📞 تماس با ما'),('0',CANCEL)]]
- return kb(rows)
-def cancel(uid,chat):
- l=lang(uid); partner=S.get(uid,{}).get('partner_id'); S[uid]={'lang':l,'step':'menu','status':'foreign','partner_id':partner}; send(chat,T(uid,'cancel'),main(l))
-def text_from(msg):
- x=str(msg.get('text') or '').strip()
- if x:return x
- a=msg.get('aux_data') or {}
- if isinstance(a,dict): return str(a.get('button_id') or '').strip()
- return ''
-def file_id(msg):
- f=msg.get('file')
- if isinstance(f,dict) and f.get('file_id'): return str(f['file_id'])
- return str(msg.get('file_id') or '')
-def handle(uid,chat,x):
- st=S.setdefault(uid,{'lang':'fa','step':'language'}); step=st.get('step'); l=st.get('lang','fa')
- if x in {CANCEL,'0','انصراف','لغو','Cancel','cancel','إلغاء'}: cancel(uid,chat); return
- if step=='language':
-  z=choose_lang(x)
-  if not z: send(chat,TEXT['fa']['lang'],lang_menu()); return
-  st['lang']=z; st['step']='citizenship'; send(chat,TEXT[z]['cit'],cit_menu(z)); return
- if step=='citizenship':
-  if x=='1': st['status']='foreign'; st['step']='menu'; send(chat,T(uid,'menu'),main(l)); return
-  if x=='2': st['status']='iranian'; st['step']='iranian'; send(chat,T(uid,'iran'),kb([[('1','👥 پنل همکاران' if l=='fa' else '👥 Partner panel'),('2','🎫 پیگیری' if l=='fa' else '🎫 Track')]])); return
-  send(chat,T(uid,'bad'),cit_menu(l)); return
- if step=='iranian':
-  if x=='1': st['step']='partner_phone'; send(chat,T(uid,'login_phone'),kb([[('0','❌ Cancel')]])); return
-  if x=='2': st['step']='track'; send(chat,T(uid,'track'),kb([[('0','❌ Cancel')]])); return
-  send(chat,T(uid,'iran')); return
- if step=='menu':
-  if x.startswith('1'): st['step']='fida_doc'; send(chat,T(uid,'fida'),kb([[('0','❌ Cancel')]])); return
-  if x.startswith('2'): st['step']='print_color'; send(chat,T(uid,'print'),kb([[('1','⚫ سیاه و سفید' if l=='fa' else '⚫ Black & white' if l=='en' else '⚫ أبيض وأسود'),('2','🌈 رنگی' if l=='fa' else '🌈 Color' if l=='en' else '🌈 ملون')],[('0','❌ Cancel')]])); return
-  if x.startswith('3'): st['step']='gov_fida'; send(chat,T(uid,'gov_fida'),kb([[('0','❌ Cancel')]])); return
-  if x.startswith('4'): st['step']='track'; send(chat,T(uid,'track'),kb([[('0','❌ Cancel')]])); return
+   if i==2:raise
+   time.sleep(i+1)
+def lang(u):return S.get(str(u),{}).get('lang','fa')
+def tr(u,k,**kw):return T[lang(u)][k].format(**kw)
+def menus(l):
+ if l=='en':return [('1','🪪 FIDA'),('2','🖨 Print')],[('3','🏛 Government'),('4','🎫 Tracking')],[('5','📱 SIM'),('6','📝 Screening')],[('7','💰 Wallet'),('8','👥 Partner panel')],[('0',CANCEL)]
+ if l=='ar':return [('1','🪪 فيدا'),('2','🖨 طباعة')],[('3','🏛 الحكومة'),('4','🎫 متابعة')],[('5','📱 شريحة'),('6','📝 فحص')],[('7','💰 محفظتي'),('8','👥 الشركاء')],[('0','❌ إلغاء')]
+ return [('1','🪪 فیدای غیر حضوری'),('2','🖨 خدمات چاپ')],[('3','🏛 حل مشکل دولت من'),('4','🎫 پیگیری')],[('5','📱 خدمات سیم کارت'),('6','📝 آزمون غربالگری و پیگیری')],[('7','💰 کیف پول من'),('8','👥 پنل همکاران')],[('0',CANCEL)]
+def mainkb(l):return menus(l)
+def notify(text):
+ for a in ADM:
+  try:send(a,text)
+  except:pass
+def newreq(uid,key,amount):
+ u=db.user('rubika',str(uid));return db.create_request(u,key,'rubika',int(amount))
+def cancel(u,c):
+ p=S.get(str(u),{}).get('partner_id');S[str(u)]={'lang':lang(u),'step':'menu','partner_id':p};send(c,'عملیات لغو شد. به منوی اصلی برگشتید. ✅',mainkb(lang(u)))
+def txt(m):
+ if not isinstance(m,dict):return ''
+ if m.get('text'):return str(m['text']).strip()
+ a=m.get('aux_data') or {};return str(a.get('button_id') or a.get('text') or '').strip() if isinstance(a,dict) else ''
+def fid(m):
+ f=m.get('file') if isinstance(m,dict) else None;return f.get('file_id') if isinstance(f,dict) else ''
+def handle(u,c,x,m):
+ u=str(u);s=S.setdefault(u,{'lang':'fa','step':'language'});st=s['step'];l=lang(u)
+ if x in {CANCEL,'0','انصراف','لغو','Cancel','cancel','إلغاء'}:return cancel(u,c)
+ if x==ACMD:
+  if u not in ADM:return send(c,'⛔ دسترسی مدیریت ندارید.')
+  s['admin']=1;s['step']='admin';return send(c,tr(u,'admin')+'\nگزینه را انتخاب کنید:',admin_kb())
+ if st=='language':
+  z={'1':'fa','2':'en','3':'ar','فارسی':'fa','🇮🇷 فارسی':'fa','English':'en','🇬🇧 English':'en','العربية':'ar','🇸🇦 العربية':'ar'}.get(x)
+  if not z:return send(c,T['fa']['lang'],[[('1','🇮🇷 فارسی'),('2','🇬🇧 English'),('3','🇸🇦 العربية')]])
+  s['lang']=z;s['step']='cit';return send(c,T[z]['cit'],[[('1','🪪 اتباع هستم'),('2','🇮🇷 ایرانی هستم')]])
+ if st=='cit':
+  if x=='1':s['step']='menu';return send(c,tr(u,'menu'),mainkb(l))
+  if x=='2':s['step']='iran';return send(c,tr(u,'iran'),[[('1','👥 پنل همکاران'),('2','🎫 پیگیری')]])
+ if st=='iran':
+  if x=='1':s['step']='pp';return send(c,tr(u,'phone'),[[('0',CANCEL)]])
+  if x=='2':s['step']='track';return send(c,tr(u,'track'),[[('0',CANCEL)]])
+ if st=='menu':
+  if x.startswith('1'):s['step']='fidaid';return send(c,tr(u,'id'),[[('0',CANCEL)]])
+  if x.startswith('2'):s['step']='pc';return send(c,tr(u,'print'),[[('1','⚫ سیاه‌وسفید'),('2','🌈 رنگی')],[('0',CANCEL)]])
+  if x.startswith('3'):s['step']='gf';return send(c,tr(u,'fida'),[[('0',CANCEL)]])
+  if x.startswith('4'):s['step']='track';return send(c,tr(u,'track'),[[('0',CANCEL)]])
   if x.startswith('7'):
-   p=st.get('partner_id'); row=db.conn.execute('SELECT balance FROM partners WHERE id=?',(p,)).fetchone() if p else None; send(chat,T(uid,'balance',amount=int(row['balance']) if row else 0),main(l)); return
-  if x.startswith('8'): st['step']='partner_phone'; send(chat,T(uid,'login_phone'),kb([[('0','❌ Cancel')]])); return
-  send(chat,T(uid,'menu'),main(l)); return
- if step=='partner_phone':
+   r=db.conn.execute('SELECT balance FROM partners WHERE id=?',(s.get('partner_id'),)).fetchone() if s.get('partner_id') else None;return send(c,tr(u,'bal',n=int(r['balance']) if r else 0),mainkb(l))
+  if x.startswith('8'):s['step']='pp';return send(c,tr(u,'phone'),[[('0',CANCEL)]])
+  return send(c,tr(u,'menu'),mainkb(l))
+ if st=='pp':
   p=db.partner(x)
-  if not p: send(chat,T(uid,'no_partner')); return
-  st['phone']=x; st['step']='partner_pass'; send(chat,T(uid,'login_pass'),kb([[('0','❌ Cancel')]])); return
- if step=='partner_pass':
-  p=db.partner(st.get('phone',''))
-  if not p or not check_password(x,p['password_hash']): send(chat,T(uid,'bad_login')); return
-  st['partner_id']=p['id']; st['step']='partner_menu'; send(chat,T(uid,'balance',amount=int(p['balance'])),kb([[('1','➕ شارژ حساب'),('2','🔎 پیگیری کد')],[('3','📋 سوابق'),('4','💰 موجودی')],[('0','❌ انصراف')]])); return
- if step=='track':
-  r=db.conn.execute('SELECT * FROM requests WHERE tracking_code=?',(x,)).fetchone(); send(chat,(f"🎫 {r['tracking_code']}\n📌 وضعیت: {r['status']}\n💳 پرداخت: {r['payment_status']}\n💰 مبلغ: {r['amount']:,} تومان" if r else '❌ کد پیگیری پیدا نشد.'),main(l)); st['step']='menu'; return
- if step=='print_color':
-  if x not in {'1','2'}: send(chat,T(uid,'print')); return
-  st['color']='bw' if x=='1' else 'color'; st['step']='print_side'; send(chat,T(uid,'side'),kb([[('1','📄 یک‌رو'),('2','🔄 پشت‌ورو')],[('0','❌ Cancel')]])); return
- if step=='print_side':
-  if x not in {'1','2'}: send(chat,T(uid,'side')); return
-  st['side']='single' if x=='1' else 'double'; st['step']='print_copies'; send(chat,T(uid,'copies'),kb([[('0','❌ Cancel')]])); return
- if step=='print_copies':
-  if not x.isdigit() or int(x)<1: send(chat,T(uid,'copies')); return
-  st['copies']=int(x); st['step']='print_files'; st['files']=[]; send(chat,T(uid,'files'),kb([[('1',OK)],[('0','❌ Cancel')]])); return
- if step=='partner_menu':
-  if x.startswith('1'): st['step']='topup_amount'; send(chat,'💰 مبلغ شارژ را به تومان وارد کنید.',kb([[('0','❌ انصراف')]])); return
-  if x.startswith('2'): st['step']='partner_track'; send(chat,T(uid,'track'),kb([[('0','❌ انصراف')]])); return
-  if x.startswith('4'):
-   p=db.conn.execute('SELECT balance FROM partners WHERE id=?',(st['partner_id'],)).fetchone(); send(chat,T(uid,'balance',amount=int(p['balance']) if p else 0)); return
-  send(chat,T(uid,'bad'))
- if step=='topup_amount':
-  import re
-  try:a=int(re.sub(r'[^0-9]','',x))
-  except:a=0
-  if a<=0: send(chat,'💰 مبلغ شارژ را به تومان وارد کنید.'); return
-  st['topup_amount']=a; st['step']='topup_receipt'; send(chat,f'💳 {a:,} تومان\nکارت: {db.setting("card_number")}\nبه نام: {db.setting("card_owner")}\n\n📸 رسید واریز را ارسال کنید.'); return
- if step=='partner_track':
-  r=db.conn.execute('SELECT * FROM requests WHERE tracking_code=? AND user_id=?',(x,st['partner_id'])).fetchone(); send(chat,(f"🎫 {r['tracking_code']}\n📌 وضعیت: {r['status']}\n💰 مبلغ: {r['amount']:,} تومان" if r else '❌ کد پیگیری پیدا نشد.')); st['step']='partner_menu'; return
- if step=='fida_phone': st['phone']=x; send(chat,'✅ اطلاعات دریافت شد.'); st['step']='menu'; return
- if step=='gov_fida': st['fida_id']=x; st['step']='gov_yekta'; send(chat,T(uid,'gov_yekta')); return
- if step=='gov_yekta': st['yekta']=x; st['step']='gov_id'; send(chat,T(uid,'id')); return
- if step=='gov_phone': st['phone']=x; st['step']='gov_dob'; send(chat,T(uid,'dob')); return
- if step=='gov_dob': st['dob']=x; st['step']='menu'; send(chat,'✅ اطلاعات دریافت شد. درخواست برای بررسی ثبت می‌شود.',main(l)); return
- send(chat,T(uid,'bad'))
-
-def media(uid,chat,msg):
- fid=file_id(msg); st=S.setdefault(uid,{'lang':'fa','step':'language'}); step=st.get('step')
- if not fid: send(chat,T(uid,'bad')); return
- if step=='fida_doc': st['doc']=fid; st['step']='fida_phone'; send(chat,T(uid,'fida_phone')); return
- if step=='gov_id': st['id_document']=fid; st['step']='gov_phone'; send(chat,T(uid,'phone')); return
- if step=='print_files': st.setdefault('files',[]).append(fid); send(chat,T(uid,'files'),kb([[('1',OK)],[('0','❌ Cancel')]])); return
- if step=='topup_receipt': db.add_topup(st['partner_id'],int(st['topup_amount']),fid); st['step']='partner_menu'; send(chat,'✅ رسید شارژ ثبت شد.',kb([[('1','➕ شارژ حساب'),('2','🔎 پیگیری کد')]])); return
- send(chat,T(uid,'bad'))
-
-def process(upd):
- if not isinstance(upd,dict): return
- chat=str(upd.get('chat_id') or ''); msg=upd.get('new_message') or upd.get('updated_message') or {}
- if not chat or not isinstance(msg,dict) or msg.get('sender_type')=='Bot': return
- uid=chat
- if upd.get('type')=='StartedBot':
-  if uid not in S:S[uid]={'lang':'fa','step':'language'}
-  send(chat,TEXT['fa']['lang'],lang_menu()); return
- x=text_from(msg)
- if x=='/start': S[uid]={'lang':'fa','step':'language'}; send(chat,TEXT['fa']['lang'],lang_menu()); return
- if file_id(msg): media(uid,chat,msg); return
- handle(uid,chat,x)
-
-def run():
- log.info('Rubika getMe OK: %s',call('getMe')); off=None; log.info('NetYar Rubika polling started')
+  if not p:return send(c,tr(u,'bad'))
+  s['phone']=x;s['step']='pw';return send(c,tr(u,'pass'),[[('0',CANCEL)]])
+ if st=='pw':
+  p=db.partner(s.get('phone',''))
+  if not p or not check_password(x,p['password_hash']):return send(c,tr(u,'bad'))
+  s['partner_id']=p['id'];s['step']='pm';return send(c,'👥 پنل همکاران\n'+tr(u,'bal',n=int(p['balance'])),partner_kb())
+ if st=='pm':
+  if x=='1':s['step']='ta';return send(c,'💰 مبلغ شارژ را به تومان وارد کنید.')
+  if x=='2':s['step']='track';return send(c,tr(u,'track'))
+  if x=='4':
+   r=db.conn.execute('SELECT balance FROM partners WHERE id=?',(s['partner_id'],)).fetchone();return send(c,tr(u,'bal',n=int(r['balance'])),partner_kb())
+  if x=='3':
+   rs=db.conn.execute('SELECT tracking_code,service_key,status,amount FROM requests ORDER BY id DESC LIMIT 20').fetchall();return send(c,'\n'.join(f"🎫 {r['tracking_code']} | {r['service_key']} | {r['status']} | {int(r['amount']):,}" for r in rs) or tr(u,'no'),partner_kb())
+  return send(c,'👥 پنل همکاران',partner_kb())
+ if st=='ta':
+  if not x.isdigit() or int(x)<=0:return send(c,'💰 مبلغ شارژ را به تومان وارد کنید.')
+  s['ta']=int(x);s['step']='tr';return send(c,'📸 رسید واریز را ارسال کنید.')
+ if st=='tr':
+  f=fid(m)
+  if not f:return send(c,'📸 رسید واریز را ارسال کنید.')
+  tid=db.add_topup(s['partner_id'],s['ta'],f);notify(f'💰 شارژ جدید همکار #{tid}\nشماره: {s.get("phone")}\nمبلغ: {s["ta"]:,} تومان');s['step']='pm';return send(c,f'✅ رسید شارژ #{tid} ثبت شد و منتظر تأیید مدیر است.',partner_kb())
+ if st=='track':
+  r=db.conn.execute('SELECT * FROM requests WHERE tracking_code=?',(x,)).fetchone();return send(c,(f"🎫 {r['tracking_code']}\n📌 وضعیت: {r['status']}\n💳 پرداخت: {r['payment_status']}\n💰 مبلغ: {int(r['amount']):,} تومان" if r else tr(u,'no')),mainkb(l))
+ if st=='fidaid':
+  if not fid(m):return send(c,tr(u,'id'))
+  s['step']='fidaph';s['fidaid']=fid(m);return send(c,tr(u,'phone'))
+ if st=='fidaph':
+  amount=int(db.setting('price_fida','0') or 0);_,code=newreq(u,'fida',amount);notify(f'🪪 فیدا جدید\n🎫 {code}\nکاربر: {u}\nموبایل مشترک: {x}');s['step']='menu';return send(c,f'✅ درخواست ثبت شد.\n🎫 کد پیگیری: {code}',mainkb(l))
+ if st=='pc':s['color']='bw' if x=='1' else 'color';s['step']='ps';return send(c,tr(u,'side'),[[('1','📄 یک‌رو'),('2','📑 پشت‌ورو')],[('0',CANCEL)]])
+ if st=='ps':s['side']='single' if x=='1' else 'duplex';s['step']='copies';return send(c,tr(u,'copies'))
+ if st=='copies':
+  if not x.isdigit() or int(x)<1:return send(c,tr(u,'copies'))
+  s['copies']=int(x);s['step']='files';s['files']=[];return send(c,tr(u,'files'),[[('1',OK),('0',CANCEL)]])
+ if st=='files':
+  if fid(m):s['files'].append(fid(m));return send(c,'✅ دریافت شد. مورد بعدی را بفرستید یا تأیید را بزنید.',[[('1',OK),('0',CANCEL)]])
+  if x==OK and s['files']:
+   key='price_print_color' if s['color']=='color' else 'price_print_bw';amount=int(db.setting(key,'0') or 0)*s['copies'];_,code=newreq(u,'print',amount);notify(f'🖨 چاپ جدید\n🎫 {code}\nکاربر: {u}\nفایل: {len(s["files"])}\nمبلغ: {amount:,} تومان');s['step']='menu';return send(c,f'✅ درخواست ثبت شد.\n🎫 کد پیگیری: {code}',mainkb(l))
+  return send(c,tr(u,'files'),[[('1',OK),('0',CANCEL)]])
+ if st=='gf':s['gf']=x;s['step']='gy';return send(c,tr(u,'yekta'))
+ if st=='gy':s['gy']=x;s['step']='dob';return send(c,tr(u,'dob'))
+ if st=='dob':
+  if not re.fullmatch(r'\d{4}/\d{2}/\d{2}',x):return send(c,tr(u,'dob'))
+  s['dob']=x;s['step']='gid';return send(c,tr(u,'id'))
+ if st=='gid':
+  if not fid(m):return send(c,tr(u,'id'))
+  s['gid']=fid(m);s['step']='gp';return send(c,tr(u,'govphone'))
+ if st=='gp':
+  amount=int(db.setting('price_government','500000') or 500000);_,code=newreq(u,'government',amount);notify(f'🏛 دولت من جدید\n🎫 {code}\nکاربر: {u}\nفیدا: {s.get("gf")}\nیکتا: {s.get("gy")}\nتولد: {s.get("dob")}\nموبایل: {x}\nمبلغ: {amount:,} تومان');s['step']='menu';return send(c,f'✅ درخواست ثبت شد.\n🎫 کد پیگیری: {code}\n💰 مبلغ: {amount:,} تومان',mainkb(l))
+ if st.startswith('admin'):return admin(u,c,x)
+ return send(c,tr(u,'menu'),mainkb(l))
+def partner_kb():return [[{'id':'1','type':'Simple','button_text':'➕ شارژ حساب'},{'id':'2','type':'Simple','button_text':'🔎 پیگیری کد'}],[{'id':'3','type':'Simple','button_text':'📋 سوابق'},{'id':'4','type':'Simple','button_text':'💰 موجودی'}],[{'id':'0','type':'Simple','button_text':CANCEL}]]
+def admin_kb():return [[{'id':'1','type':'Simple','button_text':'👥 همکاران'},{'id':'2','type':'Simple','button_text':'➕ افزودن همکار'}],[{'id':'3','type':'Simple','button_text':'💰 شارژها'},{'id':'4','type':'Simple','button_text':'📋 درخواست‌ها'}],[{'id':'5','type':'Simple','button_text':'💳 پرداخت‌ها'},{'id':'6','type':'Simple','button_text':'⚙️ قیمت‌ها'}],[{'id':'7','type':'Simple','button_text':'🤖 افزودن بات'},{'id':'8','type':'Simple','button_text':'🤖 بات‌ها'}],[{'id':'9','type':'Simple','button_text':'📊 گزارش'},{'id':'0','type':'Simple','button_text':CANCEL}]]
+def admin(u,c,x):
+ if u not in ADM:return send(c,'⛔ دسترسی مدیریت ندارید.')
+ s=S[u];st=s['step']
+ if st=='admin':
+  if x=='1':
+   r=db.conn.execute('SELECT id,name,phone,balance,active FROM partners ORDER BY id DESC').fetchall();return send(c,'\n'.join(f"#{a['id']} | {a['name']} | {a['phone']} | {int(a['balance']):,} | {a['active']}" for a in r) or tr(u,'no'),admin_kb())
+  if x=='2':s['step']='admin_pp';return send(c,'📱 شماره همراه همکار جدید را وارد کنید.')
+  if x=='3':r=db.conn.execute("SELECT t.id,p.phone,t.amount FROM topups t JOIN partners p ON p.id=t.partner_id WHERE t.status='pending' ORDER BY t.id DESC").fetchall();return send(c,'\n'.join(f"#{a['id']} | {a['phone']} | {int(a['amount']):,}" for a in r) or tr(u,'no'),admin_kb())
+  if x=='4':r=db.conn.execute('SELECT tracking_code,service_key,status,amount,payment_status FROM requests ORDER BY id DESC LIMIT 30').fetchall();s['step']='admin_sc';return send(c,'\n'.join(f"{a['tracking_code']} | {a['service_key']} | {a['status']} | {int(a['amount']):,} | {a['payment_status']}" for a in r) or tr(u,'no'),[[('1','🔄 تغییر وضعیت'),('0',CANCEL)]])
+  if x=='5':r=db.conn.execute("SELECT tracking_code,amount,payment_status FROM requests WHERE payment_status='pending'").fetchall();return send(c,'\n'.join(f"{a['tracking_code']} | {int(a['amount']):,} | {a['payment_status']}" for a in r) or tr(u,'no'),admin_kb())
+  if x=='6':s['step']='admin_price';return send(c,'⚙️ کلید خدمت و مبلغ؛ مثال: government 500000')
+  if x=='7':s['step']='admin_platform';return send(c,'🤖 پیام‌رسان را وارد کنید: rubika / eitaa / bale')
+  if x=='8':r=db.bots();return send(c,'\n'.join(f"#{a['id']} | {a['platform']} | {a['bot_name']} | {'فعال' if a['active'] else 'غیرفعال'} | {a['status']}" for a in r) or tr(u,'no'),admin_kb())
+  if x=='9':p=db.conn.execute('SELECT COUNT(*) n FROM partners').fetchone()['n'];q=db.conn.execute('SELECT COUNT(*) n FROM requests').fetchone()['n'];t=db.conn.execute("SELECT COUNT(*) n FROM topups WHERE status='pending'").fetchone()['n'];return send(c,f'📊 گزارش\nهمکاران: {p}\nدرخواست‌ها: {q}\nشارژهای معلق: {t}',admin_kb())
+  return send(c,tr(u,'admin'),admin_kb())
+ if st=='admin_pp':s['newp']=x;s['step']='admin_pn';return send(c,'👤 نام همکار را وارد کنید.')
+ if st=='admin_pn':s['newn']=x;s['step']='admin_pw';return send(c,'🔐 رمز عبور همکار را وارد کنید.')
+ if st=='admin_pw':
+  try:db.add_partner(s['newp'],x,s['newn']);s['step']='admin';return send(c,'✅ همکار اضافه شد.',admin_kb())
+  except:return send(c,'❌ این شماره قبلاً ثبت شده است.',admin_kb())
+ if st=='admin_price':
+  a=x.split();
+  if len(a)==2 and a[1].isdigit():db.set_setting('price_'+a[0],int(a[1]));db.conn.execute('UPDATE services SET price=? WHERE key=?',(int(a[1]),a[0]));db.conn.commit();s['step']='admin';return send(c,tr(u,'saved'),admin_kb())
+  return send(c,'⚠️ قالب نادرست است.')
+ if st=='admin_platform':s['platform']=x.lower();s['step']='admin_token';return send(c,'🔑 API Token را ارسال کنید.')
+ if st=='admin_token':s['token']=x;s['step']='admin_bn';return send(c,'🤖 نام بات را وارد کنید.')
+ if st=='admin_bn':
+  try:db.add_bot(s['platform'],x,s['token']);s['step']='admin';return send(c,'✅ بات ثبت شد. برای اجرای واقعی ایتا/بله Adapter همان پیام‌رسان باید فعال باشد؛ روبیکا همین Worker را دارد. توکن در پیام/لاگ نمایش داده نمی‌شود.',admin_kb())
+  except Exception as e:return send(c,f'❌ خطا: {e}',admin_kb())
+ if st=='admin_sc':
+  if x!='1':s['step']='admin';return send(c,tr(u,'admin'),admin_kb())
+  s['step']='admin_code';return send(c,'🎫 کد پیگیری را وارد کنید.')
+ if st=='admin_code':
+  r=db.conn.execute('SELECT id,user_id,tracking_code FROM requests WHERE tracking_code=?',(x,)).fetchone()
+  if not r:s['step']='admin';return send(c,'❌ کد پیدا نشد.',admin_kb())
+  s['rid']=r['id'];s['rcode']=r['tracking_code'];s['ruid']=db.conn.execute('SELECT external_id FROM users WHERE id=?',(r['user_id'],)).fetchone()['external_id'];s['step']='admin_status';return send(c,'📌 وضعیت جدید را بنویسید: درحال بررسی / انجام شد / نیاز به اصلاح / لغو شد')
+ if st=='admin_status':
+  db.conn.execute('UPDATE requests SET status=?,updated_at=? WHERE id=?',(x,now(),s['rid']));db.conn.commit();send(s['ruid'],f'🔔 بروزرسانی خدمت\n🎫 کد پیگیری: {s.get("rcode")}\n📌 وضعیت: {x}');s['step']='admin';return send(c,'✅ وضعیت ثبت شد و پیام خودکار ارسال شد.',admin_kb())
+def process(u):
+ if not isinstance(u,dict):return
+ m=u.get('new_message') or u.get('updated_message') or {};c=u.get('chat_id') or m.get('chat_id');sid=m.get('sender_id') or c
+ if not c or not sid:return
+ x=txt(m)
+ if x=='/start':S[str(sid)]={'lang':'fa','step':'language'};return send(c,T['fa']['lang'],[[('1','🇮🇷 فارسی'),('2','🇬🇧 English'),('3','🇸🇦 العربية')]])
+ db.user('rubika',str(sid),full_name=str(sid));handle(sid,c,x,m)
+def main():
+ log.info('Rubika getMe=%s',api('getMe'));off=None
  while True:
   try:
-   p={'limit':20};
+   p={'limit':50};
    if off:p['offset_id']=off
-   d=call('getUpdates',p); ups=d.get('updates',[]) if isinstance(d,dict) else d
-   for u in ups or []:
+   d=api('getUpdates',p);us=d.get('updates',[]) if isinstance(d,dict) else [];nxt=d.get('next_offset_id') if isinstance(d,dict) else None
+   for u in us:
     try:process(u)
-    except Exception:log.exception('Rubika update failed')
-   if isinstance(d,dict) and d.get('next_offset_id'):off=str(d['next_offset_id'])
-   time.sleep(.8)
-  except Exception:log.exception('Rubika polling error');time.sleep(5)
-if __name__=='__main__':run()
+    except Exception:log.exception('update failed')
+   if nxt:off=str(nxt)
+   time.sleep(.4)
+  except Exception as e:log.warning('poll error: %s',e);time.sleep(3)
+if __name__=='__main__':main()
