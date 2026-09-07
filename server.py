@@ -34,15 +34,17 @@ async def telegram_update(request:Request):
         return {"ok":False}
 
 def _rubika_inner(update):
-    if isinstance(update,dict) and isinstance(update.get("update"),dict):
-        return update["update"]
+    if isinstance(update,dict) and isinstance(update.get("update"),dict): return update["update"]
     return update
 
-def _rubika_text(update):
+def _rubika_message(update):
     update=_rubika_inner(update)
-    if not isinstance(update,dict): return ""
+    if not isinstance(update,dict): return {}
     m=update.get("message") or update.get("new_message") or update
-    if not isinstance(m,dict): return ""
+    return m if isinstance(m,dict) else {}
+
+def _rubika_text(update):
+    m=_rubika_message(update)
     for k in ("text","button_text"):
         if m.get(k): return str(m[k]).strip()
     a=m.get("aux_data")
@@ -55,21 +57,16 @@ def _rubika_text(update):
     return ""
 
 def _rubika_chat(update):
-    update=_rubika_inner(update)
-    if not isinstance(update,dict): return ""
-    m=update.get("message") or update.get("new_message") or update
-    return str((m or {}).get("chat_id") or (m or {}).get("chat_key") or update.get("chat_id") or "")
+    u=_rubika_inner(update); m=_rubika_message(u)
+    return str(m.get("chat_id") or m.get("chat_key") or (u.get("chat_id") if isinstance(u,dict) else "") or "")
 
 def _rubika_user(update):
-    update=_rubika_inner(update)
-    if not isinstance(update,dict): return ""
-    m=update.get("message") or update.get("new_message") or update
-    s=(m or {}).get("sender") or {}
-    return str((s or {}).get("user_id") or (m or {}).get("sender_id") or (m or {}).get("user_id") or _rubika_chat(update))
+    u=_rubika_inner(update); m=_rubika_message(u); s=m.get("sender") or {}
+    return str(s.get("user_id") or m.get("sender_id") or m.get("user_id") or _rubika_chat(u))
 
 def _safe_rubika_rows(rows):
     out=[]
-    for irow,row in enumerate(rows or []):
+    for row in rows or []:
         buttons=[]
         for i,item in enumerate(row or []):
             if isinstance(item,(tuple,list)) and len(item)>=2:
@@ -81,6 +78,7 @@ def _safe_rubika_rows(rows):
     return out
 
 def _patch_rubika(rb):
+    # Keep the explicit button IDs from main_rows/partner_rows/admin_rows.
     rb.rows=_safe_rubika_rows
 
 def _normalize_rubika_button(update,rb):
@@ -88,20 +86,31 @@ def _normalize_rubika_button(update,rb):
     if raw not in {str(i) for i in range(10)}: return update
     uid=_rubika_user(update)
     st=rb.STATE.get(uid,{})
-    admin=uid in rb.ADMIN_IDS or st.get("admin") is True
-    partner=bool(st.get("partner_id"))
     step=st.get("step") or st.get("mode") or ""
     maps={
-      "main":{"1":"🪪 فیدای غیر حضوری","2":"🖨 خدمات چاپ","3":"🏛 حل مشکل ورود اتباع دولت من","4":"🎫 پیگیری","5":"📱 خدمات سیم کارت","6":"📝 آزمون غربالگری","7":"💰 کیف پول من","8":"👥 پنل همکاران","9":"📞 تماس با ما","0":rb.CANCEL},
+      "language":{"1":"🇮🇷 فارسی","2":"🇬🇧 English","3":"🇸🇦 العربية"},
+      "citizenship":{"1":"🪪 اتباع هستم","2":"🇮🇷 ایرانی هستم"},
+      "iranian":{"1":"👥 پنل همکاران","2":"🎫 پیگیری"},
+      "menu":{"1":"🪪 فیدای غیر حضوری","2":"🖨 خدمات چاپ","3":"🏛 حل مشکل ورود اتباع دولت من","4":"🎫 پیگیری","5":"📱 خدمات سیم کارت","6":"📝 آزمون غربالگری","7":"💰 کیف پول من","8":"👥 پنل همکاران","9":"📞 تماس با ما","0":rb.CANCEL},
       "partner":{"1":"➕ شارژ حساب","2":"🔎 پیگیری کد","3":"📋 سوابق","4":"💰 موجودی","5":"🏛 حل مشکل سامانه دولت من","0":rb.CANCEL},
-      "admin":{"1":"👥 همکاران","2":"💰 شارژها","3":"📋 درخواست‌ها","4":"💳 پرداخت‌های مشتری","5":"⚙️ قیمت‌ها","6":"🤖 افزودن بات","7":"🤖 بات‌های متصل","8":"📊 گزارش","0":"⬅️ منوی اصلی"}}
-    if admin and not partner and step in {"admin","admin_price","bot_platform","bot_name","bot_api"}: key="admin"
-    elif partner and step=="partner": key="partner"
-    else: key="main"
-    label=maps[key].get(raw)
-    if not label:return update
-    target=_rubika_inner(update)
-    m=target.get("message") or target.get("new_message") if isinstance(target,dict) else None
+      "admin":{"1":"👥 همکاران","2":"💰 شارژها","3":"📋 درخواست‌ها","4":"💳 پرداخت‌های مشتری","5":"⚙️ قیمت‌ها","6":"🤖 افزودن بات","7":"🤖 بات‌های متصل","8":"📊 گزارش","0":"⬅️ منوی اصلی"},
+      "print_color":{"1":"⚫ سیاه و سفید","2":"🌈 رنگی","0":rb.CANCEL},
+      "print_side":{"1":"📄 یک‌رو","2":"🔄 پشت‌ورو","0":rb.CANCEL},
+      "print_copies":{"0":rb.CANCEL},
+      "print_files":{"1":"✅ تأیید","0":rb.CANCEL},
+      "print":{"1":"✅ تأیید","0":rb.CANCEL},
+      "topup_amount":{"0":rb.CANCEL},"topup_receipt":{"0":rb.CANCEL},
+      "track":{"0":rb.CANCEL},"track_partner":{"0":rb.CANCEL},
+      "partner_phone":{"0":rb.CANCEL},"partner_pass":{"0":rb.CANCEL},
+      "gov_fida":{"0":rb.CANCEL},"partner_gov_fida":{"0":rb.CANCEL},
+      "gov_yekta":{"0":rb.CANCEL},"gov_dob":{"0":rb.CANCEL},
+      "fida_doc":{"0":rb.CANCEL}
+    }
+    table=maps.get(step)
+    if not table: return update
+    label=table.get(raw)
+    if not label: return update
+    target=_rubika_inner(update); m=_rubika_message(target)
     if isinstance(m,dict): m["text"]=label
     return update
 
@@ -127,9 +136,8 @@ async def rubika_update(request:Request):
             uid=str((msg or {}).get("sender_id") or (msg or {}).get("user_id") or chat)
             if chat:
                 st=rb.STATE.setdefault(uid,{})
-                if not st.get("lang") or st.get("step") in {None,""}:
-                    st.clear(); st.update({"lang":"fa","step":"language"})
-                asyncio.create_task(asyncio.to_thread(rb.send,chat,rb.T(uid,"lang"),[["1","🇮🇷 فارسی"],["2","🇬🇧 English"],["3","🇸🇦 العربية"]]))
+                st.clear(); st.update({"lang":"fa","step":"language"})
+                asyncio.create_task(asyncio.to_thread(rb.send,chat,rb.TEXT["fa"]["lang"],[["1","🇮🇷 فارسی"],["2","🇬🇧 English"],["3","🇸🇦 العربية"]]))
         else:
             asyncio.create_task(_run_rubika(update,rb))
         return {"ok":True}
@@ -144,16 +152,14 @@ async def startup():
     try:
         import telegram_runtime as tg
         telegram_app=tg.build()
-        await telegram_app.initialize()
-        await telegram_app.start()
+        await telegram_app.initialize(); await telegram_app.start()
         tg_url=public_url("/telegram/update")
         secret=os.getenv("TELEGRAM_WEBHOOK_SECRET","").strip() or None
         await telegram_app.bot.set_webhook(url=tg_url,allowed_updates=None,secret_token=secret)
         telegram_ready=True
         log.info("Telegram webhook registered: %s",tg_url)
     except Exception:
-        log.exception("Telegram webhook startup failed")
-        telegram_ready=False
+        log.exception("Telegram webhook startup failed"); telegram_ready=False
     try:
         import rubika_v2 as rb
         _patch_rubika(rb)
@@ -163,8 +169,7 @@ async def startup():
         log.info("Rubika getMe: %s",rb.call("getMe"))
         rubika_ready=True
     except Exception:
-        log.exception("Rubika webhook registration failed")
-        rubika_ready=False
+        log.exception("Rubika webhook registration failed"); rubika_ready=False
 
 @api.on_event("shutdown")
 async def shutdown():
