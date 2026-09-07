@@ -22,6 +22,10 @@ def stop_all(*_):
 
 
 if __name__ == "__main__":
+    if os.getenv("DISABLE_BOTS","0") == "1":
+        print("NetYar worker mode: bot polling disabled; primary NetYar service owns Telegram/Rubika.", flush=True)
+        while True:
+            time.sleep(3600)
     signal.signal(signal.SIGTERM, stop_all)
     signal.signal(signal.SIGINT, stop_all)
     env = os.environ.copy()
