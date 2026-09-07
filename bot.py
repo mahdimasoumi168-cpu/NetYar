@@ -148,7 +148,7 @@ async def admin_text(u,c):
  if t=="💰 شارژها":rows=db.conn.execute("SELECT t.id,t.amount,t.status,p.name FROM topups t JOIN partners p ON p.id=t.partner_id ORDER BY t.id DESC LIMIT 30").fetchall();kbv=[[InlineKeyboardButton(f"#{r['id']} تأیید {r['amount']:,}",callback_data=f"tu:a:{r['id']}"),InlineKeyboardButton("رد",callback_data=f"tu:r:{r['id']}")] for r in rows if r['status']=="pending"];return await u.message.reply_text("\n".join(f"#{r['id']} {r['name']} | {r['amount']:,} | {r['status']}" for r in rows) or "شارژی نیست.",reply_markup=InlineKeyboardMarkup(kbv) if kbv else None)
  if t=="📋 درخواست‌ها":rows=db.conn.execute("SELECT tracking_code,service_key,status,amount,payment_status FROM requests ORDER BY id DESC LIMIT 50").fetchall();return await u.message.reply_text("\n".join(f"{r['tracking_code']} | {r['service_key']} | {r['status']} | {r['amount']:,} | {r['payment_status']}" for r in rows) or "درخواستی نیست.",reply_markup=amenu())
  if t=="⚙️ قیمت‌ها":S[u.effective_user.id]["mode"]="price";return await u.message.reply_text("مثال: government 500000\nfida 100000\nprint_bw 10000\nprint_color 25000",reply_markup=cancel_kb())
- if t=="⬅️ منوی اصلی": return await u.message.reply_text("منوی اصلی",reply_markup=main(uid))
+ if t=="⬅️ منوی اصلی": return await u.message.reply_text("منوی اصلی",reply_markup=main(u.effective_user.id))
  if t=="📊 گزارش":return await u.message.reply_text(f"همکاران: {db.conn.execute('SELECT COUNT(*) FROM partners').fetchone()[0]}\nدرخواست‌ها: {db.conn.execute('SELECT COUNT(*) FROM requests').fetchone()[0]}",reply_markup=amenu())
 async def admin_cb(u,c):
  q=u.callback_query;await q.answer()
