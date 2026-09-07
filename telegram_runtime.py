@@ -1,6 +1,5 @@
 import os
 import bot as B
-from telegram import ReplyKeyboardMarkup
 from telegram.ext import MessageHandler, CallbackQueryHandler, filters
 
 
@@ -16,11 +15,7 @@ def advanced_amenu():
 
 
 def platform_kb():
-    return B.kb([
-        ['🤖 Telegram', '🤖 Rubika'],
-        ['🤖 Bale', '🤖 Eitaa'],
-        ['⬅️ بازگشت']
-    ])
+    return B.kb([['🤖 Telegram','🤖 Rubika'],['🤖 Bale','🤖 Eitaa'],['⬅️ بازگشت']])
 
 B.amenu = advanced_amenu
 
@@ -30,10 +25,23 @@ async def extra_text(u,c):
     if st.get('partner_id'):
         try:B.db.set_setting(f"partner_chat_{st['partner_id']}",str(u.effective_chat.id))
         except Exception:pass
-    if not B.admin(uid):
-        return
+    if not B.admin(uid): return
     t=(u.message.text or '').strip()
     step=st.get('extra_step')
+
+    # Admins must still be able to use the customer/partner menu buttons.
+    if not step:
+        if t=='🪪 فیدای غیر حضوری': return await B.fida(u,c)
+        if t in ('🖨 خدمات چاپ','🖨 Printing service'): return await B.prt(u,c)
+        if t in ('🪪 حل مشکل ورود اتباع دولت من','🏛 Government access issue'): return await B.gov(u,c)
+        if t in ('👥 پنل همکاران','👥 Partner panel'): return await B.partner(u,c)
+        if t in ('💰 کیف پول من','💰 My wallet','💰 محفظتي'):
+            p=B.db.conn.execute('SELECT balance FROM partners WHERE id=?',(st.get('partner_id'),)).fetchone() if st.get('partner_id') else None
+            return await u.message.reply_text(f"💰 موجودی کیف پول: {p['balance']:,} تومان" if p else '💰 برای استفاده از کیف پول ابتدا وارد پنل همکاران شوید.',reply_markup=B.main(uid))
+        if t in ('🎫 کد رهگیری تمدید کارت‌ها','🎫 Track request'): return await u.message.reply_text('🎫 کد پیگیری را ارسال کنید.',reply_markup=B.main(uid))
+        if t in ('📞 تماس با ما','📞 Contact us'): return await u.message.reply_text('📞 برای ارتباط با پشتیبانی با مدیریت تماس بگیرید.',reply_markup=B.main(uid))
+        if t in ('📝 ثبت شکایت مشتریان','📝 Customer complaint'): return await u.message.reply_text('📝 این خدمت فعلاً غیرفعال است.',reply_markup=B.main(uid))
+
     if t=='➕ افزودن همکار':
         st['extra_step']='partner'; return await u.message.reply_text('شماره، رمز و نام همکار را با فاصله بفرستید.\nمثال: 09991234567 123456 علی',reply_markup=B.amenu())
     if step=='partner':
@@ -42,16 +50,12 @@ async def extra_text(u,c):
         try:B.db.add_partner(a[0],a[1],a[2]); st['extra_step']=None; return await u.message.reply_text('✅ همکار با موفقیت اضافه شد.',reply_markup=B.amenu())
         except Exception:return await u.message.reply_text('❌ ثبت همکار انجام نشد؛ احتمالاً شماره تکراری است.',reply_markup=B.amenu())
     if t=='🤖 افزودن بات':
-        st['extra_step']='bot_platform'
-        return await u.message.reply_text('پیام‌رسان را انتخاب کنید یا نام آن را متنی ارسال کنید:\ntelegram / rubika / bale / eitaa',reply_markup=platform_kb())
+        st['extra_step']='bot_platform'; return await u.message.reply_text('پیام‌رسان را انتخاب کنید یا نام آن را متنی ارسال کنید:\ntelegram / rubika / bale / eitaa',reply_markup=platform_kb())
     if step=='bot_platform':
-        raw=t.lower().strip()
-        aliases={'🤖 telegram':'telegram','🤖 rubika':'rubika','🤖 bale':'bale','🤖 eitaa':'eitaa','تلگرام':'telegram','روبیکا':'rubika','بله':'bale','ایتا':'eitaa'}
+        raw=t.lower().strip(); aliases={'🤖 telegram':'telegram','🤖 rubika':'rubika','🤖 bale':'bale','🤖 eitaa':'eitaa','تلگرام':'telegram','روبیکا':'rubika','بله':'bale','ایتا':'eitaa'}
         p=aliases.get(raw,raw)
-        if p not in {'telegram','rubika','bale','eitaa'}:
-            return await u.message.reply_text('❌ یکی از Telegram / Rubika / Bale / Eitaa را انتخاب کنید.',reply_markup=platform_kb())
-        st['bot_platform']=p; st['extra_step']='bot_token'
-        return await u.message.reply_text('🔑 API Token بات را ارسال کنید.',reply_markup=B.amenu())
+        if p not in {'telegram','rubika','bale','eitaa'}: return await u.message.reply_text('❌ یکی از Telegram / Rubika / Bale / Eitaa را انتخاب کنید.',reply_markup=platform_kb())
+        st['bot_platform']=p; st['extra_step']='bot_token'; return await u.message.reply_text('🔑 API Token بات را ارسال کنید.',reply_markup=B.amenu())
     if step=='bot_token':
         st['bot_token']=t; st['extra_step']='bot_name'; return await u.message.reply_text('🤖 نام بات را ارسال کنید.',reply_markup=B.amenu())
     if step=='bot_name':
@@ -83,21 +87,13 @@ async def extra_text(u,c):
                 except Exception: pass
         return await u.message.reply_text(f'✅ خدمت {t} به‌عنوان انجام‌شده ثبت شد.',reply_markup=B.amenu())
 
-async def extra_cb(u,c):
-    return
-
+async def extra_cb(u,c): return
 
 def build():
-    app=B.build()
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, extra_text), group=-1)
-    app.add_handler(CallbackQueryHandler(extra_cb), group=-1)
-    return app
+    app=B.build(); app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, extra_text), group=-1); app.add_handler(CallbackQueryHandler(extra_cb), group=-1); return app
 
 if __name__=='__main__':
-    app=build()
-    webhook=os.getenv('TELEGRAM_WEBHOOK_URL','').strip()
+    app=build(); webhook=os.getenv('TELEGRAM_WEBHOOK_URL','').strip()
     if webhook:
-        port=int(os.getenv('PORT','8080')); path=webhook.rstrip('/').split('/')[-1]
-        app.run_webhook(listen='0.0.0.0',port=port,url_path=path,webhook_url=webhook,allowed_updates=None)
-    else:
-        app.run_polling(allowed_updates=None)
+        port=int(os.getenv('PORT','8080')); path=webhook.rstrip('/').split('/')[-1]; app.run_webhook(listen='0.0.0.0',port=port,url_path=path,webhook_url=webhook,allowed_updates=None)
+    else: app.run_polling(allowed_updates=None)
