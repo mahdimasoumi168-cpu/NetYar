@@ -199,7 +199,7 @@ def citizenship_menu(lang):
 def print_menu(lang):
     if lang == "en": return buttons([[("1","⚫ Black & white"),("2","🌈 Color")],[("0","❌ Cancel")]])
     if lang == "ar": return buttons([[("1","⚫ أبيض وأسود"),("2","🌈 ملون")],[("0","❌ إلغاء")]])
-    return buttons([[("1","⚫ سیاه و سفید"),("2","🌈 رنگی")],[("0",CANCEL)])
+    return buttons([[("1","⚫ سیاه و سفید"),("2","🌈 رنگی")],[("0",CANCEL)]])
 
 def side_menu(lang):
     if lang == "en": return buttons([[("1","📄 Single-sided"),("2","🔄 Double-sided")],[("0","❌ Cancel")]])
