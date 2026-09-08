@@ -49,8 +49,9 @@ async def telegram_update(request:Request):
         update=Update.de_json(data=payload,bot=telegram_app.bot)
         if update is None:
             return {"ok":False,"error":"invalid_update"}
+        # Queue the update for the dispatcher to process
         await telegram_app.update_queue.put(update)
-        log.info("Telegram update accepted: update_id=%s kind=%s",payload.get("update_id"),"callback_query" if payload.get("callback_query") else "message" if payload.get("message") else "other")
+        log.info("Telegram update queued: update_id=%s kind=%s",payload.get("update_id"),"callback_query" if payload.get("callback_query") else "message" if payload.get("message") else "other")
         return {"ok":True}
     except Exception:
         log.exception("Telegram webhook update failed")
@@ -100,9 +101,9 @@ def _safe_rubika_rows(rows):
 
 def _split_main_rows(rb,uid):
     l=rb.STATE.get(str(uid),{}).get("lang","fa")
-    if l=="en": return [[("1","🪪 FIDA non-in-person"),("2","🖨 Printing")],[("3","🏛 Government access issue"),("4","🎫 Tracking")],[("5","📱 SIM services"),("6","📝 Screening test")],[("7","💰 My wallet"),("8","👥 Partner panel")],[("9","📞 Contact us"),("0","❌ Cancel")]]
-    if l=="ar": return [[("1","🪪 خدمة فيدا"),("2","🖨 الطباعة")],[("3","🏛 مشكلة خدمات الحكومة"),("4","🎫 متابعة")],[("5","📱 خدمات الشريحة"),("6","📝 اختبار الفحص")],[("7","💰 محفظتي"),("8","👥 لوحة الشركاء")],[("9","📞 اتصل بنا"),("0","❌ إلغاء")]]
-    return [[("1","🪪 فیدای غیر حضوری"),("2","🖨 خدمات چاپ")],[("3","🏛 حل مشکل ورود اتباع دولت من"),("4","🎫 پیگیری")],[("5","📱 خدمات سیم کارت"),("6","📝 آزمون غربالگری")],[("7","💰 کیف پول من"),("8","👥 پنل همکاران")],[("9","📞 تماس با ما"),("0",rb.CANCEL)]]
+    if l=="en": return [[(\"1\",\"🪪 FIDA non-in-person\"),(\"2\",\"🖨 Printing\")],[(\"3\",\"🏛 Government access issue\"),(\"4\",\"🎫 Tracking\")],[(\"5\",\"📱 SIM services\"),(\"6\",\"📝 Screening test\")],[(\"7\",\"💰 My wallet\"),(\"8\",\"👥 Partner panel\")],[(\"9\",\"📞 Contact us\"),(\"0\",\"❌ Cancel\")]]
+    if l=="ar": return [[(\"1\",\"🪪 خدمة فيدا\"),(\"2\",\"🖨 الطباعة\")],[(\"3\",\"🏛 مشكلة خدمات الحكومة\"),(\"4\",\"🎫 متابعة\")],[(\"5\",\"📱 خدمات الشريحة\"),(\"6\",\"📝 اختبار الفحص\")],[(\"7\",\"💰 محفظتي\"),(\"8\",\"👥 لوحة الشركاء\")],[(\"9\",\"📞 اتصل بنا\"),(\"0\",\"❌ إلغاء\")]]
+    return [[(\"1\",\"🪪 فیدای غیر حضوری\"),(\"2\",\"🖨 خدمات چاپ\")],[(\"3\",\"🏛 حل مشکل ورود اتباع دولت من\"),(\"4\",\"🎫 پیگیری\")],[(\"5\",\"📱 خدمات سیم کارت\"),(\"6\",\"📝 آزمون غربالگری\")],[(\"7\",\"💰 کیف پول من\"),(\"8\",\"👥 پنل همکاران\")],[(\"9\",\"📞 تماس با ما\"),(\"0\",rb.CANCEL)]]
 
 def _patch_rubika(rb):
     rb.rows=_safe_rubika_rows
@@ -159,7 +160,9 @@ async def _run_rubika(update,rb):
     try:
         normalized=_normalize_rubika_button(update,rb)
         await asyncio.to_thread(rb.process,normalized)
-    except Exception: log.exception("Rubika background update processing failed")
+        log.info("Rubika update processed: user=%s",_rubika_user(update))
+    except Exception:
+        log.exception("Rubika background update processing failed")
 
 @api.post("/rubika/update")
 async def rubika_update(request:Request):
@@ -176,8 +179,10 @@ async def rubika_update(request:Request):
             if chat:
                 st=rb.STATE.setdefault(uid,{});st.clear();st.update({"lang":"fa","step":"language"})
                 asyncio.create_task(asyncio.to_thread(rb.send,chat,rb.TEXT["fa"]["lang"],[["1","🇮🇷 فارسی"],["2","🇬🇧 English"],["3","🇸🇦 العربية"]]))
+                log.info("Rubika bot started: user=%s",uid)
         else:
             asyncio.create_task(_run_rubika(update,rb))
+            log.info("Rubika update received: user=%s type=%s",_rubika_user(update),update.get("type","unknown"))
         return {"ok":True}
     except Exception:
         log.exception("Rubika webhook update failed")
@@ -189,7 +194,9 @@ async def startup():
     init_db()
     try:
         import telegram_runtime as tg
-        telegram_app=tg.build();await telegram_app.initialize();await telegram_app.start()
+        telegram_app=tg.build()
+        await telegram_app.initialize()
+        await telegram_app.start()
         tg_url=public_url("/telegram/update");secret=os.getenv("TELEGRAM_WEBHOOK_SECRET","").strip() or None
         await telegram_app.bot.set_webhook(url=tg_url,allowed_updates=None,secret_token=secret)
         info=await telegram_app.bot.get_webhook_info();telegram_ready=True
@@ -221,3 +228,4 @@ def main():
     import uvicorn
     uvicorn.run(api,host="0.0.0.0",port=int(os.getenv("PORT","8080")),log_level="info")
 if __name__=="__main__": main()
+
