@@ -49,13 +49,20 @@ async def telegram_update(request:Request):
         update=Update.de_json(data=payload,bot=telegram_app.bot)
         if update is None:
             return {"ok":False,"error":"invalid_update"}
-        # Queue the update for the dispatcher to process
-        await telegram_app.update_queue.put(update)
-        log.info("Telegram update queued: update_id=%s kind=%s",payload.get("update_id"),"callback_query" if payload.get("callback_query") else "message" if payload.get("message") else "other")
+        # In webhook-only mode process the update explicitly; no polling updater feeds the queue.
+        asyncio.create_task(_process_telegram_update(update))
+        log.info("Telegram update accepted: update_id=%s kind=%s",payload.get("update_id"),"callback_query" if payload.get("callback_query") else "message" if payload.get("message") else "other")
         return {"ok":True}
     except Exception:
         log.exception("Telegram webhook update failed")
         return {"ok":False,"error":"telegram_update_failed"}
+
+async def _process_telegram_update(update):
+    try:
+        await telegram_app.process_update(update)
+        log.info("Telegram update processed")
+    except Exception:
+        log.exception("Telegram background update processing failed")
 
 def _rubika_inner(update):
     if isinstance(update,dict) and isinstance(update.get("update"),dict): return update["update"]
