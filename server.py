@@ -175,6 +175,7 @@ async def _run_rubika(update,rb):
 async def rubika_update(request:Request):
     try:
         body=await request.json(); update=_rubika_inner(body)
+        log.info("Rubika webhook received: type=%s", update.get("type") if isinstance(update,dict) else "unknown")
         key=_rb_key(update)
         if _rb_seen(key):
             log.info("Rubika duplicate update ignored")
@@ -189,7 +190,7 @@ async def rubika_update(request:Request):
                 log.info("Rubika bot started: user=%s",uid)
         else:
             asyncio.create_task(_run_rubika(update,rb))
-            log.info("Rubika update received: user=%s type=%s",_rubika_user(update),update.get("type","unknown"))
+            log.info("Rubika update accepted: user=%s type=%s",_rubika_user(update),update.get("type","unknown"))
         return {"ok":True}
     except Exception:
         log.exception("Rubika webhook update failed")
