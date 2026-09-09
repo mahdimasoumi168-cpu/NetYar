@@ -66,7 +66,9 @@ async def phistory(u,c):
 async def fida(u,c):
  uid=u.effective_user.id; S[uid]={"mode":"fida_doc","lang":S.get(uid,{}).get("lang","fa"),"partner_id":S.get(uid,{}).get("partner_id")}; await u.message.reply_text("🪪 عکس مدرک شناسایی را ارسال کنید.",reply_markup=cancel_kb())
 async def gov(u,c):
- uid=u.effective_user.id; S[uid]={"mode":"gov_phone","lang":S.get(uid,{}).get("lang","fa"),"gov_files":{},"partner_id":S.get(uid,{}).get("partner_id")}; await u.message.reply_text("📱 شماره موبایل مشترک را وارد کنید.",reply_markup=cancel_kb())
+ uid=u.effective_user.id; old=S.get(uid,{})
+ S[uid]={"mode":"gov_doc_type","lang":old.get("lang","fa"),"gov_files":{},"partner_id":old.get("partner_id")}
+ await u.message.reply_text("🪪 نوع مدرک مشترک را انتخاب کنید:",reply_markup=kb([["🪪 کارت آمایش","🛂 گذرنامه"],[CANCEL]]))
 async def prt(u,c):
  uid=u.effective_user.id; S[uid]={"mode":"print","files":[],"lang":S.get(uid,{}).get("lang","fa"),"partner_id":S.get(uid,{}).get("partner_id")}; await u.message.reply_text("📎 فایل‌ها را ارسال کنید؛ پایان با تأیید.",reply_markup=kb([[OK,CANCEL]]))
 async def media(u,c):
@@ -87,10 +89,32 @@ async def media(u,c):
 
 async def service_text(u,c):
  uid=u.effective_user.id; st=S.setdefault(uid,{}); t=(u.message.text or "").strip()
- if st.get("mode")=="fida_phone":
-  phone=normalize_phone(t)
-  if not phone:return await u.message.reply_text("❌ شماره موبایل معتبر نیست. مثال: 09123456789",reply_markup=cancel_kb())
-  amount=int(db.setting("price_fida","0") or 0); owner=st.get("partner_id") or db.user("telegram",uid,u.effective_user.username,u.effective_user.full_name); rid,code=db.create_request(owner,"fida","telegram",amount); db.answer(rid,"document",file_id=st["doc"]);db.answer(rid,"phone",phone);db.conn.execute("UPDATE requests SET status='submitted',payment_status='paid' WHERE id=?",(rid,));db.conn.commit();st["mode"]=None;asyncio.create_task(notify_admins(c.application,f"🆕 درخواست جدید\n🎫 {code}\n🧾 فیدا\n📱 {phone}",rid));return await u.message.reply_text(f"✅ ثبت شد.\n🎫 {code}",reply_markup=partner_kb() if st.get("partner_id") else main(uid))
+ if st.get("mode")=="gov_doc_type":
+  k={"🪪 کارت آمایش":"amaysh","🛂 گذرنامه":"passport","کارت آمایش":"amaysh","گذرنامه":"passport"}.get(t)
+  if not k:return await u.message.reply_text("❌ نوع مدرک را انتخاب کنید.",reply_markup=kb([["🪪 کارت آمایش","🛂 گذرنامه"],[CANCEL]]))
+  st["gov_doc_type"]=k;st["mode"]="gov_phone";return await u.message.reply_text("📱 شماره موبایل مشترک را وارد کنید.",reply_markup=cancel_kb())
+ if st.get("mode")=="gov_phone":
+  p=normalize_phone(t)
+  if not p:return await u.message.reply_text("❌ شماره موبایل معتبر نیست.",reply_markup=cancel_kb())
+  st["phone"]=p;st["mode"]="gov_dob";return await u.message.reply_text("🎂 تاریخ تولد را به شکل 1356/01/01 وارد کنید.",reply_markup=cancel_kb())
+ if st.get("mode")=="gov_dob":
+  if not re.fullmatch(r"1[34]\d{2}/(0[1-9]|1[0-2])/(0[1-9]|[12]\d|3[01])",t):return await u.message.reply_text("❌ تاریخ تولد نادرست است.",reply_markup=cancel_kb())
+  st["dob"]=t;st["mode"]="gov_unique";return await u.message.reply_text("🆔 شناسه یکتا مشترک را وارد کنید.",reply_markup=cancel_kb())
+ if st.get("mode")=="gov_unique":
+  if len(t)<3:return await u.message.reply_text("❌ شناسه یکتا را صحیح وارد کنید.",reply_markup=cancel_kb())
+  st["unique_id"]=t;st["mode"]="gov_special";return await u.message.reply_text("🔖 شناسه اختصاصی مشترک را وارد کنید.",reply_markup=cancel_kb())
+ if st.get("mode")=="gov_special":
+  if len(t)<3:return await u.message.reply_text("❌ شناسه اختصاصی را صحیح وارد کنید.",reply_markup=cancel_kb())
+  st["special_id"]=t
+  if st["gov_doc_type"]=="passport":st["mode"]="gov_passport";return await u.message.reply_text("🛂 شماره گذرنامه/پاسپورت را وارد کنید.",reply_markup=cancel_kb())
+  st["mode"]="gov_photo";return await u.message.reply_text("📸 عکس کارت آمایش را ارسال کنید.",reply_markup=cancel_kb())
+ if st.get("mode")=="gov_passport":
+  if len(t)<3:return await u.message.reply_text("❌ شماره گذرنامه را صحیح وارد کنید.",reply_markup=cancel_kb())
+  st["passport"]=t;st["mode"]="gov_photo";return await u.message.reply_text("📸 عکس صفحه مشخصات گذرنامه را ارسال کنید.",reply_markup=cancel_kb())
+ if st.get("mode")=="topup_amount":
+  return await router(u,c)
+ if st.get("mode")=="topup_receipt":
+  return await u.message.reply_text("📸 لطفاً رسید را به صورت عکس یا فایل ارسال کنید.",reply_markup=cancel_kb())
  if st.get("mode")=="gov_phone":
   phone=normalize_phone(t)
   if not phone:return await u.message.reply_text("❌ شماره موبایل معتبر نیست. مثال: 09123456789",reply_markup=cancel_kb())
