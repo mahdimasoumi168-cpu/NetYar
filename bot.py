@@ -29,6 +29,13 @@ def partner_kb(lang="fa"):
  if lang=="ar": return kb([["➕ شحن الحساب","🪪 طلب الشريك"],["🔎 رمز المتابعة","📋 السجل"],["❌ إلغاء"]])
  return kb([["➕ شارژ حساب","🪪 ثبت درخواست همکار"],["🔎 پیگیری کد","📋 سوابق"],[CANCEL]])
 def amenu(): return kb([["👤 پنل کاربران","👥 همکاران"],["💰 شارژها","💰 پرداخت‌های مشتری"],["📋 درخواست‌ها","⚙️ قیمت‌ها"],["📊 گزارش"],["⬅️ منوی اصلی"]])
+
+async def notify_admins(app, message, request_id=None):
+    if not ADM or app is None: return
+    markup = InlineKeyboardMarkup([[InlineKeyboardButton('🔎 مشاهده درخواست', callback_data=f'req:v:{request_id}'), InlineKeyboardButton('✉️ پاسخ', callback_data=f'req:r:{request_id}')]]) if request_id else None
+    for aid in ADM:
+        try: await app.bot.send_message(chat_id=int(aid), text=message, reply_markup=markup)
+        except Exception: logging.exception('admin notification failed')
 async def start(u,c):
  uid=u.effective_user.id; db.user("telegram",uid,u.effective_user.username,u.effective_user.full_name); S[uid]={}
  await u.message.reply_text("سلام و خوش آمدید 🌷\nلطفاً زبان را انتخاب کنید / Choose your language / اختر اللغة:",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🇮🇷 فارسی",callback_data="lang:fa"),InlineKeyboardButton("🇬🇧 English",callback_data="lang:en"),InlineKeyboardButton("🇸🇦 العربية",callback_data="lang:ar")]]))
@@ -135,7 +142,7 @@ async def service_text(u,c):
   t=normalize_phone(t)
   if not t:return await u.message.reply_text("❌ شماره موبایل مشترک معتبر نیست.\nمثال: 09123456789",reply_markup=cancel_kb())
   st["phone"]=t
-  amount=int(db.setting("price_fida","0")); rid,code=db.create_request(st.get("partner_id") or db.user("telegram",uid,u.effective_user.username,u.effective_user.full_name),"fida","telegram",amount); db.answer(rid,"document",file_id=st["doc"]); db.answer(rid,"phone",st["phone"])
+  amount=int(db.setting("price_fida","0")); rid,code=db.create_request(st.get("partner_id") or db.user("telegram",uid,u.effective_user.username,u.effective_user.full_name),"fida","telegram",amount); asyncio.create_task(notify_admins(c.application,f"🆕 درخواست جدید\n🎫 {code}\n🧾 فیدا\n📱 {st[\"phone\"]}",rid)); db.answer(rid,"document",file_id=st["doc"]); db.answer(rid,"phone",st["phone"])
   if st.get("partner_id"):
    p=db.conn.execute("SELECT * FROM partners WHERE id=?",(st["partner_id"],)).fetchone()
    if p and p["balance"]>=amount: db.conn.execute("UPDATE requests SET status='submitted',payment_status='paid',payment_method='partner_balance' WHERE id=?",(rid,)); db.conn.execute("UPDATE partners SET balance=balance-?,updated_at=? WHERE id=?",(amount,now(),p["id"])); db.conn.commit(); st["mode"]=None; return await u.message.reply_text(f"✅ ثبت شد.\n🎫 {code}\n💰 کسر: {amount:,} تومان",reply_markup=partner_kb())
@@ -152,6 +159,7 @@ async def service_text(u,c):
   import re
   if not re.fullmatch(r"1[34]\d{2}/(0[1-9]|1[0-2])/(0[1-9]|[12]\d|3[01])",t): return await u.message.reply_text(L(uid,"❌ تاریخ تولد را به شکل 1356/01/01 وارد کنید.","❌ Enter the birth date as 1356/01/01.","❌ أدخل تاريخ الميلاد بالشكل 1356/01/01."),reply_markup=cancel_kb(S.get(uid,{}).get("lang","fa")))
   st["dob"]=t; amount=int(db.setting("price_government","500000")); rid,code=db.create_request(st.get("partner_id") or db.user("telegram",uid,u.effective_user.username,u.effective_user.full_name),"government","telegram",amount)
+  asyncio.create_task(notify_admins(c.application,f"🆕 درخواست جدید\n🎫 {code}\n🧾 دولت من\n📱 {t}\n🎂 {st[\"dob\"]}",rid))
   for k,v in st["gov_files"].items():db.answer(rid,k,file_id=v if k in ("id","sim") and v!="ندارد" else "",answer=v if k not in ("id","sim") or v=="ندارد" else "")
   db.answer(rid,"phone",t)
   if st.get("partner_id"):
@@ -169,6 +177,7 @@ async def service_text(u,c):
  if st.get("mode")=="print" and t==OK:
   if not st["files"]:return await u.message.reply_text("حداقل یک فایل بفرستید.")
   key="price_print_color" if st["color"]=="color" else "price_print_bw";amount=len(st["files"])*int(db.setting(key,"0"))*st["copies"];rid,code=db.create_request(st.get("partner_id") or db.user("telegram",uid,u.effective_user.username,u.effective_user.full_name),"print","telegram",amount)
+  asyncio.create_task(notify_admins(c.application,f"🆕 درخواست جدید\n🎫 {code}\n🧾 چاپ\n📎 فایل: {len(st[\"files\"])}",rid))
   for i,f in enumerate(st["files"]):db.answer(rid,f"file_{i+1}",file_id=f)
   db.answer(rid,"color",st["color"]);db.answer(rid,"side",str(st["side"]));db.answer(rid,"copies",str(st["copies"]));st.update({"rid":rid,"code":code,"mode":"payment"});return await invoice(u,amount,code)
 async def invoice(u,amount,code):await u.message.reply_text(f"🧾 فاکتور\n🎫 کد پیگیری: {code}\n💰 مبلغ: {amount:,} تومان\n\n💳 {db.setting('card_number')}\nبه نام {db.setting('card_owner')}\n\nپس از واریز رسید را ارسال کنید.",reply_markup=kb([["📸 ارسال رسید پرداخت"],[CANCEL]]))
