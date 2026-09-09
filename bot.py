@@ -70,12 +70,21 @@ async def gov(u,c):
 async def prt(u,c):
  uid=u.effective_user.id; S[uid]={"mode":"print","files":[],"lang":S.get(uid,{}).get("lang","fa"),"partner_id":S.get(uid,{}).get("partner_id")}; await u.message.reply_text("📎 فایل‌ها را ارسال کنید؛ پایان با تأیید.",reply_markup=kb([[OK,CANCEL]]))
 async def media(u,c):
- uid=u.effective_user.id; st=S.setdefault(uid,{}); fid=u.message.photo[-1].file_id if u.message.photo else (u.message.document.file_id if u.message.document else "")
+ uid=u.effective_user.id;st=S.setdefault(uid,{});fid=u.message.photo[-1].file_id if u.message.photo else (u.message.document.file_id if u.message.document else "")
  if not fid:return await u.message.reply_text("❌ فایل یا تصویر معتبر ارسال کنید.",reply_markup=cancel_kb())
+ if st.get("mode")=="topup_receipt":
+  pid=st.get("partner_id");amount=int(st.get("topup_amount",0));p=db.conn.execute("SELECT * FROM partners WHERE id=?",(pid,)).fetchone()
+  if not p or amount<=0:return await u.message.reply_text("❌ درخواست شارژ پیدا نشد.",reply_markup=partner_kb())
+  db.conn.execute("INSERT INTO topups(partner_id,amount,receipt_file_id,status,created_at) VALUES(?,?,?,?,?)",(pid,amount,fid,"pending",now()));db.conn.commit()
+  st["mode"]=None
+  await notify_admins(c.application,f"💰 درخواست شارژ حساب\n👤 {p['name']}\n📱 {p['phone']}\n💵 {amount:,} تومان\n🏦 کارت: {os.getenv('PAYMENT_CARD','6037691512755802')}\n📎 رسید پیوست است.")
+  return await u.message.reply_text("✅ رسید دریافت شد و برای مدیریت ارسال شد. پس از تأیید، موجودی شما افزایش می‌یابد.",reply_markup=partner_kb())
  if st.get("mode")=="fida_doc":
-  st["doc"]=fid; st["mode"]="fida_phone"; return await u.message.reply_text("📱 شماره موبایل مشترک را وارد کنید.",reply_markup=cancel_kb())
+  st["doc"]=fid;st["mode"]="fida_phone";return await u.message.reply_text("📱 شماره موبایل مشترک را وارد کنید.",reply_markup=cancel_kb())
  if st.get("mode")=="print":
-  st.setdefault("files",[]).append(fid); return await u.message.reply_text(f"✅ فایل دریافت شد ({len(st['files'])}).",reply_markup=kb([[OK,CANCEL]]))
+  st.setdefault("files",[]).append(fid);return await u.message.reply_text(f"✅ فایل دریافت شد ({len(st['files'])}).",reply_markup=kb([[OK,CANCEL]]))
+ return
+
 async def service_text(u,c):
  uid=u.effective_user.id; st=S.setdefault(uid,{}); t=(u.message.text or "").strip()
  if st.get("mode")=="fida_phone":
@@ -148,24 +157,35 @@ async def addpartner(u,c):
  try:db.add_partner(c.args[0],c.args[1]," ".join(c.args[2:]));await u.message.reply_text("همکار تعریف شد ✅")
  except:await u.message.reply_text("❌ ثبت نشد؛ شماره احتمالاً تکراری است.")
 async def router(u,c):
- t=(u.message.text or "").strip();uid=u.effective_user.id
- if t in {CANCEL,"❌ Cancel","❌ إلغاء","❌ لغو","لغو","انصراف","❌ انصراف"}:return await cancel(u,c)
- if admin(uid) and S.get(uid,{}).get("mode")=="admin_reply_code":
-  rid=S[uid].get("admin_reply_rid");r=db.conn.execute("SELECT * FROM requests WHERE id=?",(rid,)).fetchone();usr=db.conn.execute("SELECT external_id FROM users WHERE id=?",(r["user_id"],)).fetchone() if r else None
-  if usr:await c.bot.send_message(chat_id=int(usr["external_id"]),text="✉️ پاسخ مدیریت برای درخواست "+r["tracking_code"]+"\n\n"+t)
-  S[uid]["mode"]=None;return await u.message.reply_text("✅ پاسخ ارسال شد.",reply_markup=amenu())
+ t=(u.message.text or "").strip();uid=u.effective_user.id; st=S.setdefault(uid,{})
+ if t in {CANCEL,"❌ Cancel","❌ إلغاء","❌ لغو","لغو","❌ انصراف","انصراف"}: return await cancel(u,c)
+ if st.get("mode")=="topup_amount":
+  raw=t.translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩","01234567890123456789")).replace(",","").replace("٬","").replace(" ","").replace("تومان","")
+  if not raw.isdigit() or int(raw)<=0:return await u.message.reply_text("❌ مبلغ نامعتبر است. مثال: 500000",reply_markup=cancel_kb())
+  pid=st.get("partner_id");p=db.conn.execute("SELECT * FROM partners WHERE id=?",(pid,)).fetchone()
+  if not p:return await u.message.reply_text("❌ حساب همکار پیدا نشد.",reply_markup=partner_kb())
+  amount=int(raw);st["mode"]="topup_receipt";st["topup_amount"]=amount
+  card=os.getenv("PAYMENT_CARD","6037691512755802");owner=os.getenv("PAYMENT_CARD_OWNER","فریبا خاوری")
+  return await u.message.reply_text(f"💳 فاکتور شارژ حساب\n\n👤 همکار: {p['name']}\n💰 مبلغ: {amount:,} تومان\n\n🏦 شماره کارت: {card}\n👤 به نام: {owner}\n\nپس از واریز، تصویر رسید را ارسال کنید.\n❌ برای لغو، انصراف را بزنید.",reply_markup=cancel_kb())
+ if st.get("mode")=="topup_receipt":
+  return await u.message.reply_text("📸 لطفاً تصویر رسید پرداخت را ارسال کنید.",reply_markup=cancel_kb())
+ if admin(uid) and st.get("mode")=="admin_reply_code":
+  rid=st.get("admin_reply_rid");r=db.conn.execute("SELECT * FROM requests WHERE id=?",(rid,)).fetchone());usr=db.conn.execute("SELECT external_id FROM users WHERE id=?",(r["user_id"],)).fetchone() if r else None
+  if usr: await c.bot.send_message(chat_id=int(usr["external_id"]),text="✉️ پاسخ مدیریت برای درخواست "+r["tracking_code"]+"\n\n"+t)
+  st["mode"]=None;return await u.message.reply_text("✅ پاسخ ارسال شد.",reply_markup=amenu())
  if t==ADMIN_COMMAND:S.setdefault(uid,{})["admin"]=True;return await u.message.reply_text("🛠 پنل مدیریت",reply_markup=amenu())
  if t=="👥 پنل همکاران":return await partner(u,c)
- if t=="➕ شارژ حساب":return await u.message.reply_text("💰 شارژ فعلاً از کیف پول/مدیریت انجام می‌شود.",reply_markup=partner_kb())
+ if t=="➕ شارژ حساب":st["mode"]="topup_amount";return await u.message.reply_text("💰 مبلغ شارژ را به تومان وارد کنید:",reply_markup=cancel_kb())
  if t=="🔎 پیگیری کد":return await ptrack(u,c)
  if t=="📋 سوابق":return await phistory(u,c)
- if t=="🪪 فیدای غیر حضوری":return await fida(u,c)
+ if t in ("🪪 فیدای غیر حضوری","🪪 فیدا"):return await fida(u,c)
  if t in ("🪪 حل مشکل ورود اتباع دولت من","🏛 حل مشکل سامانه دولت من"):return await gov(u,c)
  if t=="🖨 خدمات چاپ":return await prt(u,c)
  if t=="🛠 پنل مدیریت بات":return await u.message.reply_text("🛠 پنل مدیریت",reply_markup=amenu()) if admin(uid) else None
  if await ptext(u,c):return
  if await service_text(u,c):return
  if admin(uid):return await admin_text(u,c)
+
 async def admin_command(u,c):S.setdefault(u.effective_user.id,{})["admin"]=True;await u.message.reply_text("🛠 پنل مدیریت",reply_markup=amenu())
 def build():
  token=os.getenv("BOT_TOKEN")
