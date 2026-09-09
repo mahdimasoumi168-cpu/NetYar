@@ -78,11 +78,30 @@ async def fixed_service_text(u, c):
                 await c.bot.send_message(chat_id=int(aid),text=f"💰 درخواست شارژ حساب همکار\n👤 {p['name']}\n📱 {p['phone']}\n💵 مبلغ: {amount:,} تومان",reply_markup=kb)
             except Exception: pass
         return await u.message.reply_text(f"✅ درخواست شارژ {amount:,} تومان برای مدیریت ارسال شد.",reply_markup=partner_kb(st.get("lang","fa")))
+
+    if st.get("mode") == "gov_unique":
+        if len(t)<3:return await u.message.reply_text("❌ شناسه یکتا را صحیح وارد کنید.",reply_markup=B.cancel_kb(st.get("lang","fa")))
+        st["gov_unique"]=t;st["mode"]="gov_special"
+        return await u.message.reply_text("🔖 شناسه اختصاصی مشترک را وارد کنید.",reply_markup=B.cancel_kb(st.get("lang","fa")))
+    if st.get("mode") == "gov_special":
+        if len(t)<3:return await u.message.reply_text("❌ شناسه اختصاصی را صحیح وارد کنید.",reply_markup=B.cancel_kb(st.get("lang","fa")))
+        st["gov_special"]=t
+        if st.get("gov_doc_type")=="passport":
+            st["mode"]="gov_passport"
+            return await u.message.reply_text("🛂 شماره گذرنامه/پاسپورت مشترک را وارد کنید.",reply_markup=B.cancel_kb(st.get("lang","fa")))
+        st["mode"]="gov_photo"
+        return await u.message.reply_text("📸 عکس کارت آمایش را ارسال کنید.",reply_markup=B.cancel_kb(st.get("lang","fa")))
+    if st.get("mode") == "gov_passport":
+        if len(t)<3:return await u.message.reply_text("❌ شماره گذرنامه را صحیح وارد کنید.",reply_markup=B.cancel_kb(st.get("lang","fa")))
+        st["gov_passport"]=t;st["mode"]="gov_photo"
+        return await u.message.reply_text("📸 عکس صفحه مشخصات گذرنامه را ارسال کنید.",reply_markup=B.cancel_kb(st.get("lang","fa")))
     if st.get("mode") == "gov_dob":
         import re
         if not re.fullmatch(r"1[34]\d{2}/(0[1-9]|1[0-2])/(0[1-9]|[12]\d|3[01])", t):
             return await u.message.reply_text(B.L(uid, "❌ تاریخ تولد را به شکل 1356/01/01 وارد کنید.", "❌ Enter the birth date as 1356/01/01.", "❌ أدخل تاريخ الميلاد بالشكل 1356/01/01."), reply_markup=B.cancel_kb(st.get("lang", "fa")))
         st["dob"] = t
+        st["mode"] = "gov_unique"
+        return await u.message.reply_text("🆔 شناسه یکتا مشترک را وارد کنید.",reply_markup=B.cancel_kb(st.get("lang","fa")))
         amount = int(B.db.setting("price_government", "500000") or 500000)
         owner = st.get("partner_id") or B.db.user("telegram", uid, u.effective_user.username, u.effective_user.full_name)
         rid, code = B.db.create_request(owner, "government", "telegram", amount)
