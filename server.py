@@ -196,10 +196,8 @@ async def rubika_update(request:Request):
         log.exception("Rubika webhook update failed")
         return {"ok":False,"error":"rubika_update_failed"}
 
-@api.on_event("startup")
-async def startup():
+async def _initialize_integrations():
     global telegram_app,telegram_ready,rubika_ready
-    init_db()
     try:
         import telegram_runtime as tg
         telegram_app=tg.build()
@@ -216,9 +214,18 @@ async def startup():
         _patch_rubika(rb);endpoint=public_url("/rubika/update")
         result=rb.call("updateBotEndpoints",{"url":endpoint,"type":"ReceiveUpdate"})
         log.info("Rubika ReceiveUpdate endpoint registered: %s | %s",endpoint,result)
-        log.info("Rubika getMe: %s",rb.call("getMe"));rubika_ready=True
+        rb_info=rb.call("getMe")
+        log.info("Rubika getMe: bot_id=%s",((rb_info.get("bot") or {}).get("bot_id") if isinstance(rb_info,dict) else "unknown"))
+        rubika_ready=True
     except Exception:
         log.exception("Rubika webhook registration failed");rubika_ready=False
+
+@api.on_event("startup")
+async def startup():
+    # Do not block Railway's healthcheck while external APIs initialize.
+    # Railway only routes the deployment after /health returns 2xx.
+    init_db()
+    asyncio.create_task(_initialize_integrations())
 
 @api.on_event("shutdown")
 async def shutdown():
