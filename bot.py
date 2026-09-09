@@ -85,7 +85,7 @@ async def ptext(u,c):
 async def topup(u,c): S[u.effective_user.id]["mode"]="topup_amount"; await u.message.reply_text("💰 مبلغ شارژ را به تومان وارد کنید:",reply_markup=cancel_kb())
 async def ptrack(u,c): S[u.effective_user.id]["mode"]="ptrack"; await u.message.reply_text("🎫 کد پیگیری را ارسال کنید:",reply_markup=cancel_kb())
 async def phistory(u,c):
- st=S.get(u.effective_user.id,{})
+ uid=u.effective_user.id; st=S.get(uid,{})
  if not st.get("partner_id"):return await u.message.reply_text(L(uid,"ابتدا وارد پنل همکاران شوید.","Please log in to the partner panel first.","يرجى تسجيل الدخول إلى لوحة الشركاء أولاً."))
  rows=db.conn.execute("SELECT tracking_code,service_key,status,amount FROM requests WHERE user_id=? ORDER BY id DESC LIMIT 20",(st["partner_id"],)).fetchall()
  await u.message.reply_text("\n".join(f"{r['tracking_code']} | {r['service_key']} | {r['status']} | {r['amount']:,}" for r in rows) or "سابقه‌ای نیست.",reply_markup=partner_kb())
