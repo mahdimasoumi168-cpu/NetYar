@@ -44,6 +44,8 @@ async def cancel(u,c):
  await u.message.reply_text("❌ عملیات لغو شد.",reply_markup=partner_kb() if partner_id else main(uid))
 async def partner(u,c):
  uid=u.effective_user.id; st=S.setdefault(uid,{})
+ if st.get("partner_id") and not st.get("partner_active",True):
+  st["partner_active"]=True;st["mode"]=None
  if st.get("partner_id") and st.get("partner_active",True):
   p=db.conn.execute("SELECT * FROM partners WHERE id=?",(st["partner_id"],)).fetchone(); return await u.message.reply_text(f"👥 پنل همکاران\n👤 {p['name']}\n📱 {p['phone']}\n💰 اعتبار: {p['balance']:,} تومان",reply_markup=partner_kb())
  st["mode"]="p_phone"; await u.message.reply_text("📱 شماره همراه همکار را وارد کنید:",reply_markup=cancel_kb())
