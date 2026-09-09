@@ -95,6 +95,16 @@ async def fixed_service_text(u, c):
     return await _original_service_text(u, c)
 
 B.service_text = fixed_service_text
+async def fixed_topup(u,c):
+    uid=u.effective_user.id
+    st=B.S.setdefault(uid,{})
+    if not st.get("partner_id"):
+        return await u.message.reply_text("❌ ابتدا وارد پنل همکاران شوید.",reply_markup=B.main(uid))
+    st["mode"]="topup_amount"
+    return await u.message.reply_text("💰 مبلغ شارژ را به تومان وارد کنید:",reply_markup=B.cancel_kb(st.get("lang","fa")))
+
+B.topup = fixed_topup
+
 
 
 async def extra_text(u, c):
