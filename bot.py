@@ -81,6 +81,13 @@ async def media(u,c):
   st["mode"]=None
   await notify_admins(c.application,f"💰 درخواست شارژ حساب\n👤 {p['name']}\n📱 {p['phone']}\n💵 {amount:,} تومان\n🏦 کارت: {os.getenv('PAYMENT_CARD','6037691512755802')}\n📎 رسید پیوست است.")
   return await u.message.reply_text("✅ رسید دریافت شد و برای مدیریت ارسال شد. پس از تأیید، موجودی شما افزایش می‌یابد.",reply_markup=partner_kb())
+ if st.get("mode")=="gov_photo":
+  pid=st.get("partner_id");amount=int(db.setting("price_government","500000") or 500000);owner=pid or db.user("telegram",uid,u.effective_user.username,u.effective_user.full_name);rid,code=db.create_request(owner,"government","telegram",amount)
+  for k,v in [("doc_type",st.get("gov_doc_type","")),("phone",st.get("phone","")),("dob",st.get("dob","")),("unique_id",st.get("unique_id","")),("special_id",st.get("special_id","")),("passport",st.get("passport",""))]:
+   if v: db.answer(rid,k,answer=v)
+  db.answer(rid,"document",file_id=fid);db.conn.execute("UPDATE requests SET status='submitted',payment_status='paid' WHERE id=?",(rid,));db.conn.commit();st["mode"]=None
+  asyncio.create_task(notify_admins(c.application,f"🆕 درخواست دولت من\n🎫 {code}\n🪪 {st.get('gov_doc_type')}\n📱 {st.get('phone')}\n🎂 {st.get('dob')}\n🆔 {st.get('unique_id')}\n🔖 {st.get('special_id')}\n🛂 {st.get('passport','-')}",rid))
+  return await u.message.reply_text(f"✅ درخواست ثبت شد.\n🎫 کد پیگیری: {code}",reply_markup=partner_kb() if pid else main(uid))
  if st.get("mode")=="fida_doc":
   st["doc"]=fid;st["mode"]="fida_phone";return await u.message.reply_text("📱 شماره موبایل مشترک را وارد کنید.",reply_markup=cancel_kb())
  if st.get("mode")=="print":
