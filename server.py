@@ -50,7 +50,7 @@ async def telegram_update(request:Request):
         if update is None:
             return {"ok":False,"error":"invalid_update"}
         # In webhook-only mode process the update explicitly; no polling updater feeds the queue.
-        asyncio.create_task(_process_telegram_update(update))
+        await _process_telegram_update(update)
         log.info("Telegram update accepted: update_id=%s kind=%s",payload.get("update_id"),"callback_query" if payload.get("callback_query") else "message" if payload.get("message") else "other")
         return {"ok":True}
     except Exception:
