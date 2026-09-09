@@ -171,6 +171,15 @@ async def _run_rubika(update,rb):
     except Exception:
         log.exception("Rubika background update processing failed")
 
+@api.get("/rubika/update")
+async def rubika_update_probe():
+    # Rubika probes the callback endpoint before delivering updates.
+    return {"ok":True,"service":"NetYar","provider":"rubika"}
+
+@api.head("/rubika/update")
+async def rubika_update_head():
+    return None
+
 @api.post("/rubika/update")
 async def rubika_update(request:Request):
     try:
@@ -206,7 +215,8 @@ async def _integration_watchdog():
                 try:
                     info=await telegram_app.bot.get_webhook_info()
                     expected=public_url("/telegram/update")
-                    if info.url != expected:
+                    if (info.url or "").rstrip("/") != expected.rstrip("/"):
+                        log.warning("Telegram webhook mismatch: actual=%s expected=%s", info.url, expected)
                         secret=os.getenv("TELEGRAM_WEBHOOK_SECRET","").strip() or None
                         await telegram_app.bot.set_webhook(url=expected,allowed_updates=None,secret_token=secret)
                         log.warning("Telegram webhook was not pointing at this service; re-registered")
