@@ -22,7 +22,7 @@ def main(uid):
  if admin(uid): rows.append(["🛠 پنل مدیریت بات"])
  return kb(rows+[[CANCEL],[a[10]]])
 def cancel_kb(lang="fa"): return kb([[CANCEL]])
-def partner_kb(lang="fa"): return kb([["➕ شارژ حساب","🏛 حل مشکل سامانه دولت من"],["🔎 پیگیری کد","📋 سوابق"],["💰 موجودی"],[CANCEL]])
+def partner_kb(lang="fa"): return kb([["➕ شارژ حساب","🏛 حل مشکل سامانه دولت من"],["🔎 پیگیری کد","📋 سوابق"],["💰 موجودی"],["🚪 خروج از پنل"],[CANCEL]])
 def amenu(): return kb([["👤 پنل کاربران","👥 همکاران"],["💰 شارژها","💰 پرداخت‌های مشتری"],["📋 درخواست‌ها","⚙️ قیمت‌ها"],["📊 گزارش"],["⬅️ منوی اصلی"]])
 async def notify_admins(app,message,request_id=None):
  if not ADM:return
@@ -44,11 +44,13 @@ async def cancel(u,c):
  await u.message.reply_text("❌ عملیات لغو شد.",reply_markup=partner_kb() if partner_id else main(uid))
 async def partner(u,c):
  uid=u.effective_user.id; st=S.setdefault(uid,{})
- if st.get("partner_id"):
+ if st.get("partner_id") and st.get("partner_active",True):
   p=db.conn.execute("SELECT * FROM partners WHERE id=?",(st["partner_id"],)).fetchone(); return await u.message.reply_text(f"👥 پنل همکاران\n👤 {p['name']}\n📱 {p['phone']}\n💰 اعتبار: {p['balance']:,} تومان",reply_markup=partner_kb())
  st["mode"]="p_phone"; await u.message.reply_text("📱 شماره همراه همکار را وارد کنید:",reply_markup=cancel_kb())
 async def ptext(u,c):
  uid=u.effective_user.id; st=S.setdefault(uid,{}); t=(u.message.text or "").strip()
+ if st.get("mode")=="partner_exit_choice":
+  return await partner_exit_choice(u,c)
  if st.get("mode")=="p_phone":
   t=normalize_phone(t); p=db.partner(t) if t else None
   if not p:return await u.message.reply_text("❌ همکار یافت نشد.",reply_markup=cancel_kb())
@@ -56,10 +58,26 @@ async def ptext(u,c):
  if st.get("mode")=="p_pass":
   p=db.partner(st.get("phone"));
   if not p or not check_password(t,p["password_hash"]):return await u.message.reply_text("❌ اطلاعات ورود نادرست است.",reply_markup=cancel_kb())
-  st.update(partner_id=p["id"],mode=None); return await partner(u,c)
+  st.update(partner_id=p["id"],partner_active=True,mode=None); return await partner(u,c)
  if st.get("mode")=="ptrack":
   r=db.conn.execute("SELECT * FROM requests WHERE tracking_code=? AND user_id=?",(t,st["partner_id"])).fetchone(); return await u.message.reply_text(f"🎫 {r['tracking_code']}\nوضعیت: {r['status']}" if r else "❌ کد پیدا نشد.",reply_markup=partner_kb())
  return None
+async def partner_exit(u,c):
+ uid=u.effective_user.id;st=S.setdefault(uid,{})
+ if not st.get("partner_id"): return await partner(u,c)
+ st["mode"]="partner_exit_choice"
+ return await u.message.reply_text("🚪 خروج از پنل همکاران\n\nنوع خروج را انتخاب کنید:",reply_markup=kb([["⏸ خروج موقت","🔒 خروج دائمی"],[CANCEL]]))
+async def partner_exit_choice(u,c):
+ uid=u.effective_user.id;st=S.setdefault(uid,{});t=(u.message.text or "").strip()
+ if st.get("mode")!="partner_exit_choice":return False
+ if t=="⏸ خروج موقت":
+  st["partner_active"]=False;st["mode"]=None
+  return await u.message.reply_text("⏸ خروج موقت انجام شد. برای ورود دوباره دکمه «👥 پنل همکاران» را بزنید؛ بدون وارد کردن رمز وارد می‌شوید.",reply_markup=main(uid))
+ if t=="🔒 خروج دائمی":
+  st.pop("partner_id",None);st.pop("partner_active",None);st["mode"]="p_phone"
+  return await u.message.reply_text("🔒 خروج دائمی انجام شد. برای ورود دوباره شماره موبایل همکار را وارد کنید:",reply_markup=cancel_kb())
+ if t==CANCEL:return await cancel(u,c)
+ return await u.message.reply_text("لطفاً یکی از دو گزینه خروج را انتخاب کنید.",reply_markup=kb([["⏸ خروج موقت","🔒 خروج دائمی"],[CANCEL]]))
 async def ptrack(u,c): S[u.effective_user.id]["mode"]="ptrack"; await u.message.reply_text("🎫 کد پیگیری را ارسال کنید:",reply_markup=cancel_kb())
 async def phistory(u,c):
  st=S.get(u.effective_user.id,{}); rows=db.conn.execute("SELECT tracking_code,service_key,status,amount FROM requests WHERE user_id=? ORDER BY id DESC LIMIT 20",(st.get("partner_id",-1),)).fetchall(); await u.message.reply_text("\n".join(f"{r['tracking_code']} | {r['service_key']} | {r['status']} | {r['amount']:,}" for r in rows) or "سابقه‌ای نیست.",reply_markup=partner_kb())
@@ -206,6 +224,7 @@ async def router(u,c):
   st["mode"]=None;return await u.message.reply_text("✅ پاسخ ارسال شد.",reply_markup=amenu())
  if t==ADMIN_COMMAND:S.setdefault(uid,{})["admin"]=True;return await u.message.reply_text("🛠 پنل مدیریت",reply_markup=amenu())
  if t=="👥 پنل همکاران":return await partner(u,c)
+ if t=="🚪 خروج از پنل":return await partner_exit(u,c)
  if t=="➕ شارژ حساب":st["mode"]="topup_amount";return await u.message.reply_text("💰 مبلغ شارژ را به تومان وارد کنید:",reply_markup=cancel_kb())
  if t=="🔎 پیگیری کد":return await ptrack(u,c)
  if t=="📋 سوابق":return await phistory(u,c)
