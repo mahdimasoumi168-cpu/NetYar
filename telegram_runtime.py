@@ -61,6 +61,23 @@ async def fixed_service_text(u, c):
     t = (u.message.text or "").strip()
     # Fix the common Government flow bug: the final phone answer must come
     # from gov_phone, not from the birth-date text.
+    if st.get("mode") == "topup_amount":
+        raw=t.replace(",","").replace("٬","").replace(" ","").replace("تومان","")
+        if not raw.isdigit() or int(raw)<=0:
+            return await u.message.reply_text("❌ مبلغ نامعتبر است. فقط عدد وارد کنید؛ مثال: 500000",reply_markup=B.cancel_kb(st.get("lang","fa")))
+        amount=int(raw); pid=st.get("partner_id")
+        p=B.db.conn.execute("SELECT * FROM partners WHERE id=?",(pid,)).fetchone()
+        if not p:
+            st["mode"]=None
+            return await u.message.reply_text("❌ حساب همکار پیدا نشد.",reply_markup=partner_kb(st.get("lang","fa")))
+        st["mode"]=None; st["topup_amount"]=amount
+        from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+        kb=InlineKeyboardMarkup([[InlineKeyboardButton("✅ تأیید درخواست",callback_data=f"tu:a:{pid}:{amount}"),InlineKeyboardButton("❌ لغو",callback_data=f"tu:r:{pid}:{amount}")]])
+        for aid in B.ADM:
+            try:
+                await c.bot.send_message(chat_id=int(aid),text=f"💰 درخواست شارژ حساب همکار\n👤 {p["name"]}\n📱 {p["phone"]}\n💵 مبلغ: {amount:,} تومان",reply_markup=kb)
+            except Exception: pass
+        return await u.message.reply_text(f"✅ درخواست شارژ {amount:,} تومان برای مدیریت ارسال شد.",reply_markup=partner_kb(st.get("lang","fa")))
     if st.get("mode") == "gov_dob":
         import re
         if not re.fullmatch(r"1[34]\d{2}/(0[1-9]|1[0-2])/(0[1-9]|[12]\d|3[01])", t):
