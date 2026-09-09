@@ -298,7 +298,7 @@ async def admin_command(u,c):
 def build():
  token=os.getenv("BOT_TOKEN")
  if not token:raise RuntimeError("BOT_TOKEN is missing")
- app=Application.builder().token(token).build();app.add_handler(CommandHandler("start",start));app.add_handler(CommandHandler("addpartner",addpartner));app.add_handler(MessageHandler(filters.Regex(r"^/Admin2025$"),admin_command));app.add_handler(CallbackQueryHandler(langcb,pattern=r"^lang:"));app.add_handler(CallbackQueryHandler(statuscb,pattern=r"^st:"));app.add_handler(CallbackQueryHandler(admin_cb,pattern=r"^tu:"));app.add_handler(MessageHandler(filters.PHOTO|filters.Document.ALL,media));app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,router));return app
+ app=Application.builder().token(token).build();app.add_handler(CommandHandler("start",start));app.add_handler(CommandHandler("addpartner",addpartner));app.add_handler(MessageHandler(filters.Regex(r"^/Admin2025$"),admin_command));app.add_handler(CallbackQueryHandler(langcb,pattern=r"^lang:"));app.add_handler(CallbackQueryHandler(statuscb,pattern=r"^st:"));app.add_handler(CallbackQueryHandler(admin_cb,pattern=r"^(tu|pay|req):"));app.add_handler(MessageHandler(filters.PHOTO|filters.Document.ALL,media));app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,router));return app
 if __name__=="__main__":
  app=build()
  webhook=os.getenv("TELEGRAM_WEBHOOK_URL","").strip()
