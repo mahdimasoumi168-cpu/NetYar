@@ -196,6 +196,37 @@ async def rubika_update(request:Request):
         log.exception("Rubika webhook update failed")
         return {"ok":False,"error":"rubika_update_failed"}
 
+async def _integration_watchdog():
+    # Keep provider webhooks registered even after transient restarts or another
+    # deployment briefly races with this container.
+    while True:
+        try:
+            await asyncio.sleep(20)
+            if telegram_app is not None:
+                try:
+                    info=await telegram_app.bot.get_webhook_info()
+                    expected=public_url("/telegram/update")
+                    if info.url != expected:
+                        secret=os.getenv("TELEGRAM_WEBHOOK_SECRET","").strip() or None
+                        await telegram_app.bot.set_webhook(url=expected,allowed_updates=None,secret_token=secret)
+                        log.warning("Telegram webhook was not pointing at this service; re-registered")
+                    telegram_ready=True
+                except Exception:
+                    telegram_ready=False
+                    log.exception("Telegram webhook watchdog check failed")
+            try:
+                import rubika_v2 as rb
+                endpoint=public_url("/rubika/update")
+                result=rb.call("updateBotEndpoints",{"url":endpoint,"type":"ReceiveUpdate"})
+                rubika_ready=bool(isinstance(result,dict) and result.get("status")=="Done")
+            except Exception:
+                rubika_ready=False
+                log.exception("Rubika webhook watchdog check failed")
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            log.exception("Integration watchdog failed")
+
 async def _initialize_integrations():
     global telegram_app,telegram_ready,rubika_ready
     try:
@@ -226,13 +257,15 @@ async def startup():
     # Railway only routes the deployment after /health returns 2xx.
     init_db()
     asyncio.create_task(_initialize_integrations())
+    asyncio.create_task(_integration_watchdog())
 
 @api.on_event("shutdown")
 async def shutdown():
     global telegram_app
+    # Never delete provider webhooks during container shutdown. During a Railway
+    # deployment, the old and new containers can overlap; deleting here can race
+    # with the new container's setWebhook and leave the bot disconnected.
     if telegram_app is not None:
-        try: await telegram_app.bot.delete_webhook(drop_pending_updates=False)
-        except Exception: pass
         try: await telegram_app.stop()
         except Exception: pass
         try: await telegram_app.shutdown()
