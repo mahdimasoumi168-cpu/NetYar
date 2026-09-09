@@ -75,7 +75,7 @@ async def fixed_service_text(u, c):
         kb=InlineKeyboardMarkup([[InlineKeyboardButton("✅ تأیید درخواست",callback_data=f"tu:a:{pid}:{amount}"),InlineKeyboardButton("❌ لغو",callback_data=f"tu:r:{pid}:{amount}")]])
         for aid in B.ADM:
             try:
-                await c.bot.send_message(chat_id=int(aid),text=f"💰 درخواست شارژ حساب همکار\n👤 {p["name"]}\n📱 {p["phone"]}\n💵 مبلغ: {amount:,} تومان",reply_markup=kb)
+                await c.bot.send_message(chat_id=int(aid),text=f"💰 درخواست شارژ حساب همکار\n👤 {p['name']}\n📱 {p['phone']}\n💵 مبلغ: {amount:,} تومان",reply_markup=kb)
             except Exception: pass
         return await u.message.reply_text(f"✅ درخواست شارژ {amount:,} تومان برای مدیریت ارسال شد.",reply_markup=partner_kb(st.get("lang","fa")))
     if st.get("mode") == "gov_dob":
@@ -121,6 +121,34 @@ async def fixed_topup(u,c):
     return await u.message.reply_text("💰 مبلغ شارژ را به تومان وارد کنید:",reply_markup=B.cancel_kb(st.get("lang","fa")))
 
 B.topup = fixed_topup
+
+async def fixed_gov(u,c):
+    uid=u.effective_user.id; old=B.S.get(uid,{})
+    B.S[uid]={"mode":"gov_doc_type","lang":old.get("lang","fa"),"gov_files":{},"partner_id":old.get("partner_id")}
+    return await u.message.reply_text("🪪 نوع مدرک مشترک را انتخاب کنید:",reply_markup=B.kb([["🪪 کارت آمایش","🛂 گذرنامه"],[B.CANCEL]]))
+B.gov=fixed_gov
+
+async def gov_full_text(u,c):
+    uid=u.effective_user.id; st=B.S.setdefault(uid,{}); t=(u.message.text or "").strip(); lang=st.get("lang","fa")
+    if st.get("mode")=="gov_doc_type":
+        kind={"🪪 کارت آمایش":"amaysh","کارت آمایش":"amaysh","🛂 گذرنامه":"passport","گذرنامه":"passport"}.get(t)
+        if not kind:return await u.message.reply_text("❌ نوع مدرک را انتخاب کنید.",reply_markup=B.kb([["🪪 کارت آمایش","🛂 گذرنامه"],[B.CANCEL]]))
+        st["gov_doc_type"]=kind;st["mode"]="gov_phone";return await u.message.reply_text("📱 شماره موبایل مشترک را وارد کنید.",reply_markup=B.cancel_kb(lang))
+    if st.get("mode")=="gov_unique":
+        if len(t)<3:return await u.message.reply_text("❌ شناسه یکتا را صحیح وارد کنید.",reply_markup=B.cancel_kb(lang))
+        st["gov_unique"]=t;st["mode"]="gov_special";return await u.message.reply_text("🔖 شناسه اختصاصی مشترک را وارد کنید.",reply_markup=B.cancel_kb(lang))
+    if st.get("mode")=="gov_special":
+        if len(t)<3:return await u.message.reply_text("❌ شناسه اختصاصی را صحیح وارد کنید.",reply_markup=B.cancel_kb(lang))
+        st["gov_special"]=t
+        if st.get("gov_doc_type")=="passport":st["mode"]="gov_passport";return await u.message.reply_text("🛂 شماره گذرنامه/پاسپورت مشترک را وارد کنید.",reply_markup=B.cancel_kb(lang))
+        st["mode"]="gov_photo";return await u.message.reply_text("📸 عکس کارت آمایش را ارسال کنید.",reply_markup=B.cancel_kb(lang))
+    if st.get("mode")=="gov_passport":
+        if len(t)<3:return await u.message.reply_text("❌ شماره گذرنامه را صحیح وارد کنید.",reply_markup=B.cancel_kb(lang))
+        st["gov_passport"]=t;st["mode"]="gov_photo";return await u.message.reply_text("📸 عکس صفحه مشخصات گذرنامه را ارسال کنید.",reply_markup=B.cancel_kb(lang))
+    return await fixed_service_text(u,c)
+
+B.gov_text=gov_full_text
+
 
 
 
