@@ -9,6 +9,8 @@ api=FastAPI(title="NetYar")
 telegram_app=None
 telegram_ready=False
 rubika_ready=False
+_telegram_queue=asyncio.Queue(maxsize=1000)
+_telegram_workers=[]
 # Rubika may retry an update even after a successful HTTP response. Keep a short
 # idempotency cache so one button press can never execute multiple times.
 _RB_SEEN={}
@@ -49,9 +51,14 @@ async def telegram_update(request:Request):
         update=Update.de_json(data=payload,bot=telegram_app.bot)
         if update is None:
             return {"ok":False,"error":"invalid_update"}
-        # In webhook-only mode process the update explicitly; no polling updater feeds the queue.
-        await _process_telegram_update(update)
-        log.info("Telegram update accepted: update_id=%s kind=%s",payload.get("update_id"),"callback_query" if payload.get("callback_query") else "message" if payload.get("message") else "other")
+        # ACK Telegram immediately; a bounded worker queue prevents slow services
+        # from blocking the provider webhook and causing retries/backlog.
+        try:
+            _telegram_queue.put_nowait(update)
+        except asyncio.QueueFull:
+            log.error("Telegram update queue full; refusing update_id=%s",payload.get("update_id"))
+            return {"ok":False,"error":"telegram_queue_full"}
+        log.info("Telegram update queued: update_id=%s kind=%s",payload.get("update_id"),"callback_query" if payload.get("callback_query") else "message" if payload.get("message") else "other")
         return {"ok":True}
     except Exception:
         log.exception("Telegram webhook update failed")
@@ -63,6 +70,19 @@ async def _process_telegram_update(update):
         log.info("Telegram update processed")
     except Exception:
         log.exception("Telegram background update processing failed")
+
+async def _telegram_worker(n):
+    while True:
+        try:
+            update=await _telegram_queue.get()
+            try:
+                await _process_telegram_update(update)
+            finally:
+                _telegram_queue.task_done()
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            log.exception("Telegram worker %s failed",n)
 
 def _rubika_inner(update):
     if isinstance(update,dict) and isinstance(update.get("update"),dict): return update["update"]
@@ -206,20 +226,20 @@ async def rubika_update(request:Request):
         return {"ok":False,"error":"rubika_update_failed"}
 
 async def _integration_watchdog():
-    # Keep provider webhooks registered even after transient restarts or another
-    # deployment briefly races with this container.
+    # Verify provider state periodically, but do not constantly rewrite webhooks.
+    # Re-register only after a confirmed mismatch and at a conservative interval.
     while True:
         try:
-            await asyncio.sleep(20)
+            await asyncio.sleep(90)
             if telegram_app is not None:
                 try:
                     info=await telegram_app.bot.get_webhook_info()
                     expected=public_url("/telegram/update")
-                    if (info.url or "").rstrip("/") != expected.rstrip("/"):
-                        log.warning("Telegram webhook mismatch: actual=%s expected=%s", info.url, expected)
+                    actual=(info.url or "").rstrip("/")
+                    if actual != expected.rstrip("/"):
+                        log.warning("Telegram webhook mismatch; restoring endpoint")
                         secret=os.getenv("TELEGRAM_WEBHOOK_SECRET","").strip() or None
                         await telegram_app.bot.set_webhook(url=expected,allowed_updates=None,secret_token=secret)
-                        log.warning("Telegram webhook was not pointing at this service; re-registered")
                     telegram_ready=True
                 except Exception:
                     telegram_ready=False
@@ -266,6 +286,8 @@ async def startup():
     # Do not block Railway's healthcheck while external APIs initialize.
     # Railway only routes the deployment after /health returns 2xx.
     init_db()
+    for n in range(8):
+        _telegram_workers.append(asyncio.create_task(_telegram_worker(n)))
     asyncio.create_task(_initialize_integrations())
     asyncio.create_task(_integration_watchdog())
 
