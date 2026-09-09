@@ -116,7 +116,33 @@ async def admin_cb(u,c):
   if not r:return
   if p[1]=="v":return await q.message.reply_text(f"🎫 {r['tracking_code']}\n🧾 {r['service_key']}\n📌 {r['status']}\n💰 {r['amount']:,} تومان",reply_markup=amenu())
   S[q.from_user.id]={"admin":True,"mode":"admin_reply_code","admin_reply_rid":rid};return await q.message.reply_text("✉️ متن پاسخ را ارسال کنید.",reply_markup=amenu())
- if p[0] in ("pay","tu"):return await q.message.reply_text("✅ عملیات مدیریت دریافت شد.",reply_markup=amenu())
+ if p[0]=="tu":
+  try:
+   pid=int(p[2]); amount=int(p[3])
+   partner=db.conn.execute("SELECT * FROM partners WHERE id=?",(pid,)).fetchone()
+   if not partner:return await q.message.reply_text("❌ همکار پیدا نشد.",reply_markup=amenu())
+   if p[1]=="a":
+    db.conn.execute("INSERT INTO topups(partner_id,amount,status,created_at,reviewed_at,note) VALUES(?,?,?,?,?,?)",(pid,amount,"approved",now(),now(),"approved by admin"))
+    db.conn.execute("UPDATE partners SET balance=balance+?,updated_at=? WHERE id=?",(amount,now(),pid));db.conn.commit()
+    chat=db.setting(f"partner_chat_{pid}","")
+    if chat:
+     try: await q.bot.send_message(chat_id=int(chat),text=f"✅ شارژ حساب شما تأیید شد.\n💰 مبلغ: {amount:,} تومان\n💳 موجودی جدید: {int(partner['balance'])+amount:,} تومان",reply_markup=partner_kb("fa"))
+     except Exception: pass
+    await q.message.edit_reply_markup(reply_markup=None)
+    return await q.message.reply_text(f"✅ شارژ {amount:,} تومان برای {partner['name']} تأیید شد.",reply_markup=amenu())
+   if p[1]=="r":
+    db.conn.execute("INSERT INTO topups(partner_id,amount,status,created_at,reviewed_at,note) VALUES(?,?,?,?,?,?)",(pid,amount,"rejected",now(),now(),"rejected by admin"));db.conn.commit()
+    chat=db.setting(f"partner_chat_{pid}","")
+    if chat:
+     try: await q.bot.send_message(chat_id=int(chat),text=f"❌ درخواست شارژ {amount:,} تومان رد شد.",reply_markup=partner_kb("fa"))
+     except Exception: pass
+    await q.message.edit_reply_markup(reply_markup=None)
+    return await q.message.reply_text("❌ درخواست شارژ رد شد.",reply_markup=amenu())
+  except Exception:
+   logging.exception("topup callback")
+   return await q.message.reply_text("❌ خطا در پردازش شارژ.",reply_markup=amenu())
+ if p[0]=="pay":
+  return await q.message.reply_text("✅ عملیات پرداخت دریافت شد.",reply_markup=amenu())
 async def addpartner(u,c):
  if not admin(u.effective_user.id) or len(c.args)<3:return
  try:db.add_partner(c.args[0],c.args[1]," ".join(c.args[2:]));await u.message.reply_text("همکار تعریف شد ✅")
