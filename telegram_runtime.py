@@ -126,8 +126,11 @@ async def extra_text(u, c):
             amount=f"{p['balance']:,}" if p else "0"
             return await u.message.reply_text({"fa":f"💰 موجودی کیف پول شما: {amount} تومان","en":f"💰 Your balance: {amount} toman","ar":f"💰 رصيدك: {amount} تومان"}[lang],reply_markup=partner_kb(lang))
 
+    if t in (B.CANCEL,"❌ Cancel","❌ إلغاء","❌ لغو","لغو","انصراف","❌ انصراف"):
+        st.pop("extra_step",None); st.pop("mode",None)
+        return await u.message.reply_text("❌ عملیات لغو شد.", reply_markup=partner_kb(lang) if st.get("partner_id") else main(uid))
     if t == "⬅️ بازگشت":
-        st.pop("extra_step",None); return await u.message.reply_text("🛠 پنل مدیریت", reply_markup=B.amenu()) if B.admin(uid) else await u.message.reply_text("منوی اصلی",reply_markup=main(uid))
+        st.pop("extra_step",None); st.pop("mode",None); return await u.message.reply_text("🛠 پنل مدیریت", reply_markup=B.amenu()) if B.admin(uid) else await u.message.reply_text("منوی اصلی",reply_markup=main(uid))
 
     if st.get("mode") == "print_color":
         if t in ("⚫ سیاه و سفید","⚫ Black & White","⚫ أبيض وأسود"): st["color"]="bw"
