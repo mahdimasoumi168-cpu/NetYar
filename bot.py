@@ -54,7 +54,19 @@ async def cancel(u,c):
  S[uid]={"status":"foreign","lang":lang,"partner_id":partner_id} if partner_id else {"status":"foreign","lang":lang}
  msg={"fa":"عملیات لغو شد. به منوی اصلی برگشتید. ✅","en":"Operation cancelled. Back to the main menu. ✅","ar":"تم إلغاء العملية والعودة إلى القائمة الرئيسية. ✅"}[lang]
  await u.message.reply_text(msg,reply_markup=partner_kb(lang) if partner_id else main(uid))
-async def partner(u,c):
+async 
+
+def normalize_phone(value):
+    import re
+    s=str(value or "").strip().replace(" ","").replace("-","").replace("(","").replace(")","")
+    trans=str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩","01234567890123456789")
+    s=s.translate(trans)
+    if s.startswith("+98"): s="0"+s[3:]
+    elif s.startswith("0098"): s="0"+s[4:]
+    if not re.fullmatch(r"09\d{9}",s): return None
+    return s
+
+def partner(u,c):
  uid=u.effective_user.id; st=S.setdefault(uid,{})
  if st.get("partner_id"):
   p=db.conn.execute("SELECT * FROM partners WHERE id=?",(st["partner_id"],)).fetchone()
@@ -63,6 +75,7 @@ async def partner(u,c):
 async def ptext(u,c):
  uid=u.effective_user.id; st=S.setdefault(uid,{}); t=(u.message.text or "").strip()
  if st.get("mode")=="p_phone":
+  t=normalize_phone(t) or ""
   p=db.partner(t)
   if not p:return await u.message.reply_text(L(uid,"❌ همکار یافت نشد.","❌ Partner not found.","❌ لم يتم العثور على الشريك."))
   st["phone"]=t; st["mode"]="p_pass"; return await u.message.reply_text("🔐 رمز عبور را وارد کنید:",reply_markup=cancel_kb())
@@ -119,6 +132,9 @@ async def prt(u,c):
 async def service_text(u,c):
  uid=u.effective_user.id; st=S.setdefault(uid,{}); t=(u.message.text or "").strip()
  if st.get("mode")=="fida_phone":
+  t=normalize_phone(t)
+  if not t:return await u.message.reply_text("❌ شماره موبایل مشترک معتبر نیست.\nمثال: 09123456789",reply_markup=cancel_kb())
+  st["phone"]=t
   amount=int(db.setting("price_fida","0")); rid,code=db.create_request(st.get("partner_id") or db.user("telegram",uid,u.effective_user.username,u.effective_user.full_name),"fida","telegram",amount); db.answer(rid,"document",file_id=st["doc"]); db.answer(rid,"phone",st["phone"])
   if st.get("partner_id"):
    p=db.conn.execute("SELECT * FROM partners WHERE id=?",(st["partner_id"],)).fetchone()
@@ -129,6 +145,8 @@ async def service_text(u,c):
   if st["field"]=="yekta":st["gov_files"]["yekta"]=t;st["field"]="id";st["mode"]="gov_doc";return await u.message.reply_text("🪪 تصویر مدرک شناسایی را بفرستید.",reply_markup=cancel_kb())
  if st.get("mode")=="gov_doc" and st.get("field")=="sim" and t=="ندارم":st["gov_files"]["sim"]="ندارد";st["mode"]="gov_phone";return await u.message.reply_text("📱 شماره موبایل مشتری را بفرستید.",reply_markup=cancel_kb())
  if st.get("mode")=="gov_phone":
+  t=normalize_phone(t)
+  if not t:return await u.message.reply_text("❌ شماره موبایل مشترک معتبر نیست.\nمثال: 09123456789",reply_markup=cancel_kb())
   st["gov_phone"]=t; st["mode"]="gov_dob"; return await u.message.reply_text(L(uid,"🎂 تاریخ تولد مشترک را به صورت 1356/01/01 وارد کنید.","🎂 Enter the customer's birth date as 1356/01/01.","🎂 أدخل تاريخ ميلاد العميل بالشكل 1356/01/01."),reply_markup=cancel_kb(S.get(uid,{}).get("lang","fa")))
  if st.get("mode")=="gov_dob":
   import re
