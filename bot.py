@@ -28,7 +28,7 @@ def partner_kb(lang="fa"):
  if lang=="en": return kb([["➕ Top up","🪪 Partner request"],["🔎 Track code","📋 History"],["❌ Cancel"]])
  if lang=="ar": return kb([["➕ شحن الحساب","🪪 طلب الشريك"],["🔎 رمز المتابعة","📋 السجل"],["❌ إلغاء"]])
  return kb([["➕ شارژ حساب","🪪 ثبت درخواست همکار"],["🔎 پیگیری کد","📋 سوابق"],[CANCEL]])
-def amenu(): return kb([["👥 همکاران","💰 شارژها"],["💰 پرداخت‌های مشتری","📋 درخواست‌ها"],["⚙️ قیمت‌ها","📊 گزارش"],["⬅️ منوی اصلی"]])
+def amenu(): return kb([["👤 پنل کاربران","👥 همکاران"],["💰 شارژها","💰 پرداخت‌های مشتری"],["📋 درخواست‌ها","⚙️ قیمت‌ها"],["📊 گزارش"],["⬅️ منوی اصلی"]])
 async def start(u,c):
  uid=u.effective_user.id; db.user("telegram",uid,u.effective_user.username,u.effective_user.full_name); S[uid]={}
  await u.message.reply_text("سلام و خوش آمدید 🌷\nلطفاً زبان را انتخاب کنید / Choose your language / اختر اللغة:",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🇮🇷 فارسی",callback_data="lang:fa"),InlineKeyboardButton("🇬🇧 English",callback_data="lang:en"),InlineKeyboardButton("🇸🇦 العربية",callback_data="lang:ar")]]))
@@ -157,6 +157,10 @@ async def invoice(u,amount,code):await u.message.reply_text(f"🧾 فاکتور\
 async def admin_text(u,c):
  if not admin(u.effective_user.id):return
  t=(u.message.text or "").strip()
+ if t=="👤 پنل کاربران":
+  rows=db.conn.execute("SELECT id,username,full_name,platform FROM users ORDER BY id DESC LIMIT 50").fetchall()
+  txt="👤 پنل کاربران\n\n"+("\n".join(str(r["id"])+" | "+str(r["full_name"] or "-")+" | @"+str(r["username"] or "-")+" | "+str(r["platform"]) for r in rows) if rows else "کاربری ثبت نشده است.")
+  return await u.message.reply_text(txt,reply_markup=amenu())
  if t=="👥 همکاران":rows=db.conn.execute("SELECT id,name,phone,balance,active FROM partners ORDER BY id DESC").fetchall();return await u.message.reply_text("\n".join(f"#{r['id']} {r['name']} | {r['phone']} | {r['balance']:,}" for r in rows) or "همکاری نیست.",reply_markup=amenu())
  if t=="💰 پرداخت‌های مشتری":
   rows=db.conn.execute("SELECT id,tracking_code,service_key,amount,payment_note FROM requests WHERE payment_status='pending' ORDER BY id DESC LIMIT 30").fetchall()
@@ -220,9 +224,9 @@ async def router(u,c):
  if t=="🪪 حل مشکل ورود اتباع دولت من":return await gov(u,c)
  if t=="🖨 خدمات چاپ":return await prt(u,c)
  if t in ("🎫 کد رهگیری تمدید کارت‌ها","📱 خدمات سیم کارت","📝 آزمون غربالگری و پیگیری"):return await u.message.reply_text("⏳ این خدمت فعلاً غیرفعال است.",reply_markup=main(uid))
- if admin(uid):return await admin_text(u,c)
  if await ptext(u,c):return
  if await service_text(u,c):return
+ if admin(uid):return await admin_text(u,c)
 async def admin_command(u,c):
  uid=u.effective_user.id; S.setdefault(uid,{})["admin"]=True
  await u.message.reply_text("🛠 پنل مدیریت کامل بات\nلطفاً گزینه موردنظر را انتخاب کنید:",reply_markup=amenu())
