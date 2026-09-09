@@ -70,6 +70,7 @@ async def fixed_service_text(u, c):
         if not p:
             st["mode"]=None
             return await u.message.reply_text("❌ حساب همکار پیدا نشد.",reply_markup=partner_kb(st.get("lang","fa")))
+        topup_id=B.db.add_topup(pid,amount,"")
         st["mode"]=None; st["topup_amount"]=amount
         from telegram import InlineKeyboardMarkup, InlineKeyboardButton
         kb=InlineKeyboardMarkup([[InlineKeyboardButton("✅ تأیید درخواست",callback_data=f"tu:a:{pid}:{amount}"),InlineKeyboardButton("❌ لغو",callback_data=f"tu:r:{pid}:{amount}")]])
