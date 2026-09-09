@@ -168,6 +168,39 @@ async def gov_full_text(u,c):
 
 B.gov_text=gov_full_text
 
+_original_media=B.media
+async def fixed_media(u,c):
+    uid=u.effective_user.id; st=B.S.setdefault(uid,{})
+    fid=u.message.photo[-1].file_id if u.message.photo else (u.message.document.file_id if u.message.document else "")
+    if st.get("mode")=="gov_photo":
+        if not fid:return await u.message.reply_text("❌ عکس یا فایل مدرک دریافت نشد.",reply_markup=B.cancel_kb(st.get("lang","fa")))
+        amount=int(B.db.setting("price_government","500000") or 500000); pid=st.get("partner_id")
+        if pid:
+            p=B.db.conn.execute("SELECT * FROM partners WHERE id=?",(pid,)).fetchone()
+            if not p or int(p["balance"])<amount:
+                return await u.message.reply_text(f"❌ اعتبار کافی نیست. هزینه {amount:,} تومان است.",reply_markup=partner_kb(st.get("lang","fa")))
+        owner=pid or B.db.user("telegram",uid,u.effective_user.username,u.effective_user.full_name)
+        rid,code=B.db.create_request(owner,"government","telegram",amount)
+        B.db.answer(rid,"doc_type",answer=st.get("gov_doc_type",""))
+        B.db.answer(rid,"phone",answer=st.get("gov_phone",""))
+        B.db.answer(rid,"dob",answer=st.get("dob",""))
+        B.db.answer(rid,"unique_id",answer=st.get("gov_unique",""))
+        B.db.answer(rid,"special_id",answer=st.get("gov_special",""))
+        if st.get("gov_doc_type")=="passport":B.db.answer(rid,"passport",answer=st.get("gov_passport",""))
+        B.db.answer(rid,"document",file_id=fid)
+        if pid:
+            B.db.conn.execute("UPDATE requests SET status='submitted',payment_status='paid',payment_method='partner_balance' WHERE id=?",(rid,))
+            B.db.conn.execute("UPDATE partners SET balance=balance-?,updated_at=? WHERE id=?",(amount,B.now(),pid));B.db.conn.commit()
+        else:
+            B.db.conn.execute("UPDATE requests SET status='submitted' WHERE id=?",(rid,));B.db.conn.commit()
+        st["mode"]=None
+        await B.notify_admins(c.application,f"🆕 درخواست دولت من\n🎫 {code}\n🪪 {'کارت آمایش' if st.get('gov_doc_type')=='amaysh' else 'گذرنامه'}\n📱 {st.get('gov_phone')}\n🎂 {st.get('dob')}\n🆔 {st.get('gov_unique')}\n🔖 {st.get('gov_special')}\n🛂 {st.get('gov_passport','-')}",rid)
+        return await u.message.reply_text(f"✅ درخواست کامل ثبت شد.\n🎫 کد پیگیری: {code}",reply_markup=partner_kb(st.get("lang","fa")) if pid else B.main(uid))
+    return await _original_media(u,c)
+
+B.media=fixed_media
+
+
 
 
 
