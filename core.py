@@ -1,6 +1,8 @@
-import os, sqlite3, secrets, hashlib, hmac
+import os, sqlite3, secrets, hashlib, hmac, shutil, pathlib
 from datetime import datetime, timezone
-DB_PATH=os.getenv("DB_PATH","netyar.db"); CARD_NUMBER=os.getenv("PAYMENT_CARD","").strip(); CARD_OWNER=os.getenv("PAYMENT_CARD_OWNER","").strip()
+_mount=os.getenv("RAILWAY_VOLUME_MOUNT_PATH","").strip()
+_default_db=os.path.join(_mount,"netyar.db") if _mount else "netyar.db"
+DB_PATH=os.getenv("DB_PATH",_default_db); CARD_NUMBER=os.getenv("PAYMENT_CARD","").strip(); CARD_OWNER=os.getenv("PAYMENT_CARD_OWNER","").strip()
 def now(): return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 def hash_password(p):
     salt=secrets.token_hex(16); digest=hashlib.pbkdf2_hmac("sha256",p.encode(),salt.encode(),120000).hex(); return salt+"$"+digest
@@ -10,6 +12,10 @@ def check_password(p,stored):
     except Exception:return False
 class Database:
     def __init__(self,path=DB_PATH):
+        pathlib.Path(path).parent.mkdir(parents=True,exist_ok=True)
+        if os.getenv("RAILWAY_VOLUME_MOUNT_PATH") and not os.path.exists(path) and os.path.exists("netyar.db"):
+            try: shutil.copy2("netyar.db",path)
+            except Exception: pass
         self.conn=sqlite3.connect(path,check_same_thread=False,timeout=30); self.conn.row_factory=sqlite3.Row; self.conn.execute("PRAGMA journal_mode=WAL"); self.conn.execute("PRAGMA busy_timeout=30000"); self.init()
     def init(self):
         self.conn.executescript("""
