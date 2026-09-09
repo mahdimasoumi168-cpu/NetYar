@@ -201,7 +201,7 @@ async def router(u,c):
  if st.get("mode")=="topup_receipt":
   return await u.message.reply_text("📸 لطفاً تصویر رسید پرداخت را ارسال کنید.",reply_markup=cancel_kb())
  if admin(uid) and st.get("mode")=="admin_reply_code":
-  rid=st.get("admin_reply_rid");r=db.conn.execute("SELECT * FROM requests WHERE id=?",(rid,)).fetchone()usr=db.conn.execute("SELECT external_id FROM users WHERE id=?",(r["user_id"],)).fetchone() if r else None
+  rid=st.get("admin_reply_rid");r=db.conn.execute("SELECT * FROM requests WHERE id=?",(rid,)).fetchone();usr=db.conn.execute("SELECT external_id FROM users WHERE id=?",(r["user_id"],)).fetchone() if r else None
   if usr: await c.bot.send_message(chat_id=int(usr["external_id"]),text="✉️ پاسخ مدیریت برای درخواست "+r["tracking_code"]+"\n\n"+t)
   st["mode"]=None;return await u.message.reply_text("✅ پاسخ ارسال شد.",reply_markup=amenu())
  if t==ADMIN_COMMAND:S.setdefault(uid,{})["admin"]=True;return await u.message.reply_text("🛠 پنل مدیریت",reply_markup=amenu())
