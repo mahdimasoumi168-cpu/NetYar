@@ -252,6 +252,7 @@ async def addpartner(u,c):
  except:await u.message.reply_text("❌ ثبت نشد؛ شماره احتمالاً تکراری است.")
 async def router(u,c):
  t=(u.message.text or "").strip();uid=u.effective_user.id
+ if t in {CANCEL,"❌ Cancel","❌ إلغاء","❌ لغو","لغو","انصراف","❌ انصراف"}: return await cancel(u,c)
  if admin(uid) and S.get(uid,{}).get("mode")=="admin_reply_code":
   rid=S[uid].get("admin_reply_rid"); r=db.conn.execute("SELECT * FROM requests WHERE id=?",(rid,)).fetchone()
   if r:
@@ -269,7 +270,6 @@ async def router(u,c):
   "ar":{"🪪 خدمة فيدا":"🪪 فیدای غیر حضوری","🖨 خدمة الطباعة":"🖨 خدمات چاپ","🏛 مشكلة خدمات الحكومة":"🪪 حل مشکل ورود اتباع دولت من","🎫 متابعة الطلب":"🎫 کد رهگیری تمدید کارت‌ها","📱 خدمات الشريحة":"📱 خدمات سیم کارت","📝 الفحص والمتابعة":"📝 آزمون غربالگری و پیگیری","💰 محفظتي":"💰 کیف پول من","📞 اتصل بنا":"📞 تماس با ما","📝 شكوى العميل":"📝 ثبت شکایت مشتریان","👥 لوحة الشركاء":"👥 پنل همکاران","❌ إلغاء":CANCEL}
  }
  t=aliases.get(lang,{}).get(t,t)
- if t in {CANCEL,"❌ Cancel","❌ إلغاء","❌ لغو","لغو","انصراف","❌ انصراف"}: return await cancel(u,c)
  if t=="🛠 پنل مدیریت بات":
   if not admin(uid): return await u.message.reply_text("❌ دسترسی ندارید.")
   return await u.message.reply_text("🛠 پنل مدیریت بات",reply_markup=amenu())
