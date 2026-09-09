@@ -111,6 +111,16 @@ async def phistory(u,c):
  await u.message.reply_text("\n".join(f"{r['tracking_code']} | {r['service_key']} | {r['status']} | {r['amount']:,}" for r in rows) or "سابقه‌ای نیست.",reply_markup=partner_kb())
 async def media(u,c):
  uid=u.effective_user.id; st=S.setdefault(uid,{})
+ if admin(uid) and st.get("mode")=="admin_reply_code":
+  rid=st.get("admin_reply_rid")
+  fid=u.message.photo[-1].file_id if u.message.photo else (u.message.document.file_id if u.message.document else "")
+  if fid:
+   r=db.conn.execute("SELECT * FROM requests WHERE id=?",(rid,)).fetchone()
+   usr=db.conn.execute("SELECT external_id FROM users WHERE id=?",(r["user_id"],)).fetchone() if r else None
+   if usr:
+    await c.bot.send_document(chat_id=int(usr["external_id"]),document=fid,caption="📎 پاسخ مدیریت برای "+r["tracking_code"])
+   st["mode"]=None; return await u.message.reply_text("✅ فایل برای مشتری ارسال شد.",reply_markup=amenu())
+
  fid=u.message.photo[-1].file_id if u.message.photo else (u.message.document.file_id if u.message.document else "")
  if st.get("mode")=="topup_receipt":
   if not fid:return await u.message.reply_text("رسید را به صورت عکس/فایل بفرستید.")
@@ -205,6 +215,26 @@ async def admin_cb(u,c):
  q=u.callback_query;await q.answer()
  if not admin(q.from_user.id):return
  parts=q.data.split(":")
+ if parts[0]=="req":
+  rid=int(parts[2]); r=db.conn.execute("SELECT * FROM requests WHERE id=?",(rid,)).fetchone()
+  if not r:return
+  if parts[1]=="v":
+   ans=db.conn.execute("SELECT field_key,answer,file_id FROM request_answers WHERE request_id=? ORDER BY id",(rid,)).fetchall()
+   details="🎫 "+r["tracking_code"]+"\n🧾 "+r["service_key"]+"\n📌 وضعیت: "+r["status"]+"\n💰 مبلغ: "+str(r["amount"])+ " تومان"
+   for x in ans: details += "\n• "+x["field_key"]+": "+(x["answer"] or ("📎 فایل" if x["file_id"] else "-"))
+   return await q.message.reply_text(details,reply_markup=amenu())
+  S.setdefault(q.from_user.id,{})["mode"]="admin_reply_code"; S[q.from_user.id]["admin_reply_rid"]=rid
+  return await q.message.reply_text("✉️ پاسخ به درخواست\nلطفاً متن پاسخ را بفرستید یا فایل/تصویر ارسال کنید.",reply_markup=amenu())
+ if parts[0]=="pay":
+  _,a,tid=parts; r=db.conn.execute("SELECT * FROM requests WHERE id=?",(int(tid),)).fetchone()
+  if not r:return
+  status="paid" if a=="a" else "rejected"; req_status="submitted" if a=="a" else "payment_rejected"
+  db.conn.execute("UPDATE requests SET payment_status=?,status=?,updated_at=? WHERE id=? AND payment_status='pending'",(status,req_status,now(),int(tid)));db.conn.commit()
+  return await q.edit_message_text("پرداخت تأیید شد ✅" if a=="a" else "پرداخت رد شد ❌")
+ _,a,tid=q.data.split(":");t=db.conn.execute("SELECT * FROM topups WHERE id=?",(int(tid),)).fetchone()
+ if not t:return
+ if a=="a":db.conn.execute("UPDATE topups SET status='approved',reviewed_at=? WHERE id=? AND status='pending'",(now(),tid));db.conn.execute("UPDATE partners SET balance=balance+?,updated_at=? WHERE id=?",(t["amount"],now(),t["partner_id"]));db.conn.commit();return await q.edit_message_text("شارژ تأیید شد ✅")
+ db.conn.execute("UPDATE topups SET status='rejected',reviewed_at=? WHERE id=? AND status='pending'",(now(),tid));db.conn.commit();await q.edit_message_text("شارژ رد شد ❌")
  if parts[0]=="pay":
   _,a,tid=parts; r=db.conn.execute("SELECT * FROM requests WHERE id=?",(int(tid),)).fetchone()
   if not r:return
@@ -222,6 +252,14 @@ async def addpartner(u,c):
  except:await u.message.reply_text("❌ ثبت نشد؛ شماره احتمالاً تکراری است.")
 async def router(u,c):
  t=(u.message.text or "").strip();uid=u.effective_user.id
+ if admin(uid) and S.get(uid,{}).get("mode")=="admin_reply_code":
+  rid=S[uid].get("admin_reply_rid"); r=db.conn.execute("SELECT * FROM requests WHERE id=?",(rid,)).fetchone()
+  if r:
+   usr=db.conn.execute("SELECT external_id FROM users WHERE id=?",(r["user_id"],)).fetchone()
+   if usr:
+    await c.bot.send_message(chat_id=int(usr["external_id"]),text="✉️ پاسخ مدیریت برای درخواست "+r["tracking_code"]+"\n\n"+t)
+   S[uid]["mode"]=None; return await u.message.reply_text("✅ پاسخ برای مشتری ارسال شد.",reply_markup=amenu())
+
  if t==ADMIN_COMMAND:
   S.setdefault(uid,{})["admin"]=True
   return await u.message.reply_text("🛠 پنل مدیریت کامل بات\nلطفاً گزینه موردنظر را انتخاب کنید:",reply_markup=amenu())
