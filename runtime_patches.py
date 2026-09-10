@@ -32,4 +32,9 @@ def install():
     import server_patch
     server_patch.install()
 
+    # Must be loaded after all historical UI patches so every ReplyKeyboard
+    # created by them passes through the same plain-text normalizer.
+    import telegram_button_fix
+    telegram_button_fix.install()
+
     return server
