@@ -12,6 +12,11 @@ def install():
 
     import telegram_runtime  # noqa: F401
 
+    # Business-flow layer must run after telegram_runtime has created its
+    # router/service handlers, but before the remaining compatibility wrappers.
+    import business_flow_patch
+    business_flow_patch.install()
+
     import hotfix
     hotfix.install()
 
