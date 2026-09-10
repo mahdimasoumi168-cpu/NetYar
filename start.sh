@@ -16,5 +16,6 @@ if [ ! -f .env ]; then
   exit 1
 fi
 
-python test_connection.py
-python bot.py
+# Use the same production entrypoint as Railway so local and production
+# execute the same Telegram/Rubika webhook architecture.
+python entrypoint.py
