@@ -8,7 +8,9 @@ def hash_password(p):
     salt=secrets.token_hex(16); digest=hashlib.pbkdf2_hmac("sha256",p.encode(),salt.encode(),120000).hex(); return salt+"$"+digest
 def check_password(p,stored):
     try:
-        salt,digest=stored.split("$",1); got=hashlib.pbkdf2_hmac("sha256",p.encode(),salt.encode(),120000).hex(); return hmac.compare_digest(got,digest)
+        # Backward compatibility: some legacy callers passed (stored_hash, plain_password).
+        if "$" in str(p) and "$" not in str(stored): p,stored=stored,p
+        salt,digest=str(stored).split("$",1); got=hashlib.pbkdf2_hmac("sha256",str(p).encode(),salt.encode(),120000).hex(); return hmac.compare_digest(got,digest)
     except Exception:return False
 class Database:
     def __init__(self,path=DB_PATH):
@@ -35,7 +37,6 @@ class Database:
         sv=[("fida","فیدای غیر حضوری","ارسال مدرک شناسایی و شماره همراه",0),("print","خدمات چاپ","چاپ فایل و عکس",0),("government","حل مشکل ورود اتباع سامانه دولت من","ثبت درخواست و بررسی مدارک",500000)]
         for k,n,d,p in sv:self.conn.execute("INSERT OR IGNORE INTO services(key,name,description,price) VALUES(?,?,?,?)",(k,n,d,p))
         phone=os.getenv("INITIAL_PARTNER_PHONE","").strip() or "09999527639"; password=os.getenv("INITIAL_PARTNER_PASSWORD","").strip(); name=os.getenv("INITIAL_PARTNER_NAME","همکار").strip()
-        # Seed the requested partner without storing the plain password in the database.
         if not password and phone=="09999527639": password_hash="f1fd32ee1a597b3e060d0f172654da7f$386ccbb873588d410de0fbf40f2b6b7e0cf3fcb0c17d05f649102ac96b52e7a2"
         else: password_hash=hash_password(password) if password else ""
         if phone and password_hash and not self.conn.execute("SELECT 1 FROM partners WHERE phone=?",(phone,)).fetchone(): self.conn.execute("INSERT INTO partners(phone,password_hash,name,created_at,updated_at) VALUES(?,?,?,?,?)",(phone,password_hash,name,now(),now()))
@@ -49,7 +50,8 @@ class Database:
     def create_request(self,user_id,service_key,platform,amount):
         code="NYM-"+secrets.token_hex(4).upper(); t=now(); cur=self.conn.execute("INSERT INTO requests(tracking_code,user_id,service_key,platform,status,amount,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)",(code,user_id,service_key,platform,"awaiting_payment",amount,t,t)); self.conn.commit(); return cur.lastrowid,code
     def answer(self,rid,key,answer="",file_id=""): self.conn.execute("INSERT INTO request_answers(request_id,field_key,answer,file_id,created_at) VALUES(?,?,?,?,?)",(rid,key,answer or "",file_id or "",now()))
-    def partner(self,phone): return self.conn.execute("SELECT * FROM partners WHERE phone=? AND active=1",(phone.strip(),)).fetchone()
+    def partner(self,phone): return self.conn.execute("SELECT * FROM partners WHERE phone=? AND active=1",(str(phone).strip(),)).fetchone()
+    def get_partner(self,phone): return self.partner(phone)
     def add_partner(self,phone,password,name): self.conn.execute("INSERT INTO partners(phone,password_hash,name,created_at,updated_at) VALUES(?,?,?,?,?)",(phone.strip(),hash_password(password),name.strip(),now(),now())); self.conn.commit()
     def add_topup(self,pid,amount,file_id):
         cur=self.conn.execute("INSERT INTO topups(partner_id,amount,receipt_file_id,status,created_at) VALUES(?,?,?,?,?)",(pid,amount,file_id,"pending",now())); self.conn.commit(); return cur.lastrowid
