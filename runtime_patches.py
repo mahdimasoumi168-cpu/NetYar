@@ -59,6 +59,11 @@ def install():
     import integration_hardening
     integration_hardening.install()
 
+    # Make Rubika partner login tolerant of Persian/Arabic phone digits and
+    # legacy phone formatting, without changing the existing state machine.
+    import rubika_partner_login_fix
+    rubika_partner_login_fix.install()
+
     # Must be loaded after all historical UI patches so every ReplyKeyboard
     # created by them passes through the same plain-text normalizer.
     import telegram_button_fix
