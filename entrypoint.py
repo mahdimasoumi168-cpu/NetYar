@@ -10,6 +10,8 @@ import ui_patch
 ui_patch.install()
 import workflow_patch
 workflow_patch.install()
+import partner_code_fix
+partner_code_fix.install()
 
 import server
 import server_patch
