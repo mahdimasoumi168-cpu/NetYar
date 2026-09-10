@@ -1,5 +1,5 @@
 """Complete request/admin workflow layer.
-Adds real request controls, file forwarding, partner-code requests and safer partner chat binding.
+Adds reliable request controls, file forwarding, partner-code requests and safer partner chat binding.
 """
 import logging
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
@@ -16,21 +16,39 @@ def install():
     original_partner = B.partner
     original_router = B.router
 
+    def bind_request_partner(request_id):
+        """Resolve the partner owning a request, including legacy requests whose user_id stores partner.id."""
+        try:
+            r = B.db.conn.execute("SELECT * FROM requests WHERE id=?", (request_id,)).fetchone()
+            if not r:
+                return None
+            # Explicit binding wins.
+            pid = B.db.setting(f"request_partner_{request_id}", "")
+            if pid:
+                p = B.db.conn.execute("SELECT * FROM partners WHERE id=? AND active=1", (int(pid),)).fetchone()
+                if p:
+                    return p
+            # Current schema uses users.id, but older partner-originated requests may have stored partner.id.
+            p = B.db.conn.execute("SELECT * FROM partners WHERE id=? AND active=1", (r["user_id"],)).fetchone()
+            if p:
+                B.db.set_setting(f"request_partner_{request_id}", str(p["id"]))
+                return p
+            return None
+        except Exception:
+            log.exception("request partner resolution failed")
+            return None
+
     async def notify_admins(app, message, request_id=None, inline=None):
         if not request_id:
             return await original_notify(app, message, request_id, inline)
-        # Remember the owning partner when a partner request is created.
-        try:
-            r = B.db.conn.execute("SELECT user_id FROM requests WHERE id=?", (request_id,)).fetchone()
-            if r and B.db.conn.execute("SELECT 1 FROM partners WHERE id=?", (r["user_id"],)).fetchone():
-                B.db.set_setting(f"request_partner_{request_id}", str(r["user_id"]))
-        except Exception:
-            log.exception("request partner binding failed")
+        p = bind_request_partner(request_id)
+        if p:
+            B.db.set_setting(f"request_partner_{request_id}", str(p["id"]))
         controls = InlineKeyboardMarkup([
             [InlineKeyboardButton("🔎 مشاهده اطلاعات", callback_data=f"req:v:{request_id}")],
             [InlineKeyboardButton("✅ تأیید خدمت", callback_data=f"req:a:{request_id}"),
              InlineKeyboardButton("❌ رد خدمت", callback_data=f"req:x:{request_id}")],
-            [InlineKeyboardButton("🔐 درخواست رمز از همکار", callback_data=f"req:c:{request_id}"),
+            [InlineKeyboardButton("🔐 درخواست کد از همکار", callback_data=f"req:c:{request_id}"),
              InlineKeyboardButton("✉️ پاسخ", callback_data=f"req:r:{request_id}")],
         ])
         await original_notify(app, message, request_id=None, inline=controls)
@@ -60,7 +78,7 @@ def install():
         result = await original_partner(u, c)
         try:
             uid = u.effective_user.id
-            st = B.S.get(uid, {})
+            st = B.S.setdefault(uid, {})
             pid = st.get("partner_id")
             if pid:
                 B.db.set_setting(f"partner_chat_{pid}", str(uid))
@@ -88,11 +106,7 @@ def install():
                     if user and user["platform"] == "telegram":
                         try:
                             txt = "✅ خدمت شما تأیید شد." if status == "approved" else "❌ درخواست خدمت شما رد شد."
-                            await q.bot.send_message(
-                                chat_id=int(user["external_id"]),
-                                text=f"{txt}\n🎫 کد پیگیری: {r['tracking_code']}",
-                                reply_markup=B.main(int(user["external_id"]))
-                            )
+                            await q.bot.send_message(chat_id=int(user["external_id"]), text=f"{txt}\n🎫 کد پیگیری: {r['tracking_code']}")
                         except Exception:
                             log.exception("user status notification failed")
                     await q.answer("انجام شد")
@@ -101,28 +115,31 @@ def install():
                         reply_markup=B.amenu(),
                     )
                 if action == "c":
-                    pid = B.db.setting(f"request_partner_{rid}", "")
-                    p = B.db.conn.execute("SELECT * FROM partners WHERE id=?", (int(pid),)).fetchone() if pid else B.db.conn.execute("SELECT * FROM partners WHERE id=?", (r["user_id"],)).fetchone()
+                    p = bind_request_partner(rid)
                     if not p:
                         await q.answer("همکار این درخواست مشخص نیست", show_alert=True)
                         return
                     chat = B.db.setting(f"partner_chat_{p['id']}", "")
                     if not chat:
-                        await q.answer("همکار هنوز در پنل وارد نشده است", show_alert=True)
+                        await q.answer("همکار هنوز وارد پنل نشده است", show_alert=True)
                         return
                     B.db.conn.execute("UPDATE requests SET status=?,updated_at=? WHERE id=?", ("awaiting_partner_code", B.now(), rid))
                     B.db.audit("telegram", q.from_user.id, "request_partner_code", rid, r["tracking_code"])
                     B.db.conn.commit()
+                    B.S.setdefault(int(chat), {}).update({
+                        "mode": "partner_code_reply",
+                        "partner_id": p["id"],
+                        "partner_code_rid": rid,
+                    })
                     await q.bot.send_message(
                         chat_id=int(chat),
                         text=(f"🔐 مدیریت برای درخواست شما اطلاعات تکمیلی می‌خواهد.\n\n"
                               f"🎫 کد پیگیری: {r['tracking_code']}\n🧾 خدمت: {r['service_key']}\n\n"
-                              "لطفاً رمز یا اطلاعات موردنیاز را همین‌جا ارسال کنید."),
+                              "لطفاً کد/رمز یا اطلاعات موردنیاز را همین‌جا ارسال کنید."),
                         reply_markup=B.kb([[B.CANCEL]])
                     )
-                    B.S.setdefault(int(chat), {}).update({"mode": "partner_code_reply", "partner_id": p["id"], "partner_code_rid": rid})
-                    await q.answer("درخواست برای همکار ارسال شد")
-                    return await q.message.reply_text("🔐 درخواست رمز/اطلاعات برای همکار ارسال شد.", reply_markup=B.amenu())
+                    await q.answer("درخواست کد برای همکار ارسال شد")
+                    return await q.message.reply_text("🔐 درخواست کد/اطلاعات برای همکار ارسال شد.", reply_markup=B.amenu())
             except Exception:
                 log.exception("request workflow callback failed")
                 await q.answer("خطا در پردازش درخواست", show_alert=True)
@@ -134,20 +151,29 @@ def install():
             uid = u.effective_user.id
             st = B.S.setdefault(uid, {})
             text = (u.message.text or "").strip() if getattr(u, "message", None) else ""
-            if st.get("mode") == "partner_code_reply":
-                rid = int(st.get("partner_code_rid", 0) or 0)
+            rid = int(st.get("partner_code_rid", 0) or 0)
+            # Handle partner reply before every other text handler. This prevents
+            # partner-panel/menu routers from swallowing the requested code.
+            if st.get("mode") == "partner_code_reply" and rid:
                 if text in {B.CANCEL, "❌ Cancel", "❌ إلغاء"}:
                     st["mode"] = None
+                    st.pop("partner_code_rid", None)
                     return await u.message.reply_text("❌ عملیات لغو شد.", reply_markup=B.partner_kb())
                 r = B.db.conn.execute("SELECT * FROM requests WHERE id=?", (rid,)).fetchone()
                 if not r:
                     st["mode"] = None
+                    st.pop("partner_code_rid", None)
                     return await u.message.reply_text("❌ درخواست پیدا نشد.", reply_markup=B.partner_kb())
                 B.db.answer(rid, "partner_code", answer=text)
                 B.db.conn.execute("UPDATE requests SET status=?,updated_at=? WHERE id=?", ("awaiting_review", B.now(), rid))
                 B.db.conn.commit()
                 st["mode"] = None
-                await B.notify_admins(c.application, f"🔐 اطلاعات تکمیلی همکار دریافت شد\n🎫 {r['tracking_code']}\n🧾 {r['service_key']}\n\n{text}", rid)
+                st.pop("partner_code_rid", None)
+                await B.notify_admins(
+                    c.application,
+                    f"🔐 اطلاعات تکمیلی همکار دریافت شد\n🎫 {r['tracking_code']}\n🧾 {r['service_key']}\n\n{text}",
+                    rid,
+                )
                 return await u.message.reply_text("✅ اطلاعات دریافت شد و برای مدیریت ارسال شد.", reply_markup=B.partner_kb())
         except Exception:
             log.exception("partner code router failed")
