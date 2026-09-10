@@ -215,7 +215,7 @@ async def rubika_update(request:Request):
             msg=update.get("new_message") or update.get("message") or {}; chat=str(update.get("chat_id") or msg.get("chat_id") or ""); uid=str((msg or {}).get("sender_id") or (msg or {}).get("user_id") or chat)
             if chat:
                 st=rb.STATE.setdefault(uid,{});st.clear();st.update({"lang":"fa","step":"language"})
-                asyncio.create_task(asyncio.to_thread(rb.send,chat,rb.TEXT["fa"]["lang"],[["1","🇮🇷 فارسی"],["2","🇬🇧 English"],["3","🇸🇦 العربية"]]))
+                asyncio.create_task(asyncio.to_thread(rb.send,chat,rb.T(uid,"lang"),[[("1","🇮🇷 فارسی"),("2","🇬🇧 English"),("3","🇸🇦 العربية")]]))
                 log.info("Rubika bot started: user=%s",uid)
         else:
             asyncio.create_task(_run_rubika(update,rb))
