@@ -46,6 +46,11 @@ def install():
     import rubika_dispatch_fix
     rubika_dispatch_fix.install()
 
+    # Register a conventional receiveUpdate-compatible endpoint and rewrite
+    # the provider registration call to use it.
+    import rubika_webhook_fix
+    rubika_webhook_fix.install()
+
     # Must be loaded after all historical UI patches so every ReplyKeyboard
     # created by them passes through the same plain-text normalizer.
     import telegram_button_fix
