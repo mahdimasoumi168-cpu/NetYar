@@ -116,3 +116,25 @@ try:
  RB.text_of=_text
  log.info("NetYar Rubika safe payload normalization installed")
 except Exception:log.exception("NetYar Rubika startup patch failed")
+
+# --- Partner chat binding fix ---
+# A partner's chat id must be persisted immediately after successful login/menu access.
+# Previously it was only written by the generic partner text handler, so the admin could
+# know the partner id but still have no chat destination for a verification-code request.
+try:
+    _partner_original = B.partner
+    async def _partner_with_chat(update, context):
+        uid = update.effective_user.id
+        st = B.S.setdefault(uid, {})
+        pid = st.get("partner_id")
+        if pid:
+            try:
+                B.db.set_setting(f"partner_chat_{pid}", str(update.effective_chat.id))
+                B.db.conn.commit()
+                log.info("partner chat bound: partner_id=%s chat_id=%s", pid, update.effective_chat.id)
+            except Exception:
+                log.exception("partner chat binding failed")
+        return await _partner_original(update, context)
+    B.partner = _partner_with_chat
+except Exception:
+    log.exception("partner chat binding patch failed")
