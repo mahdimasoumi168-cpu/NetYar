@@ -1,4 +1,6 @@
-# Import runtime and reliability layers before starting the server so every handler uses the final behavior.
+# Import all runtime/reliability layers before starting the server so every handler uses the final behavior.
+import logging_patch
+logging_patch.install()
 import telegram_runtime
 import hotfix
 hotfix.install()
