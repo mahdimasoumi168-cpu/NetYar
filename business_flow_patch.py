@@ -23,15 +23,12 @@ def install():
     if getattr(B, "_business_flow_patch_installed", False):
         return
 
-    # ---------------- Main menus ----------------
     old_main = B.main
     def main(uid):
         markup = old_main(uid)
         st = B.S.get(uid, {})
         if st.get("status") != "iranian":
             return markup
-        # Iranian users need the same operational shortcuts, including partner
-        # panel, follow-up and a reliable return button.
         return B.kb([
             ["🎫 پیگیری", "👥 پنل همکاران"],
             ["💰 اعتبار من", "⬅️ بازگشت"],
@@ -40,7 +37,7 @@ def install():
         ])
     B.main = main
 
-    # ---------------- Top-up: amount -> receipt -> admin ----------------
+    # Amount -> receipt. The receipt handler below creates the single topup row.
     old_service_text = B.service_text
     async def service_text(update, context):
         uid = update.effective_user.id
@@ -49,17 +46,12 @@ def install():
         if st.get("mode") == "topup_amount":
             amount = _amount(t)
             if not amount:
-                return await update.message.reply_text(
-                    "❌ مبلغ نامعتبر است. فقط عدد وارد کنید؛ مثال: 500000",
-                    reply_markup=B.cancel_kb(st.get("lang", "fa")),
-                )
+                return await update.message.reply_text("❌ مبلغ نامعتبر است. فقط عدد وارد کنید؛ مثال: 500000", reply_markup=B.cancel_kb(st.get("lang", "fa")))
             pid = st.get("partner_id")
             p = B.db.conn.execute("SELECT * FROM partners WHERE id=? AND active=1", (pid,)).fetchone()
             if not p:
                 st["mode"] = None
                 return await update.message.reply_text("❌ حساب همکار پیدا نشد.", reply_markup=B.main(uid))
-            # Do NOT create a topup row yet. The receipt is the actual proof;
-            # bot.media creates the single authoritative topup row with file_id.
             st["topup_amount"] = amount
             st["mode"] = "topup_receipt"
             return await update.message.reply_text(
@@ -69,10 +61,50 @@ def install():
         return await old_service_text(update, context)
     B.service_text = service_text
 
-    # ---------------- Customer wallet on the home page ----------------
-    async def wallet(update, context):
+    # Receipt must reach management as an actual Telegram photo/document.
+    old_media = B.media
+    async def media(update, context):
         uid = update.effective_user.id
         st = B.S.setdefault(uid, {})
+        if st.get("mode") == "topup_receipt":
+            fid = update.message.photo[-1].file_id if update.message.photo else (update.message.document.file_id if update.message.document else "")
+            if not fid:
+                return await update.message.reply_text("❌ لطفاً تصویر یا فایل رسید را ارسال کنید.", reply_markup=B.cancel_kb(st.get("lang", "fa")))
+            pid = st.get("partner_id")
+            amount = int(st.get("topup_amount") or 0)
+            p = B.db.conn.execute("SELECT * FROM partners WHERE id=? AND active=1", (pid,)).fetchone()
+            if not p or amount <= 0:
+                st["mode"] = None
+                return await update.message.reply_text("❌ درخواست شارژ پیدا نشد.", reply_markup=B.partner_kb(st.get("lang", "fa")))
+            cur = B.db.conn.execute(
+                "INSERT INTO topups(partner_id,amount,receipt_file_id,status,created_at) VALUES(?,?,?,?,?)",
+                (pid, amount, fid, "pending", B.now()),
+            )
+            topup_id = cur.lastrowid
+            B.db.conn.commit()
+            st["mode"] = None
+            st.pop("topup_amount", None)
+            mk = InlineKeyboardMarkup([[InlineKeyboardButton("✅ تأیید شارژ", callback_data=f"tu:a:{pid}:{amount}:{topup_id}"), InlineKeyboardButton("❌ رد شارژ", callback_data=f"tu:r:{pid}:{amount}:{topup_id}")]])
+            text = f"💰 درخواست شارژ حساب\n👤 {p['name']}\n📱 {p['phone']}\n💵 مبلغ: {amount:,} تومان\n🎫 شناسه شارژ: {topup_id}\n📎 رسید پیوست شده است."
+            for aid in B.ADM:
+                try:
+                    await context.bot.send_message(chat_id=int(aid), text=text, reply_markup=mk)
+                    try:
+                        if update.message.photo:
+                            await context.bot.send_photo(chat_id=int(aid), photo=fid, caption=f"📎 رسید شارژ {topup_id}")
+                        else:
+                            await context.bot.send_document(chat_id=int(aid), document=fid, caption=f"📎 رسید شارژ {topup_id}")
+                    except Exception:
+                        log.exception("topup receipt forwarding failed")
+                except Exception:
+                    log.exception("topup admin notification failed")
+            return await update.message.reply_text("✅ رسید دریافت شد و همراه با درخواست شارژ برای مدیریت ارسال شد. پس از تأیید، موجودی شما افزایش می‌یابد.", reply_markup=B.partner_kb(st.get("lang", "fa")))
+        return await old_media(update, context)
+    B.media = media
+
+    # Customer wallet on the home page.
+    async def wallet(update, context):
+        uid = update.effective_user.id
         key = f"customer_credit_telegram_{uid}"
         raw = B.db.setting(key, "0")
         try:
@@ -85,7 +117,7 @@ def install():
         )
     B.customer_wallet = wallet
 
-    # ---------------- Admin partner balance controls ----------------
+    # Admin partner balance controls.
     old_amenu = B.amenu
     def amenu():
         base = old_amenu()
@@ -100,20 +132,14 @@ def install():
         uid = update.effective_user.id
         st = B.S.setdefault(uid, {})
         t = (update.message.text or "").strip()
-        lang = st.get("lang", "fa")
 
-        # Customer/partner shortcuts must be handled before the legacy router.
         if t in ("💰 اعتبار من", "💰 کیف پول من", "💰 My wallet", "💰 محفظتي") and not B.admin(uid):
             return await B.customer_wallet(update, context)
         if t == "⬅️ بازگشت" and st.get("status") == "iranian":
             st["status"] = None
-            return await update.message.reply_text(
-                "لطفاً انتخاب کنید:",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🪪 اتباع هستم", callback_data="st:foreign"), InlineKeyboardButton("🇮🇷 ایرانی هستم", callback_data="st:iranian")]])
-            )
+            return await update.message.reply_text("لطفاً انتخاب کنید:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🪪 اتباع هستم", callback_data="st:foreign"), InlineKeyboardButton("🇮🇷 ایرانی هستم", callback_data="st:iranian")]]))
 
         if B.admin(uid):
-            # Start balance adjustment.
             if t == "➕ افزایش اعتبار":
                 st["extra_step"] = "partner_balance_add"
                 return await update.message.reply_text("➕ افزایش اعتبار همکار\n\nشماره موبایل همکار و مبلغ را وارد کنید.\nمثال: 09123456789 500000", reply_markup=B.amenu())
