@@ -40,6 +40,12 @@ def install():
     import rubika_runtime_fix
     rubika_runtime_fix.install()
 
+    # Rubika's webhook is receiving NewMessage events, but the legacy process
+    # dispatcher can silently ignore the current payload shape. Route the
+    # normalized update directly to rubika_v2.handle.
+    import rubika_dispatch_fix
+    rubika_dispatch_fix.install()
+
     # Must be loaded after all historical UI patches so every ReplyKeyboard
     # created by them passes through the same plain-text normalizer.
     import telegram_button_fix
