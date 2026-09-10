@@ -12,11 +12,6 @@ def install():
 
     import telegram_runtime  # noqa: F401
 
-    # Business-flow layer must run after telegram_runtime has created its
-    # router/service handlers, but before the remaining compatibility wrappers.
-    import business_flow_patch
-    business_flow_patch.install()
-
     import hotfix
     hotfix.install()
 
@@ -73,5 +68,10 @@ def install():
     # created by them passes through the same plain-text normalizer.
     import telegram_button_fix
     telegram_button_fix.install()
+
+    # Final business-flow layer: it intentionally runs last so its main menu,
+    # router and top-up flow are not overwritten by older compatibility code.
+    import business_flow_patch
+    business_flow_patch.install()
 
     return server
