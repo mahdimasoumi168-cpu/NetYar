@@ -11,8 +11,6 @@ telegram_ready=False
 rubika_ready=False
 _telegram_queue=asyncio.Queue(maxsize=1000)
 _telegram_workers=[]
-# Rubika may retry an update even after a successful HTTP response. Keep a short
-# idempotency cache so one button press can never execute multiple times.
 _RB_SEEN={}
 _RB_SEEN_TTL=30
 
@@ -22,10 +20,8 @@ def public_url(path=""):
     return base+path
 
 def _rb_key(update):
-    try:
-        raw=json.dumps(update,ensure_ascii=False,sort_keys=True,separators=(",",":"))
-    except Exception:
-        raw=repr(update)
+    try: raw=json.dumps(update,ensure_ascii=False,sort_keys=True,separators=(",",":"))
+    except Exception: raw=repr(update)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 def _rb_seen(key):
@@ -37,52 +33,35 @@ def _rb_seen(key):
     return False
 
 @api.get("/health")
-async def health():
-    return {"ok":True,"service":"NetYar","telegram":telegram_ready,"rubika":rubika_ready}
+async def health(): return {"ok":True,"service":"NetYar","telegram":telegram_ready,"rubika":rubika_ready}
 
 @api.post("/telegram/update")
 async def telegram_update(request:Request):
-    if telegram_app is None:
-        log.error("Telegram webhook called before Telegram application was ready")
-        return {"ok":False,"error":"telegram_not_ready"}
+    if telegram_app is None: return {"ok":False,"error":"telegram_not_ready"}
     try:
         from telegram import Update
-        payload=await request.json()
-        update=Update.de_json(data=payload,bot=telegram_app.bot)
-        if update is None:
-            return {"ok":False,"error":"invalid_update"}
-        # ACK Telegram immediately; a bounded worker queue prevents slow services
-        # from blocking the provider webhook and causing retries/backlog.
-        try:
-            _telegram_queue.put_nowait(update)
-        except asyncio.QueueFull:
-            log.error("Telegram update queue full; refusing update_id=%s",payload.get("update_id"))
-            return {"ok":False,"error":"telegram_queue_full"}
-        log.info("Telegram update queued: update_id=%s kind=%s",payload.get("update_id"),"callback_query" if payload.get("callback_query") else "message" if payload.get("message") else "other")
+        payload=await request.json(); update=Update.de_json(data=payload,bot=telegram_app.bot)
+        if update is None: return {"ok":False,"error":"invalid_update"}
+        try: _telegram_queue.put_nowait(update)
+        except asyncio.QueueFull: return {"ok":False,"error":"telegram_queue_full"}
+        log.info("Telegram update queued: update_id=%s",payload.get("update_id"))
         return {"ok":True}
     except Exception:
         log.exception("Telegram webhook update failed")
         return {"ok":False,"error":"telegram_update_failed"}
 
 async def _process_telegram_update(update):
-    try:
-        await telegram_app.process_update(update)
-        log.info("Telegram update processed")
-    except Exception:
-        log.exception("Telegram background update processing failed")
+    try: await telegram_app.process_update(update)
+    except Exception: log.exception("Telegram background update processing failed")
 
 async def _telegram_worker(n):
     while True:
         try:
             update=await _telegram_queue.get()
-            try:
-                await _process_telegram_update(update)
-            finally:
-                _telegram_queue.task_done()
-        except asyncio.CancelledError:
-            return
-        except Exception:
-            log.exception("Telegram worker %s failed",n)
+            try: await _process_telegram_update(update)
+            finally: _telegram_queue.task_done()
+        except asyncio.CancelledError: return
+        except Exception: log.exception("Telegram worker %s failed",n)
 
 def _rubika_inner(update):
     if isinstance(update,dict) and isinstance(update.get("update"),dict): return update["update"]
@@ -102,14 +81,13 @@ def _rubika_text(update):
     if isinstance(a,dict): return str(a.get("button_id") or a.get("button_text") or a.get("text") or "").strip()
     if isinstance(a,str):
         try:
-            a=json.loads(a)
-            return str(a.get("button_id") or a.get("button_text") or a.get("text") or "").strip() if isinstance(a,dict) else ""
+            a=json.loads(a); return str(a.get("button_id") or a.get("button_text") or a.get("text") or "").strip() if isinstance(a,dict) else ""
         except Exception: return ""
     return ""
 
 def _rubika_chat(update):
     u=_rubika_inner(update); m=_rubika_message(u)
-    return str(m.get("chat_id") or m.get("chat_key") or (u.get("chat_id") if isinstance(u,dict) else "") or "")
+    return str((u.get("chat_id") if isinstance(u,dict) else "") or m.get("chat_id") or m.get("chat_key") or "")
 
 def _rubika_user(update):
     u=_rubika_inner(update); m=_rubika_message(u); s=m.get("sender") or {}
@@ -153,11 +131,9 @@ def _patch_rubika(rb):
             x=str(x).strip()
             aliases={"📝 Screening test":"📝 آزمون غربالگری","📝 اختبار الفحص":"📝 آزمون غربالگری","🎫 Follow-up":"🎫 پیگیری","🎫 متابعة":"🎫 پیگیری"}
             x=aliases.get(x,x)
-            if x=="📝 آزمون غربالگری" and rb.STATE.get(str(uid),{}).get("step")=="menu":
-                return rb.send(chat,"⏳ آزمون غربالگری فعلاً غیرفعال است.",rb.main_rows(uid))
+            if x=="📝 آزمون غربالگری" and rb.STATE.get(str(uid),{}).get("step")=="menu": return rb.send(chat,"⏳ آزمون غربالگری فعلاً غیرفعال است.",rb.main_rows(uid))
             if x in {"🎫 پیگیری","🎫 Tracking"} and rb.STATE.get(str(uid),{}).get("step")=="menu":
-                rb.STATE[str(uid)]["step"]="track"
-                return rb.send(chat,rb.T(uid,"track"),[[('0',rb.CANCEL)]])
+                rb.STATE[str(uid)]["step"]="track"; return rb.send(chat,rb.T(uid,"track"),[[('0',rb.CANCEL)]])
             return original_handle(uid,chat,x,u)
         rb.handle=handle_fixed; rb._netyar_handle_fixed=True
 
@@ -166,17 +142,7 @@ def _normalize_rubika_button(update,rb):
     if raw not in {str(i) for i in range(10)}: return update
     uid=_rubika_user(update); st=rb.STATE.get(uid,{})
     step=st.get("step") or st.get("mode") or ""
-    maps={
-      "language":{"1":"🇮🇷 فارسی","2":"🇬🇧 English","3":"🇸🇦 العربية"},
-      "citizenship":{"1":"🪪 اتباع هستم","2":"🇮🇷 ایرانی هستم"},
-      "iranian":{"1":"👥 پنل همکاران","2":"🎫 پیگیری"},
-      "menu":{"1":"🪪 فیدای غیر حضوری","2":"🖨 خدمات چاپ","3":"🏛 حل مشکل ورود اتباع دولت من","4":"🎫 پیگیری","5":"📱 خدمات سیم کارت","6":"📝 آزمون غربالگری","7":"💰 کیف پول من","8":"👥 پنل همکاران","9":"📞 تماس با ما","0":rb.CANCEL},
-      "partner":{"1":"➕ شارژ حساب","2":"🔎 پیگیری کد","3":"📋 سوابق","4":"💰 موجودی","5":"🏛 حل مشکل سامانه دولت من","0":rb.CANCEL},
-      "admin":{"1":"👥 همکاران","2":"💰 شارژها","3":"📋 درخواست‌ها","4":"💳 پرداخت‌های مشتری","5":"⚙️ قیمت‌ها","6":"🤖 افزودن بات","7":"🤖 بات‌های متصل","8":"📊 گزارش","0":"⬅️ منوی اصلی"},
-      "print_color":{"1":"⚫ سیاه و سفید","2":"🌈 رنگی","0":rb.CANCEL},
-      "print_side":{"1":"📄 یک‌رو","2":"🔄 پشت‌ورو","0":rb.CANCEL},
-      "print_files":{"1":"✅ تأیید","0":rb.CANCEL},"print":{"1":"✅ تأیید","0":rb.CANCEL},
-      "topup_amount":{"0":rb.CANCEL},"topup_receipt":{"0":rb.CANCEL},"track":{"0":rb.CANCEL},"track_partner":{"0":rb.CANCEL},"partner_phone":{"0":rb.CANCEL},"partner_pass":{"0":rb.CANCEL},"gov_fida":{"0":rb.CANCEL},"partner_gov_fida":{"0":rb.CANCEL},"gov_yekta":{"0":rb.CANCEL},"gov_dob":{"0":rb.CANCEL},"fida_doc":{"0":rb.CANCEL}}
+    maps={"language":{"1":"🇮🇷 فارسی","2":"🇬🇧 English","3":"🇸🇦 العربية"},"citizenship":{"1":"🪪 اتباع هستم","2":"🇮🇷 ایرانی هستم"},"iranian":{"1":"👥 پنل همکاران","2":"🎫 پیگیری"},"menu":{"1":"🪪 فیدای غیر حضوری","2":"🖨 خدمات چاپ","3":"🏛 حل مشکل ورود اتباع دولت من","4":"🎫 پیگیری","5":"📱 خدمات سیم کارت","6":"📝 آزمون غربالگری","7":"💰 کیف پول من","8":"👥 پنل همکاران","9":"📞 تماس با ما","0":rb.CANCEL},"partner":{"1":"➕ شارژ حساب","2":"🔎 پیگیری کد","3":"📋 سوابق","4":"💰 موجودی","5":"🏛 حل مشکل سامانه دولت من","0":rb.CANCEL},"admin":{"1":"👥 همکاران","2":"💰 شارژها","3":"📋 درخواست‌ها","4":"💳 پرداخت‌های مشتری","5":"⚙️ قیمت‌ها","6":"🤖 افزودن بات","7":"🤖 بات‌های متصل","8":"📊 گزارش","0":"⬅️ منوی اصلی"},"print_color":{"1":"⚫ سیاه و سفید","2":"🌈 رنگی","0":rb.CANCEL},"print_side":{"1":"📄 یک‌رو","2":"🔄 پشت‌ورو","0":rb.CANCEL},"print_files":{"1":"✅ تأیید","0":rb.CANCEL},"print":{"1":"✅ تأیید","0":rb.CANCEL},"topup_amount":{"0":rb.CANCEL},"topup_receipt":{"0":rb.CANCEL},"track":{"0":rb.CANCEL},"track_partner":{"0":rb.CANCEL},"partner_phone":{"0":rb.CANCEL},"partner_pass":{"0":rb.CANCEL},"gov_fida":{"0":rb.CANCEL},"partner_gov_fida":{"0":rb.CANCEL},"gov_yekta":{"0":rb.CANCEL},"gov_dob":{"0":rb.CANCEL},"fida_doc":{"0":rb.CANCEL}}
     label=maps.get(step,{}).get(raw)
     if not label: return update
     m=_rubika_message(update)
@@ -188,115 +154,93 @@ async def _run_rubika(update,rb):
         normalized=_normalize_rubika_button(update,rb)
         await asyncio.to_thread(rb.process,normalized)
         log.info("Rubika update processed: user=%s",_rubika_user(update))
-    except Exception:
-        log.exception("Rubika background update processing failed")
+    except Exception: log.exception("Rubika background update processing failed")
 
 @api.get("/rubika/update")
-async def rubika_update_probe():
-    # Rubika probes the callback endpoint before delivering updates.
-    return {"ok":True,"service":"NetYar","provider":"rubika"}
+async def rubika_update_probe(): return {"ok":True,"service":"NetYar","provider":"rubika"}
 
 @api.head("/rubika/update")
-async def rubika_update_head():
-    return None
+async def rubika_update_head(): return None
 
 @api.post("/rubika/update")
 async def rubika_update(request:Request):
+    # Rubika validates a webhook by probing the URL. The probe may be an empty
+    # or non-JSON POST, so it must receive HTTP 200 instead of JSON/422/500.
+    raw=await request.body()
+    if not raw:
+        log.info("Rubika webhook validation probe accepted")
+        return {"ok":True}
     try:
-        body=await request.json(); update=_rubika_inner(body)
-        log.info("Rubika webhook received: type=%s", update.get("type") if isinstance(update,dict) else "unknown")
+        body=json.loads(raw.decode("utf-8"))
+    except Exception:
+        log.info("Rubika webhook validation probe accepted: non-JSON body")
+        return {"ok":True}
+    try:
+        update=_rubika_inner(body)
+        if not isinstance(update,dict) or not update:
+            return {"ok":True}
+        log.info("Rubika webhook received: type=%s",update.get("type","unknown"))
         key=_rb_key(update)
-        if _rb_seen(key):
-            log.info("Rubika duplicate update ignored")
-            return {"ok":True,"duplicate":True}
+        if _rb_seen(key): return {"ok":True,"duplicate":True}
         import rubika_v2 as rb
         _patch_rubika(rb)
-        if isinstance(update,dict) and update.get("type")=="StartedBot":
+        if update.get("type")=="StartedBot":
             msg=update.get("new_message") or update.get("message") or {}; chat=str(update.get("chat_id") or msg.get("chat_id") or ""); uid=str((msg or {}).get("sender_id") or (msg or {}).get("user_id") or chat)
             if chat:
-                st=rb.STATE.setdefault(uid,{});st.clear();st.update({"lang":"fa","step":"language"})
+                st=rb.STATE.setdefault(uid,{}); st.clear(); st.update({"lang":"fa","step":"language"})
                 asyncio.create_task(asyncio.to_thread(rb.send,chat,rb.TEXT["fa"]["lang"],[["1","🇮🇷 فارسی"],["2","🇬🇧 English"],["3","🇸🇦 العربية"]]))
                 log.info("Rubika bot started: user=%s",uid)
         else:
-            asyncio.create_task(_run_rubika(update,rb))
-            log.info("Rubika update accepted: user=%s type=%s",_rubika_user(update),update.get("type","unknown"))
+            asyncio.create_task(_run_rubika(update,rb)); log.info("Rubika update accepted: user=%s type=%s",_rubika_user(update),update.get("type","unknown"))
         return {"ok":True}
     except Exception:
         log.exception("Rubika webhook update failed")
         return {"ok":False,"error":"rubika_update_failed"}
 
 async def _integration_watchdog():
-    # Verify provider state periodically, but do not constantly rewrite webhooks.
-    # Re-register only after a confirmed mismatch and at a conservative interval.
     while True:
         try:
             await asyncio.sleep(90)
             if telegram_app is not None:
                 try:
-                    info=await telegram_app.bot.get_webhook_info()
-                    expected=public_url("/telegram/update")
-                    actual=(info.url or "").rstrip("/")
+                    info=await telegram_app.bot.get_webhook_info(); expected=public_url("/telegram/update"); actual=(info.url or "").rstrip("/")
                     if actual != expected.rstrip("/"):
                         log.warning("Telegram webhook mismatch; restoring endpoint")
                         secret=os.getenv("TELEGRAM_WEBHOOK_SECRET","").strip() or None
                         await telegram_app.bot.set_webhook(url=expected,allowed_updates=None,secret_token=secret)
-                    telegram_ready=True
-                except Exception:
-                    telegram_ready=False
-                    log.exception("Telegram webhook watchdog check failed")
-            try:
-                import rubika_v2 as rb
-                endpoint=public_url("/rubika/update")
-                result=rb.call("updateBotEndpoints",{"url":endpoint,"type":"ReceiveUpdate"})
-                rubika_ready=bool(isinstance(result,dict) and result.get("status")=="Done")
-            except Exception:
-                rubika_ready=False
-                log.exception("Rubika webhook watchdog check failed")
-        except asyncio.CancelledError:
-            return
-        except Exception:
-            log.exception("Integration watchdog failed")
+                except Exception: log.exception("Telegram webhook watchdog failed")
+        except asyncio.CancelledError: return
+        except Exception: log.exception("Integration watchdog failed")
 
 async def _initialize_integrations():
     global telegram_app,telegram_ready,rubika_ready
     try:
         import telegram_runtime as tg
-        telegram_app=tg.build()
-        await telegram_app.initialize()
-        await telegram_app.start()
-        tg_url=public_url("/telegram/update");secret=os.getenv("TELEGRAM_WEBHOOK_SECRET","").strip() or None
+        telegram_app=tg.build(); await telegram_app.initialize(); await telegram_app.start()
+        tg_url=public_url("/telegram/update"); secret=os.getenv("TELEGRAM_WEBHOOK_SECRET","").strip() or None
         await telegram_app.bot.set_webhook(url=tg_url,allowed_updates=None,secret_token=secret)
-        info=await telegram_app.bot.get_webhook_info();telegram_ready=True
+        info=await telegram_app.bot.get_webhook_info(); telegram_ready=True
         log.info("Telegram webhook registered: url_set=%s pending=%s last_error=%s",bool(info.url),info.pending_update_count,info.last_error_message or "none")
-    except Exception:
-        log.exception("Telegram webhook startup failed");telegram_ready=False
+    except Exception: log.exception("Telegram webhook startup failed"); telegram_ready=False
     try:
         import rubika_v2 as rb
-        _patch_rubika(rb);endpoint=public_url("/rubika/update")
+        _patch_rubika(rb); endpoint=public_url("/rubika/update")
         result=rb.call("updateBotEndpoints",{"url":endpoint,"type":"ReceiveUpdate"})
         log.info("Rubika ReceiveUpdate endpoint registered: %s | %s",endpoint,result)
         rb_info=rb.call("getMe")
         log.info("Rubika getMe: bot_id=%s",((rb_info.get("bot") or {}).get("bot_id") if isinstance(rb_info,dict) else "unknown"))
         rubika_ready=True
-    except Exception:
-        log.exception("Rubika webhook registration failed");rubika_ready=False
+    except Exception: log.exception("Rubika webhook registration failed"); rubika_ready=False
 
 @api.on_event("startup")
 async def startup():
-    # Do not block Railway's healthcheck while external APIs initialize.
-    # Railway only routes the deployment after /health returns 2xx.
     init_db()
-    for n in range(8):
-        _telegram_workers.append(asyncio.create_task(_telegram_worker(n)))
-    asyncio.create_task(_initialize_integrations())
-    asyncio.create_task(_integration_watchdog())
+    for n in range(8): _telegram_workers.append(asyncio.create_task(_telegram_worker(n)))
+    asyncio.create_task(_initialize_integrations()); asyncio.create_task(_integration_watchdog())
 
 @api.on_event("shutdown")
 async def shutdown():
     global telegram_app
-    # Never delete provider webhooks during container shutdown. During a Railway
-    # deployment, the old and new containers can overlap; deleting here can race
-    # with the new container's setWebhook and leave the bot disconnected.
     if telegram_app is not None:
         try: await telegram_app.stop()
         except Exception: pass
@@ -308,4 +252,3 @@ def main():
     import uvicorn
     uvicorn.run(api,host="0.0.0.0",port=int(os.getenv("PORT","8080")),log_level="info")
 if __name__=="__main__": main()
-
