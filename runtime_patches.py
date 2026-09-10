@@ -32,10 +32,13 @@ def install():
     import server_patch
     server_patch.install()
 
-    # Rubika keyboard compatibility: normalize legacy flat [id, label] rows
-    # before rubika_v2.send serializes them.
+    # Rubika keypad compatibility: normalize legacy flat [id, label] rows
+    # before rubika_v2.send serializes them, and preserve explicit button IDs.
     import rubika_fix
     rubika_fix.install()
+
+    import rubika_runtime_fix
+    rubika_runtime_fix.install()
 
     # Must be loaded after all historical UI patches so every ReplyKeyboard
     # created by them passes through the same plain-text normalizer.
