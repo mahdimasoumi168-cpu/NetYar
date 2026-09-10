@@ -8,6 +8,8 @@ import ui_patch
 ui_patch.install()
 
 import server
+import server_patch
+server_patch.install()
 
 if __name__ == "__main__":
     server.main()
