@@ -23,7 +23,6 @@ except Exception:
 try:
     import json
     import rubika_v2 as _rb
-
     def _rb_message(update):
         if isinstance(update, dict) and isinstance(update.get("inline_message"), dict): return update["inline_message"]
         if isinstance(update, dict):
@@ -49,7 +48,7 @@ try:
         m = _rb_message(update); sender = m.get("sender") or {}
         return str(sender.get("user_id") or m.get("sender_id") or m.get("user_id") or (update.get("sender_id") if isinstance(update, dict) else "") or _rb_chat(update))
     def _rb_rows(rows):
-        result = []
+        result=[]
         for row in rows or []:
             buttons=[]
             for i,item in enumerate(row or []):
@@ -62,12 +61,9 @@ try:
 except Exception:
     pass
 
-try:
-    import enhancements
-except Exception:
-    pass
-
-try:
-    import final_patch
-except Exception:
-    pass
+try: import enhancements
+except Exception: pass
+try: import final_patch
+except Exception: pass
+try: import rubika_admin_patch
+except Exception: pass
