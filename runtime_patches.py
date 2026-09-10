@@ -27,6 +27,10 @@ def install():
     import partner_code_fix
     partner_code_fix.install()
 
+    # Bridge Rubika's historical DB method names to the unified core database.
+    import rubika_core_compat
+    rubika_core_compat.install()
+
     import server
 
     import server_patch
@@ -50,6 +54,10 @@ def install():
     # the provider registration call to use it.
     import rubika_webhook_fix
     rubika_webhook_fix.install()
+
+    # Retry startup webhook registration and answer provider HEAD probes fast.
+    import integration_hardening
+    integration_hardening.install()
 
     # Must be loaded after all historical UI patches so every ReplyKeyboard
     # created by them passes through the same plain-text normalizer.
