@@ -71,4 +71,8 @@ def install():
     import ui_consistency_patch
     ui_consistency_patch.install()
 
+    # Partner request receipt/ticket actions and Rubika -> Telegram admin mirror.
+    import partner_request_patch
+    partner_request_patch.install()
+
     return server
