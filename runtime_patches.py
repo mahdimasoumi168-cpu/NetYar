@@ -1,9 +1,7 @@
 """Single compatibility layer for the current production runtime."""
 
-
 def install():
-    import logging_patch
-    logging_patch.install()
+    import logging_patch; logging_patch.install()
     import telegram_runtime  # noqa: F401
     import hotfix; hotfix.install()
     import stability_patch; stability_patch.install()
@@ -35,4 +33,5 @@ def install():
     import final_ux_hardening; final_ux_hardening.install()
     import full_admin_control_patch; full_admin_control_patch.install()
     import admin_control_v2; admin_control_v2.install()
+    import admin_control_v3; admin_control_v3.install()
     return server
