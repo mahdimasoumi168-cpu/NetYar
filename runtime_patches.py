@@ -34,4 +34,6 @@ def install():
     import full_admin_control_patch; full_admin_control_patch.install()
     import admin_control_v2; admin_control_v2.install()
     import admin_control_v3; admin_control_v3.install()
+    import production_final_patch; production_final_patch.install()
+    import production_final_hotfix; production_final_hotfix.install()
     return server
