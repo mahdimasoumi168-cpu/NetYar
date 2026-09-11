@@ -42,7 +42,6 @@ try:
                 out.append(buttons)
         return InlineKeyboardMarkup(out)
 
-    # Make every existing kb() helper in bot.py produce inline buttons.
     B.kb = inline_kb
     B.ReplyKeyboardMarkup = inline_kb
 
@@ -76,8 +75,6 @@ try:
         await q.answer()
         try:
             await _remove_old_telegram_keyboard(q.message)
-            # telegram.Message.text is read-only. Bypass TelegramObject.__setattr__
-            # only for the duration of routing, then restore the original value.
             original_text = getattr(q.message, "text", None)
             object.__setattr__(q.message, "text", label)
             try:
@@ -119,10 +116,6 @@ try:
         p = {"chat_id": str(chat), "text": str(text)}
         if r:
             p["inline_keypad"] = {"rows": RB.rows(r)}
-
-        # Do not call editChatKeypad before every message. That extra API call
-        # was causing a second request for every user action and contributing to
-        # Rubika TOO_REQUESTS. Inline keypad is the only new keyboard we send.
         last_exc = None
         for attempt in range(4):
             try:
@@ -132,8 +125,6 @@ try:
                 data = z.json()
                 if isinstance(data, dict) and data.get("status") == "TOO_REQUESTS":
                     last_exc = RuntimeError("TOO_REQUESTS")
-                    # Rubika's rate-limit response is not recoverable by a rapid retry.
-                    # Back off substantially so the next real user action can succeed.
                     time.sleep(min(30.0, 8.0 * (attempt + 1)))
                     continue
                 return data
@@ -143,16 +134,27 @@ try:
                     break
                 time.sleep(min(12.0, 3.0 * (attempt + 1)))
         log.error("Rubika send failed after controlled retries: %s", last_exc)
-        # Never crash the whole Rubika update worker because a single send hit a
-        # provider rate limit. The webhook can acknowledge the update and remain alive.
         return {"status": "RETRY_LATER", "error": str(last_exc or "send failed")}
 
     def _rubika_call(method, p=None):
+        payload = dict(p or {})
+        # The provider's ReceiveUpdate registration was returning InvalidUrl for
+        # /rubika/update. Always register the conventional /rubika/receiveUpdate
+        # endpoint; server.py exposes that route as an alias to the same handler.
+        if method == "updateBotEndpoints" and payload.get("type") == "ReceiveUpdate":
+            base = os.getenv("PUBLIC_BASE_URL", "").strip().rstrip("/")
+            if not base:
+                domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "").strip().rstrip("/")
+                if domain:
+                    base = "https://" + domain
+            if base:
+                payload["url"] = base + "/rubika/receiveUpdate"
+                log.info("Rubika ReceiveUpdate URL normalized to %s", payload["url"])
         last_exc = None
         for attempt in range(3):
             try:
                 _wait_rate(2.0)
-                z = RB.HTTP.post(f"{RB.BASE}/{method}", json=p or {}, timeout=20)
+                z = RB.HTTP.post(f"{RB.BASE}/{method}", json=payload, timeout=20)
                 z.raise_for_status()
                 d = z.json()
                 if isinstance(d, dict) and d.get("status") not in (None, "OK"):
