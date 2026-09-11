@@ -1,16 +1,17 @@
 """Deterministic compatibility-layer loader for the production bot.
 
 The application still contains legacy compatibility modules, so their order is
-kept explicit here.  Every module exposes an idempotent ``install()`` function.
+kept explicit here. Every module exposes an idempotent ``install()`` function.
 The final stability layer is loaded last so it protects the public routing and
 transport seams after all legacy patches have been applied.
 """
 
+import importlib
 import logging
 
 log = logging.getLogger("netyar.runtime")
 
-# Order matters.  Do not alphabetize this list: several legacy patches extend
+# Order matters. Do not alphabetize this list: several legacy patches extend
 # functions installed by earlier patches.
 _PATCH_MODULES = (
     "logging_patch",
@@ -21,6 +22,7 @@ _PATCH_MODULES = (
     "workflow_patch",
     "partner_code_fix",
     "rubika_core_compat",
+    "server",
     "server_patch",
     "rubika_fix",
     "rubika_runtime_fix",
@@ -53,8 +55,6 @@ _PATCH_MODULES = (
 
 def install():
     """Load the compatibility stack once and return the FastAPI server."""
-    import importlib
-
     server = None
     for module_name in _PATCH_MODULES:
         module = importlib.import_module(module_name)
@@ -62,15 +62,10 @@ def install():
             server = module
             continue
         installer = getattr(module, "install", None)
-        if installer is None:
-            # telegram_runtime is an integration module whose import performs
-            # its own setup; every other module in this list is an explicit
-            # compatibility patch.
-            continue
-        installer()
-        log.info("runtime patch installed: %s", module_name)
+        if installer is not None:
+            installer()
+            log.info("runtime patch installed: %s", module_name)
 
     if server is None:
-        import server
-
+        server = importlib.import_module("server")
     return server
