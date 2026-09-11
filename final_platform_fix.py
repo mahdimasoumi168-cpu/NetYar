@@ -1,5 +1,4 @@
-"""Final platform hardening: Telegram inline buttons + Rubika inline keypad/rate limit."""
-import asyncio
+"""Final platform hardening: inline-only UI, old-keyboard removal and rate limiting."""
 import logging
 import threading
 import time
@@ -16,6 +15,7 @@ try:
     _actions = OrderedDict()
     _seq = 0
     _lock = threading.Lock()
+    _removed_chats = set()
 
     def _remember(label):
         global _seq
@@ -44,6 +44,27 @@ try:
 
     B.kb = inline_kb
 
+    async def _remove_old_telegram_keyboard(message):
+        chat = getattr(getattr(message, "chat", None), "id", None)
+        if chat is None or chat in _removed_chats:
+            return
+        try:
+            # Telegram keeps reply keyboards until ReplyKeyboardRemove is sent.
+            m = await message.reply_text("\u2063", reply_markup=ReplyKeyboardRemove())
+            _removed_chats.add(chat)
+            try:
+                await m.delete()
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    _old_start = B.start
+    async def _start_no_reply_keyboard(update, context):
+        await _remove_old_telegram_keyboard(update.effective_message)
+        return await _old_start(update, context)
+    B.start = _start_no_reply_keyboard
+
     async def _inline_text_callback(update, context):
         q = update.callback_query
         key = str(q.data or "")
@@ -52,10 +73,9 @@ try:
             await q.answer("این گزینه منقضی شده؛ لطفاً منوی جدید را انتخاب کنید.", show_alert=False)
             return
         await q.answer()
-        # Route the inline click through the exact same text router used by
-        # ordinary messages. Inline callbacks must not create a user message.
-        original_text = getattr(q.message, "text", None)
         try:
+            await _remove_old_telegram_keyboard(q.message)
+            original_text = getattr(q.message, "text", None)
             q.message.text = label
             await B.router(update, context)
         except Exception:
@@ -73,11 +93,10 @@ try:
     _old_build = B.build
     def build_with_inline():
         app = _old_build()
-        # Add this last so it wins over generic text handlers.
         app.add_handler(CallbackQueryHandler(_inline_text_callback, pattern=r"^ik:"), group=0)
         return app
     B.build = build_with_inline
-    log.info("Final Telegram inline keyboard bridge installed")
+    log.info("Final Telegram inline-only keyboard bridge installed")
 except Exception:
     log.exception("Final Telegram inline keyboard patch failed")
 
@@ -86,8 +105,7 @@ try:
     import rubika_v2 as RB
     _send_lock = threading.Lock()
     _last_send = 0.0
-    _old_send = RB.send
-    _old_call = RB.call
+    _removed_chats = set()
 
     def _wait_rate():
         global _last_send
@@ -98,12 +116,25 @@ try:
                 time.sleep(delay)
             _last_send = time.monotonic()
 
+    def _remove_old_rubika_keypad(chat):
+        chat = str(chat)
+        if chat in _removed_chats:
+            return
+        try:
+            _wait_rate()
+            z = RB.HTTP.post(f"{RB.BASE}/editChatKeypad", json={"chat_id": chat, "chat_keypad_type": "Remove"}, timeout=20)
+            if z.ok:
+                _removed_chats.add(chat)
+        except Exception:
+            # Removal is best-effort; inline_keypad remains the only keypad sent below.
+            pass
+
     def _rubika_send(chat, text, r=None):
-        # Use inline_keypad only. The old ChatKeypad remains visible in clients
-        # and was also the source of duplicate button traffic.
         p = {"chat_id": str(chat), "text": str(text)}
         if r:
             p["inline_keypad"] = {"rows": RB.rows(r)}
+        # Remove any legacy bottom ChatKeypad before the first inline-only message.
+        _remove_old_rubika_keypad(chat)
         for attempt in range(5):
             try:
                 _wait_rate()
