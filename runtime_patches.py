@@ -17,7 +17,6 @@ _PATCH_MODULES = (
     "production_final_patch", "production_final_hotfix", "production_stability",
     "final_requirements_patch", "production_final_v2", "rubika_final_router",
     "rubika_admin_full", "rubika_final_stability", "rubika_final_stability_patch",
-    "cross_platform_final_patch",
 )
 
 
