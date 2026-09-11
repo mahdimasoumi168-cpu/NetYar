@@ -45,15 +45,12 @@ def install():
     import integration_hardening
     integration_hardening.install()
 
-    # If Rubika rejects the public webhook URL, keep the bot online through
-    # the official getUpdates fallback instead of leaving Rubika offline.
     import rubika_polling_fallback
     rubika_polling_fallback.install()
 
     import rubika_partner_login_fix
     rubika_partner_login_fix.install()
 
-    # Telegram partner login: normalize the stored and entered phone formats.
     import telegram_partner_login_fix
     telegram_partner_login_fix.install()
 
@@ -87,14 +84,15 @@ def install():
     import button_routing_fix
     button_routing_fix.install()
 
-    # Must be after every Rubika handler patch so keypad IDs and incoming
-    # button payloads use the same stable visible labels.
     import rubika_button_routing_fix
     rubika_button_routing_fix.install()
 
-    # Last layer: persistent Telegram callbacks, Iranian menu, support,
-    # multi-admin compatibility and Rubika partner/login hardening.
     import final_ux_hardening
     final_ux_hardening.install()
+
+    # Last layer: persistent full admin control, per-service switches,
+    # editable common texts, multi-admin registry and dynamic menu visibility.
+    import full_admin_control_patch
+    full_admin_control_patch.install()
 
     return server
