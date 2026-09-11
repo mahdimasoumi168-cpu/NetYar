@@ -164,8 +164,6 @@ async def rubika_update_head(): return None
 
 @api.post("/rubika/update")
 async def rubika_update(request:Request):
-    # Rubika validates a webhook by probing the URL. The probe may be an empty
-    # or non-JSON POST, so it must receive HTTP 200 instead of JSON/422/500.
     raw=await request.body()
     if not raw:
         log.info("Rubika webhook validation probe accepted")
@@ -196,6 +194,20 @@ async def rubika_update(request:Request):
     except Exception:
         log.exception("Rubika webhook update failed")
         return {"ok":False,"error":"rubika_update_failed"}
+
+# Rubika's ReceiveUpdate registration can probe the conventional /receiveUpdate
+# path even when updateBotEndpoints was given a custom /rubika/update URL. Keep
+# both paths as equivalent aliases so provider validation cannot reject a valid
+# deployment because of the provider's endpoint convention.
+@api.get("/rubika/receiveUpdate")
+async def rubika_receive_update_probe(): return {"ok":True,"service":"NetYar","provider":"rubika"}
+
+@api.head("/rubika/receiveUpdate")
+async def rubika_receive_update_head(): return None
+
+@api.post("/rubika/receiveUpdate")
+async def rubika_receive_update(request:Request):
+    return await rubika_update(request)
 
 async def _integration_watchdog():
     while True:
@@ -237,18 +249,3 @@ async def startup():
     init_db()
     for n in range(8): _telegram_workers.append(asyncio.create_task(_telegram_worker(n)))
     asyncio.create_task(_initialize_integrations()); asyncio.create_task(_integration_watchdog())
-
-@api.on_event("shutdown")
-async def shutdown():
-    global telegram_app
-    if telegram_app is not None:
-        try: await telegram_app.stop()
-        except Exception: pass
-        try: await telegram_app.shutdown()
-        except Exception: pass
-    telegram_app=None
-
-def main():
-    import uvicorn
-    uvicorn.run(api,host="0.0.0.0",port=int(os.getenv("PORT","8080")),log_level="info")
-if __name__=="__main__": main()
