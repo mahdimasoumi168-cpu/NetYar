@@ -1,9 +1,4 @@
-"""Single compatibility layer for the current production runtime.
-
-The bot still contains a few historical provider-specific fixes. Keep their
-load order in one place so entrypoint.py remains small and deterministic while
-those fixes are gradually folded into the main platform modules.
-"""
+"""Single compatibility layer for the current production runtime."""
 
 
 def install():
@@ -59,9 +54,12 @@ def install():
     import business_flow_patch
     business_flow_patch.install()
 
-    # Must be last: business_flow_patch replaces media(), so this final layer
-    # restores the canonical top-up callback format expected by admin_cb().
     import final_safety_patch
     final_safety_patch.install()
+
+    # Last UI layer: fixed keyboard order, language selection, Iranian flow,
+    # support contact, partner-panel label and two-admin compatibility.
+    import ui_consistency_patch
+    ui_consistency_patch.install()
 
     return server
