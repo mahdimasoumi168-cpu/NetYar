@@ -45,6 +45,11 @@ def install():
     import integration_hardening
     integration_hardening.install()
 
+    # If Rubika rejects the public webhook URL, keep the bot online through
+    # the official getUpdates fallback instead of leaving Rubika offline.
+    import rubika_polling_fallback
+    rubika_polling_fallback.install()
+
     import rubika_partner_login_fix
     rubika_partner_login_fix.install()
 
