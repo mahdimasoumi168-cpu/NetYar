@@ -1,13 +1,52 @@
 """Final Rubika compatibility/stability layer.
 
-Keeps Rubika's native keypad usable by preserving the menu-defined button ids
-and normalizing incoming native button payloads. Telegram keeps its inline
-keyboard policy separately.
+Rubika uses its native keypad. Visible labels stay readable while incoming
+button events resolve to the exact menu-defined ids expected by the existing
+handler. This layer is intentionally loaded last.
 """
 import json
 import logging
 
 log = logging.getLogger("netyar.rubika.final")
+
+
+def _message(update):
+    if not isinstance(update, dict):
+        return {}
+    return update.get("message") or update.get("new_message") or update
+
+
+def _aux(update):
+    m = _message(update)
+    value = m.get("aux_data") if isinstance(m, dict) else None
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except Exception:
+            value = None
+    return value if isinstance(value, dict) else {}
+
+
+def _label_to_id(rb, uid, value):
+    value = str(value or "").strip()
+    if not value:
+        return value
+    menus = []
+    for name in ("main_rows", "partner_rows", "admin_rows"):
+        fn = getattr(rb, name, None)
+        if not callable(fn):
+            continue
+        try:
+            menus.append(fn(uid) if name == "main_rows" else fn())
+        except Exception:
+            continue
+    for menu in menus:
+        for row in menu or []:
+            for item in row or []:
+                if isinstance(item, (tuple, list)) and len(item) >= 2:
+                    if str(item[1]).strip() == value:
+                        return str(item[0]).strip()
+    return value
 
 
 def install():
@@ -34,26 +73,21 @@ def install():
         return out
 
     def payload_text(update):
-        m = update.get("message") or update.get("new_message") or update
+        m = _message(update)
         if not isinstance(m, dict):
             return ""
-        aux = m.get("aux_data")
-        if isinstance(aux, str):
-            try:
-                aux = json.loads(aux)
-            except Exception:
-                aux = None
-        if isinstance(aux, dict):
-            # Native Rubika keypad returns the menu-defined button id here.
-            button_id = aux.get("button_id")
-            if button_id is not None and str(button_id).strip():
-                return str(button_id).strip()
-            for key in ("button_text", "text"):
-                if aux.get(key):
-                    return str(aux[key]).strip()
-        for key in ("button_id", "button_text", "text"):
-            if m.get(key):
-                return str(m[key]).strip()
+        aux = _aux(update)
+        for source in (aux, m, update):
+            if isinstance(source, dict):
+                button_id = source.get("button_id")
+                if button_id not in (None, ""):
+                    return str(button_id).strip()
+        for source in (aux, m, update):
+            if isinstance(source, dict):
+                for key in ("button_text", "text"):
+                    value = source.get(key)
+                    if value not in (None, ""):
+                        return _label_to_id(R, R.user_of(update), str(value).strip())
         return ""
 
     R.rows = native_rows
