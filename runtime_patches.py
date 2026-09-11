@@ -19,7 +19,7 @@ _PATCH_MODULES = (
     "inline_callback_user_fix", "button_routing_fix", "rubika_button_routing_fix",
     "final_ux_hardening", "full_admin_control_patch", "admin_control_v2", "admin_control_v3",
     "production_final_patch", "production_final_hotfix", "production_stability",
-    "final_requirements_patch", "production_final_v2",
+    "final_requirements_patch", "production_final_v2", "rubika_final_router",
 )
 
 
