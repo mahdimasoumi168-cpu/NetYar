@@ -2,6 +2,8 @@
 
 - Render Telegram action menus as inline buttons attached to the bot message.
 - Keep legacy text handlers by translating inline callbacks back to text updates.
+- Persist callback tokens so menus survive restarts.
+- Never reject a callback because it belongs to a stale in-memory owner.
 - Validate unique/special identifiers with the required exact formats.
 - Collect household code for Amayesh cards.
 - Collect SIM-card ownership proof optionally for Amayesh requests.
@@ -38,13 +40,31 @@ def _remember(uid, label):
     return token
 
 
+def _button_style(label):
+    """Return a Telegram button style without relying on unsupported extras."""
+    s = str(label or "")
+    if any(x in s for x in ("انصراف", "لغو", "رد", "حذف", "خروج", "Cancel", "Reject", "Delete", "Exit", "إلغاء")):
+        return "danger"
+    if any(x in s for x in ("تأیید", "ثبت", "ذخیره", "فعال", "Confirm", "Approve", "Save", "تأكيد")):
+        return "success"
+    if any(x in s for x in ("پنل", "مدیریت", "همکار", "Partner", "Admin", "Management", "لوحة")):
+        return "primary"
+    return "primary"
+
+
 def _inline_kb(bot, uid, rows):
     buttons = []
     for row in rows or []:
         out = []
         for item in row or []:
             label = _text(item)
-            out.append(bot.InlineKeyboardButton(label, callback_data=_remember(uid, label)))
+            token = _remember(uid, label)
+            try:
+                out.append(bot.InlineKeyboardButton(label, callback_data=token, style=_button_style(label)))
+            except TypeError:
+                # Compatibility with python-telegram-bot versions that do not expose
+                # InlineKeyboardButton.style yet. The callback remains fully functional.
+                out.append(bot.InlineKeyboardButton(label, callback_data=token))
         if out:
             buttons.append(out)
     return bot.InlineKeyboardMarkup(buttons)
@@ -65,26 +85,56 @@ def _fake_update(update, label):
 
 
 async def _ui_callback(update, context):
+    """Resolve UI callbacks from memory first and SQLite after a restart.
+
+    Unknown old callbacks never produce the confusing 'expired/invalid' error.
+    Instead, the user receives a fresh menu. Current callbacks are executed for
+    the person who actually pressed them, not for an owner stored in memory.
+    """
     q = update.callback_query
     await q.answer()
-    entry = _UI.get(str(q.data or ""))
+    token = str(q.data or "")
+    entry = _UI.get(token)
+
     if not entry:
-        return await q.message.reply_text("❌ این گزینه منقضی شده است. لطفاً منو را دوباره باز کنید.")
-    uid, label = entry
-    if int(q.from_user.id) != uid:
-        return await q.message.reply_text("❌ این دکمه برای کاربر دیگری است.")
+        try:
+            import bot as B
+            row = B.db.conn.execute(
+                "SELECT user_id,label FROM ui_callbacks WHERE token=?",
+                (token,),
+            ).fetchone()
+            if row:
+                entry = (int(row[0]), str(row[1]))
+                _UI[token] = entry
+        except Exception:
+            log.exception("persistent UI callback lookup failed")
+
     import bot as B
+    if not entry:
+        # The callback belongs to a menu that predates the persistent registry.
+        # Do not expose an 'expired/invalid' error; rebuild the correct menu.
+        try:
+            await q.message.reply_text(
+                "🔄 منو به‌روزرسانی شد. لطفاً از گزینه‌های زیر ادامه دهید:",
+                reply_markup=B.main(q.from_user.id),
+            )
+        except Exception:
+            log.exception("failed to rebuild menu for unknown callback")
+        return
+
+    _owner, label = entry
+    # Telegram's callback sender is authoritative. Do not compare against a
+    # potentially stale process-local owner after a restart.
     fake = _fake_update(update, label)
     try:
         result = await B.router(fake, context)
         if result is None:
-            # A few legacy paths use ptext/service_text directly rather than router.
             if await B.ptext(fake, context):
                 return
             await B.service_text(fake, context)
     except Exception:
         log.exception("inline Telegram callback failed: %s", label)
-        await q.message.reply_text("❌ در اجرای این گزینه خطایی رخ داد. دوباره تلاش کنید.")
+        await q.message.reply_text("❌ اجرای گزینه با خطا روبه‌رو شد. لطفاً دوباره انتخاب کنید.")
 
 
 async def _finalize_amayesh(update, context, st, card_file, sim_file=""):
@@ -161,13 +211,9 @@ def install():
     if getattr(B, "_final_ui_flow_installed", False):
         return
 
-    # Replace every legacy reply keyboard with an inline keyboard attached to
-    # the message. The existing text-based business logic remains unchanged.
     def inline_kb(rows):
         uid = getattr(B, "_ui_current_uid", None)
         if uid is None:
-            # Most calls happen after a user is known; keep a deterministic
-            # fallback for admin/system-generated messages.
             uid = 0
         return _inline_kb(B, uid, rows)
 
@@ -180,7 +226,6 @@ def install():
         return app
     TG.build = build_with_inline
 
-    # Make sure the current user's id is available before a menu is built.
     old_main = B.main
     def tracked_main(uid):
         B._ui_current_uid = uid
@@ -198,7 +243,6 @@ def install():
         uid = update.effective_user.id
         st = B.S.setdefault(uid, {})
         t = _digits((update.message.text or "").strip())
-        # Exact government identifier formats.
         if st.get("mode") == "gov_unique":
             if not re.fullmatch(r"9\d{9}", t):
                 return await update.message.reply_text(
@@ -230,7 +274,6 @@ def install():
             st["mode"] = "gov_photo"
             return await update.message.reply_text("📸 عکس کارت آمایش را ارسال کنید.", reply_markup=B.cancel_kb(st.get("lang", "fa")))
         if st.get("mode") == "gov_photo" and st.get("gov_doc_type") == "amaysh":
-            # This path is normally reached by media(), not text. Kept for safety.
             return await update.message.reply_text("📸 عکس کارت آمایش را ارسال کنید.", reply_markup=B.cancel_kb(st.get("lang", "fa")))
         if st.get("mode") == "gov_sim_doc_optional":
             if t in {"⏭ سند سیم‌کارت ندارم", "سند سیم‌کارت ندارم", "ندارم"}:
@@ -259,8 +302,6 @@ def install():
         return await old_media(update, context)
     B.media = media
 
-    # The optional-upload button is just a prompt; the next media message is
-    # handled by the media wrapper above.
     old_router = B.router
     async def router(update, context):
         uid = update.effective_user.id
