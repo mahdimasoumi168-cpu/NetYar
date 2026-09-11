@@ -103,24 +103,26 @@ try:
   return {}
  def _text(u):
   m=_message(u)
-  for k in ("text","button_text"):
-   if m.get(k):return str(m[k]).strip()
   a=m.get("aux_data")
-  if isinstance(a,dict):return str(a.get("button_id") or a.get("button_text") or a.get("text") or "").strip()
+  if isinstance(a,dict) and a.get("button_id") is not None:return str(a["button_id"]).strip()
   if isinstance(a,str):
    try:
     a=json.loads(a)
-    if isinstance(a,dict):return str(a.get("button_id") or a.get("button_text") or a.get("text") or "").strip()
+    if isinstance(a,dict) and a.get("button_id") is not None:return str(a["button_id"]).strip()
    except Exception:pass
+  for k in ("text","button_text"):
+   if m.get(k):return str(m[k]).strip()
   return ""
  RB.text_of=_text
  log.info("NetYar Rubika safe payload normalization installed")
 except Exception:log.exception("NetYar Rubika startup patch failed")
 
+try:
+ import rubika_runtime_v4
+ log.info("NetYar Rubika v4 runtime compatibility layer loaded")
+except Exception:log.exception("NetYar Rubika v4 compatibility layer failed")
+
 # --- Partner chat binding fix ---
-# A partner's chat id must be persisted immediately after successful login/menu access.
-# Previously it was only written by the generic partner text handler, so the admin could
-# know the partner id but still have no chat destination for a verification-code request.
 try:
     _partner_original = B.partner
     async def _partner_with_chat(update, context):
