@@ -1,11 +1,8 @@
 """Deterministic compatibility-layer loader for the production bot.
 
-The application still contains legacy compatibility modules, so their order is
-kept explicit here. Every module exposes an idempotent ``install()`` function.
-The final stability layer is loaded last so it protects the public routing and
-transport seams after all legacy patches have been applied.
+Legacy compatibility modules are kept in their explicit order. The final
+stability layer is always loaded last so it owns the public UX/state seams.
 """
-
 import importlib
 import logging
 
@@ -22,7 +19,7 @@ _PATCH_MODULES = (
     "inline_callback_user_fix", "button_routing_fix", "rubika_button_routing_fix",
     "final_ux_hardening", "full_admin_control_patch", "admin_control_v2", "admin_control_v3",
     "production_final_patch", "production_final_hotfix", "production_stability",
-    "final_requirements_patch",
+    "final_requirements_patch", "production_final_v2",
 )
 
 
