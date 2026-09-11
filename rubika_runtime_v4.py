@@ -115,3 +115,5 @@ class Finder(importlib.abc.MetaPathFinder):
             def exec_module(self,m): old.exec_module(m); install(m)
         spec.loader=Loader(); return spec
 sys.meta_path.insert(0,Finder())
+if 'rubika_v2' in sys.modules:
+    install(sys.modules['rubika_v2'])
