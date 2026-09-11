@@ -62,4 +62,8 @@ def install():
     import ui_consistency_patch
     ui_consistency_patch.install()
 
+    # Final layer: Telegram inline menus and exact government identifier/data flow.
+    import final_ui_flow_patch
+    final_ui_flow_patch.install()
+
     return server
