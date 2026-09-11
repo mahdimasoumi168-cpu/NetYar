@@ -72,9 +72,11 @@ def install():
     import iranian_menu_patch
     iranian_menu_patch.install()
 
-    # Must be last: fixes the stale process-global owner check used by inline
-    # Telegram callbacks and removes «این دکمه برای کاربر دیگری است».
     import inline_callback_user_fix
     inline_callback_user_fix.install()
+
+    # Last layer: Telegram Message immutability + admin menu compatibility.
+    import button_routing_fix
+    button_routing_fix.install()
 
     return server
