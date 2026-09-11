@@ -75,8 +75,12 @@ def install():
     import inline_callback_user_fix
     inline_callback_user_fix.install()
 
-    # Last layer: Telegram Message immutability + admin menu compatibility.
     import button_routing_fix
     button_routing_fix.install()
+
+    # Must be after every Rubika handler patch so keypad IDs and incoming
+    # button payloads use the same stable visible labels.
+    import rubika_button_routing_fix
+    rubika_button_routing_fix.install()
 
     return server
