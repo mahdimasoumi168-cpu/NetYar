@@ -20,12 +20,7 @@ def _iranian_keyboard(bot, uid):
 
 def _rubika_iranian_rows(rb, uid):
     lang = rb.STATE.get(str(uid), {}).get("lang", "fa")
-    if lang == "en":
-        labels = EN_IRANIAN
-    elif lang == "ar":
-        labels = AR_IRANIAN
-    else:
-        labels = FA_IRANIAN
+    labels = EN_IRANIAN if lang == "en" else AR_IRANIAN if lang == "ar" else FA_IRANIAN
     return [[("1", labels[0])], [("2", labels[1])], [("0", labels[2])]]
 
 
@@ -55,21 +50,26 @@ def install():
 
     bot.statuscb = statuscb_fixed
 
-    # Keep the management option visually blue wherever the main menu is built.
+    # Keep the existing main menu, but ensure admin sees a blue management row.
     old_main = bot.main
 
     def main_colored(uid):
         markup = old_main(uid)
         try:
-            # Replace only the management label; preserve every other menu item/order.
-            for row in markup.keyboard:
-                for i, item in enumerate(row):
-                    text = getattr(item, "text", str(item))
-                    if text in {"🛠 پنل مدیریت بات", "پنل مدیریت بات", "🔵 🛠 پنل مدیریت بات"}:
-                        row[i] = "🔵 🛠 پنل مدیریت بات"
+            rows = []
+            for row in getattr(markup, "inline_keyboard", []) or []:
+                labels = []
+                for item in row:
+                    labels.append(getattr(item, "text", str(item)))
+                if labels:
+                    rows.append(labels)
+            if bot.admin(uid):
+                rows = [r for r in rows if "❌ انصراف" not in r]
+                rows.append(["🔵 🛠 پنل مدیریت بات"])
+                rows.append(["❌ انصراف"])
+            return bot.kb(rows)
         except Exception:
-            pass
-        return markup
+            return markup
 
     bot.main = main_colored
 
@@ -100,14 +100,13 @@ def install():
                 labels = FA_IRANIAN if st.get("lang", "fa") == "fa" else EN_IRANIAN if st.get("lang") == "en" else AR_IRANIAN
                 if x in {"1", labels[0]}:
                     st["step"] = "menu"
-                    # Reuse the existing tracking handler through the normal flow.
                     return old_rb_handle(uid, chat, "🎫 پیگیری", u)
                 if x in {"2", labels[1], "👥 پنل همکاران", "🔵 👥 پنل همکاران", "🔵 👥 Partner panel", "🔵 👥 لوحة الشركاء"}:
                     st["step"] = "menu"
                     return old_rb_handle(uid, chat, "👥 پنل همکاران", u)
                 if x in {"0", labels[2], "❌ انصراف"}:
                     st["status"] = "iranian"
-                    st["step"] = "menu"
+                    st["step"] = "iranian_menu"
                     return rb.send(chat, "❌ عملیات لغو شد.", _rubika_iranian_rows(rb, uid))
             return old_rb_handle(uid, chat, x, u)
 
