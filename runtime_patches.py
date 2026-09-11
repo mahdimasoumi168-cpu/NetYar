@@ -87,4 +87,9 @@ def install():
     import rubika_button_routing_fix
     rubika_button_routing_fix.install()
 
+    # Last layer: persistent Telegram callbacks, Iranian menu, support,
+    # multi-admin compatibility and Rubika partner/login hardening.
+    import final_ux_hardening
+    final_ux_hardening.install()
+
     return server
