@@ -48,6 +48,10 @@ def install():
     import rubika_partner_login_fix
     rubika_partner_login_fix.install()
 
+    # Telegram partner login: normalize the stored and entered phone formats.
+    import telegram_partner_login_fix
+    telegram_partner_login_fix.install()
+
     import telegram_button_fix
     telegram_button_fix.install()
 
