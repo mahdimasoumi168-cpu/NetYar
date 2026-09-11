@@ -57,26 +57,24 @@ def install():
     import final_safety_patch
     final_safety_patch.install()
 
-    # Compatibility shim must run before final_ui_flow_patch because that
-    # patch imports CallbackQueryHandler from the top-level telegram module.
     import telegram_import_compat
     telegram_import_compat.install()
 
-    # Final layer: Telegram inline menus and exact government identifier/data flow.
     import final_ui_flow_patch
     final_ui_flow_patch.install()
 
-    # Last UI layer: fixed keyboard order, language selection, support contact,
-    # partner-panel label and two-admin compatibility.
     import ui_consistency_patch
     ui_consistency_patch.install()
 
-    # Partner request receipt/ticket actions and Rubika -> Telegram admin mirror.
     import partner_request_patch
     partner_request_patch.install()
 
-    # Final Iranian-user menu and colored management label.
     import iranian_menu_patch
     iranian_menu_patch.install()
+
+    # Must be last: fixes the stale process-global owner check used by inline
+    # Telegram callbacks and removes «این دکمه برای کاربر دیگری است».
+    import inline_callback_user_fix
+    inline_callback_user_fix.install()
 
     return server
