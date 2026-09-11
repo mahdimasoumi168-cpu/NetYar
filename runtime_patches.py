@@ -1,8 +1,4 @@
-"""Deterministic compatibility-layer loader for the production bot.
-
-Legacy compatibility modules are kept in their explicit order. The final
-stability layer is always loaded last so it owns the public UX/state seams.
-"""
+"""Deterministic compatibility-layer loader for the production bot."""
 import importlib
 import logging
 
@@ -21,6 +17,7 @@ _PATCH_MODULES = (
     "production_final_patch", "production_final_hotfix", "production_stability",
     "final_requirements_patch", "production_final_v2", "rubika_final_router",
     "rubika_admin_full", "rubika_final_stability", "rubika_final_stability_patch",
+    "cross_platform_final_patch",
 )
 
 
