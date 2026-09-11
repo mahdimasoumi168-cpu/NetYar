@@ -57,13 +57,18 @@ def install():
     import final_safety_patch
     final_safety_patch.install()
 
-    # Last UI layer: fixed keyboard order, language selection, Iranian flow,
-    # support contact, partner-panel label and two-admin compatibility.
-    import ui_consistency_patch
-    ui_consistency_patch.install()
+    # Compatibility shim must run before final_ui_flow_patch because that
+    # patch imports CallbackQueryHandler from the top-level telegram module.
+    import telegram_import_compat
+    telegram_import_compat.install()
 
     # Final layer: Telegram inline menus and exact government identifier/data flow.
     import final_ui_flow_patch
     final_ui_flow_patch.install()
+
+    # Last UI layer: fixed keyboard order, language selection, Iranian flow,
+    # support contact, partner-panel label and two-admin compatibility.
+    import ui_consistency_patch
+    ui_consistency_patch.install()
 
     return server
