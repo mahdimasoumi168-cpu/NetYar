@@ -18,8 +18,7 @@ def _cancel(B):
 
 def _doc_type_markup():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🪪 کارت آمایش", callback_data="govtype:card"),
-         InlineKeyboardButton("🛂 گذرنامه", callback_data="govtype:passport")],
+        [InlineKeyboardButton("🪪 کارت آمایش", callback_data="govtype:card"), InlineKeyboardButton("🛂 گذرنامه", callback_data="govtype:passport")],
         [InlineKeyboardButton("📗 دفترچه اقامت", callback_data="govtype:residence")],
         [InlineKeyboardButton("❌ انصراف", callback_data="govtype:cancel")],
     ])
@@ -36,16 +35,8 @@ async def _start_from_ui(update, context, B):
     await q.answer()
     uid = q.from_user.id
     old = dict(B.S.get(uid, {}))
-    B.S[uid] = {
-        "mode": "gov_doc_type",
-        "lang": old.get("lang", "fa"),
-        "gov_files": {},
-        "partner_id": old.get("partner_id"),
-    }
-    return await q.message.reply_text(
-        "🪪 نوع مدرک مشترک را انتخاب کنید:",
-        reply_markup=_doc_type_markup(),
-    )
+    B.S[uid] = {"mode": "gov_doc_type", "lang": old.get("lang", "fa"), "gov_files": {}, "partner_id": old.get("partner_id")}
+    return await q.message.reply_text("🪪 نوع مدرک مشترک را انتخاب کنید:", reply_markup=_doc_type_markup())
 
 
 async def _doc_type_callback(update, context, B):
@@ -63,10 +54,7 @@ async def _doc_type_callback(update, context, B):
     st["mode"] = "gov_phone"
     st["gov_doc_type"] = "residence_booklet"
     st["gov_files"] = {}
-    return await q.message.reply_text(
-        "📗 دفترچه اقامت انتخاب شد.\n\n📱 شماره موبایل مشترک را وارد کنید:",
-        reply_markup=_cancel(B),
-    )
+    return await q.message.reply_text("📗 دفترچه اقامت انتخاب شد.\n\n📱 شماره موبایل مشترک را وارد کنید:", reply_markup=_cancel(B))
 
 
 async def _residence_text(update, context, B):
@@ -86,10 +74,7 @@ async def _residence_text(update, context, B):
 
     if mode == "gov_special":
         if not re.fullmatch(r"1\d{11}", digits):
-            return await update.message.reply_text(
-                "❌ شناسه اختصاصی صحیح نیست.\nشناسه اختصاصی باید دقیقاً ۱۲ رقم باشد و با عدد ۱ شروع شود.",
-                reply_markup=_cancel(B),
-            )
+            return await update.message.reply_text("❌ شناسه اختصاصی صحیح نیست.\nشناسه اختصاصی باید دقیقاً ۱۲ رقم باشد و با عدد ۱ شروع شود.", reply_markup=_cancel(B))
         st["gov_special"] = digits
         st["mode"] = "gov_family"
         return await update.message.reply_text("👨‍👩‍👧‍👦 کد خانوار مشترک را وارد کنید:", reply_markup=_cancel(B))
@@ -122,17 +107,14 @@ async def _residence_media(update, context, B):
     pid = st.get("partner_id")
     p = B.db.conn.execute("SELECT * FROM partners WHERE id=?", (pid,)).fetchone() if pid else None
     if pid and (not p or int(p["balance"] or 0) < amount):
-        return await update.message.reply_text(
-            f"❌ اعتبار کافی نیست.\n💰 هزینه خدمت: {amount:,} تومان\n💳 اعتبار فعلی: {int(p['balance'] if p else 0):,} تومان\n\nلطفاً ابتدا حساب را شارژ کنید.",
-            reply_markup=B.partner_kb(st.get("lang", "fa")),
-        )
+        return await update.message.reply_text(f"❌ اعتبار کافی نیست.\n💰 هزینه خدمت: {amount:,} تومان\n💳 اعتبار فعلی: {int(p['balance'] if p else 0):,} تومان\n\nلطفاً ابتدا حساب را شارژ کنید.", reply_markup=B.partner_kb(st.get("lang", "fa")))
 
     owner = pid or B.db.user("telegram", uid, update.effective_user.username, update.effective_user.full_name)
     rid, code = B.db.create_request(owner, "government", "telegram", amount)
     fields = [
         ("doc_type", "residence_booklet"),
         ("phone", st.get("gov_phone", st.get("phone", ""))),
-        ("dob", st.get("dob", ""))),
+        ("dob", st.get("dob", "")),
         ("unique_id", st.get("gov_unique", st.get("unique_id", ""))),
         ("special_id", st.get("gov_special", "")),
         ("family_code", st.get("gov_family_code", "")),
@@ -145,10 +127,7 @@ async def _residence_media(update, context, B):
     B.db.answer(rid, "document", file_id=fid)
 
     if pid:
-        B.db.conn.execute(
-            "UPDATE requests SET status='submitted',payment_status='paid',payment_method='partner_balance',updated_at=? WHERE id=?",
-            (B.now(), rid),
-        )
+        B.db.conn.execute("UPDATE requests SET status='submitted',payment_status='paid',payment_method='partner_balance',updated_at=? WHERE id=?", (B.now(), rid))
         B.db.conn.execute("UPDATE partners SET balance=balance-?,updated_at=? WHERE id=?", (amount, B.now(), pid))
         B.db.conn.commit()
         left = int(p["balance"]) - amount
@@ -189,10 +168,7 @@ async def _residence_media(update, context, B):
             pass
     st["mode"] = None
     if pid:
-        return await update.message.reply_text(
-            f"✅ درخواست با موفقیت ثبت شد.\n🎫 کد پیگیری: {code}\n💰 مبلغ کسرشده: {amount:,} تومان\n💳 اعتبار باقی‌مانده: {left:,} تومان",
-            reply_markup=B.partner_kb(st.get("lang", "fa")),
-        )
+        return await update.message.reply_text(f"✅ درخواست با موفقیت ثبت شد.\n🎫 کد پیگیری: {code}\n💰 مبلغ کسرشده: {amount:,} تومان\n💳 اعتبار باقی‌مانده: {left:,} تومان", reply_markup=B.partner_kb(st.get("lang", "fa")))
     return await update.message.reply_text(f"✅ درخواست ثبت شد.\n🎫 کد پیگیری: {code}", reply_markup=B.main(uid))
 
 
