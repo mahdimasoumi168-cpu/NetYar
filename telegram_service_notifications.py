@@ -50,13 +50,14 @@ async def _media(update, context):
     if mode not in {"gov_photo", "fida_doc", "print"}:
         return
 
-    # bot.media is the single source of truth for saving the service request.
-    # Stop propagation afterwards so the original media handler cannot run twice.
-    before_owner = st.get("partner_id") or B.db.user("telegram", uid, update.effective_user.username, update.effective_user.full_name)
-    before = B.db.conn.execute("SELECT id FROM requests WHERE user_id=? ORDER BY id DESC LIMIT 1", (before_owner,)).fetchone()
+    # Snapshot fields before bot.media clears the workflow state.
+    snapshot = dict(st)
+    owner = st.get("partner_id") or B.db.user("telegram", uid, update.effective_user.username, update.effective_user.full_name)
+    before = B.db.conn.execute("SELECT id FROM requests WHERE user_id=? ORDER BY id DESC LIMIT 1", (owner,)).fetchone()
+
+    # bot.media remains the single source of truth for persisting the service.
     await B.media(update, context)
 
-    owner = st.get("partner_id") or B.db.user("telegram", uid, update.effective_user.username, update.effective_user.full_name)
     after = B.db.conn.execute("SELECT id,tracking_code,service_key,status FROM requests WHERE user_id=? ORDER BY id DESC LIMIT 1", (owner,)).fetchone()
     photo_id = update.message.photo[-1].file_id if update.message.photo else None
     document_id = update.message.document.file_id if update.message.document else None
@@ -66,9 +67,9 @@ async def _media(update, context):
         text = (
             f"{title}\n\n🆕 درخواست حل مشکل سامانه دولت من\n"
             f"🎫 کد پیگیری: {after['tracking_code']}\n👤 شناسه کاربر: {uid}\n"
-            f"🪪 نوع مدرک: {st.get('gov_doc_type', '-')}\n📱 موبایل مشترک: {st.get('phone', '-')}\n"
-            f"🎂 تاریخ تولد: {st.get('dob', '-')}\n🆔 شناسه یکتا: {st.get('unique_id', '-')}\n"
-            f"🔖 شناسه اختصاصی: {st.get('special_id', '-')}\n🛂 پاسپورت: {st.get('passport', '-')}\n\n"
+            f"🪪 نوع مدرک: {snapshot.get('gov_doc_type', '-')}\n📱 موبایل مشترک: {snapshot.get('phone', '-')}\n"
+            f"🎂 تاریخ تولد: {snapshot.get('dob', '-')}\n🆔 شناسه یکتا: {snapshot.get('unique_id', '-')}\n"
+            f"🔖 شناسه اختصاصی: {snapshot.get('special_id', '-')}\n🛂 پاسپورت: {snapshot.get('passport', '-')}\n\n"
             "📎 مدرک مشترک در همین اعلان ارسال شده است."
         )
         await _send_to_admins(context.bot, text, photo_id, document_id, after["id"])
