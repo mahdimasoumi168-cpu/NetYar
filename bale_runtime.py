@@ -8,6 +8,7 @@ import asyncio
 import logging
 import os
 import requests
+from core import now
 
 log = logging.getLogger("netyar.bale")
 BASE = "https://tapi.bale.ai/bot{}"
@@ -58,7 +59,7 @@ class BaleRuntime:
             me = await asyncio.to_thread(self.call, "getMe")
             endpoint = public_url("/bale/update")
             await asyncio.to_thread(self.set_webhook, endpoint)
-            db.conn.execute("UPDATE bot_integrations SET active=1,status='active',updated_at=? WHERE platform='bale'", (db.now(),))
+            db.conn.execute("UPDATE bot_integrations SET active=1,status='active',updated_at=? WHERE platform='bale'", (now(),))
             db.conn.commit()
             self.ready = True
             log.info("Bale webhook active: bot=%s endpoint=%s", me.get("result", {}).get("username", "-"), endpoint)
