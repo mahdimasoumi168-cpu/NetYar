@@ -237,11 +237,16 @@ async def _initialize_integrations():
         log.exception("Telegram startup failed")
         telegram_ready=False
     try:
-        import rubika_v2 as rb
-        endpoint=public_url("/rubika/receiveUpdate")
-        result=rb.call("updateBotEndpoints",{"url":endpoint,"type":"ReceiveUpdate"})
-        log.info("Rubika endpoint registration: %s",result)
-        rubika_ready=True
+        use_webhook=os.getenv("RUBIKA_USE_WEBHOOK","0").strip().lower() in {"1","true","yes","on"}
+        if use_webhook:
+            import rubika_v2 as rb
+            endpoint=public_url("/rubika/receiveUpdate")
+            result=rb.call("updateBotEndpoints",{"url":endpoint,"type":"ReceiveUpdate"})
+            log.info("Rubika webhook endpoint registration: %s",result)
+            rubika_ready=True
+        else:
+            rubika_ready=False
+            log.info("Rubika webhook registration skipped; polling mode is active")
     except Exception:
         log.exception("Rubika startup failed; Telegram remains active")
         rubika_ready=False
