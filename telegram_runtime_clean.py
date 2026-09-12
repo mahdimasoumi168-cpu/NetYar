@@ -36,10 +36,11 @@ import final_terminal_navigation_guard
 import telegram_start_flow_fix
 import telegram_ultimate_hardening
 import telegram_final_control
+import telegram_sim_service
+import telegram_absolute_fix
 
 
 def build():
-    """Build Telegram with a deterministic, database-driven control plane."""
     final_requirements_patch.install()
     final_ux_hardening.install()
     final_navigation_language_stability.install()
@@ -72,12 +73,12 @@ def build():
     telegram_request_details_fix.install(app, B)
     telegram_request_resend_fa.install(app, B)
     telegram_residence_booklet_guard.install(app, B)
-
     telegram_admin_partner_chat.install(app, B)
     telegram_global_stability.install(B)
     final_terminal_navigation_guard.install(app, B)
     telegram_ultimate_hardening.install(app, B)
-    # Absolute-last Telegram layer: reliable inline callbacks, after-hours
-    # whitelist, refresh prompt, and visual menu grouping.
     telegram_final_control.install(app, B)
+    telegram_sim_service.install(app, B)
+    # Absolute last: canonical ownership of ik:* Telegram callbacks.
+    telegram_absolute_fix.install(app, B)
     return app
