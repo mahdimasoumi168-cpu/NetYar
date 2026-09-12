@@ -2,13 +2,14 @@ import os, sqlite3, secrets, hashlib, hmac, shutil, pathlib
 from datetime import datetime, timezone
 _mount=os.getenv("RAILWAY_VOLUME_MOUNT_PATH","").strip()
 _default_db=os.path.join(_mount,"netyar.db") if _mount else "netyar.db"
-DB_PATH=os.getenv("DB_PATH",_default_db); CARD_NUMBER=os.getenv("PAYMENT_CARD","").strip(); CARD_OWNER=os.getenv("PAYMENT_CARD_OWNER","").strip()
+DB_PATH=os.getenv("DB_PATH","").strip() or _default_db
+CARD_NUMBER=os.getenv("PAYMENT_CARD","").strip()
+CARD_OWNER=os.getenv("PAYMENT_CARD_OWNER","").strip()
 def now(): return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 def hash_password(p):
     salt=secrets.token_hex(16); digest=hashlib.pbkdf2_hmac("sha256",p.encode(),salt.encode(),120000).hex(); return salt+"$"+digest
 def check_password(p,stored):
     try:
-        # Backward compatibility: some legacy callers passed (stored_hash, plain_password).
         if "$" in str(p) and "$" not in str(stored): p,stored=stored,p
         salt,digest=str(stored).split("$",1); got=hashlib.pbkdf2_hmac("sha256",str(p).encode(),salt.encode(),120000).hex(); return hmac.compare_digest(got,digest)
     except Exception:return False
@@ -32,14 +33,15 @@ class Database:
         CREATE TABLE IF NOT EXISTS audit_log(id INTEGER PRIMARY KEY AUTOINCREMENT, platform TEXT, actor_id TEXT, action TEXT, target TEXT DEFAULT '', details TEXT DEFAULT '', created_at TEXT);
         CREATE TABLE IF NOT EXISTS bot_integrations(id INTEGER PRIMARY KEY AUTOINCREMENT, platform TEXT UNIQUE, bot_name TEXT DEFAULT '', token_ref TEXT DEFAULT '', active INTEGER DEFAULT 0, status TEXT DEFAULT 'configured', created_at TEXT, updated_at TEXT);
         """)
-        defaults={"welcome_fa":"سلام و خوش آمدید 🌷\nبه بات «کمک یار مهاجر» خوش آمدید.","welcome_en":"Welcome to Mohajer Helper.","welcome_ar":"مرحباً بكم في مساعد المهاجر.","card_number":CARD_NUMBER or "6037691512755802","card_owner":CARD_OWNER or "فریبا خاوری","price_fida":"0","price_print_bw":"0","price_print_color":"0","price_government":"500000","bot_open":"1"}
+        defaults={"welcome_fa":"سلام و خوش آمدید 🌷\nبه بات «کمک یار مهاجر» خوش آمدید.","welcome_en":"Welcome to Mohajer Helper.","welcome_ar":"مرحباً بكم في مساعد المهاجر.","card_number":CARD_NUMBER,"card_owner":CARD_OWNER,"price_fida":"0","price_print_bw":"0","price_print_color":"0","price_government":"500000","bot_open":"1"}
         for k,v in defaults.items(): self.conn.execute("INSERT OR IGNORE INTO settings VALUES(?,?)",(k,v))
         sv=[("fida","فیدای غیر حضوری","ارسال مدرک شناسایی و شماره همراه",0),("print","خدمات چاپ","چاپ فایل و عکس",0),("government","حل مشکل ورود اتباع سامانه دولت من","ثبت درخواست و بررسی مدارک",500000)]
         for k,n,d,p in sv:self.conn.execute("INSERT OR IGNORE INTO services(key,name,description,price) VALUES(?,?,?,?)",(k,n,d,p))
-        phone=os.getenv("INITIAL_PARTNER_PHONE","").strip() or "09999527639"; password=os.getenv("INITIAL_PARTNER_PASSWORD","").strip(); name=os.getenv("INITIAL_PARTNER_NAME","همکار").strip()
-        if not password and phone=="09999527639": password_hash="f1fd32ee1a597b3e060d0f172654da7f$386ccbb873588d410de0fbf40f2b6b7e0cf3fcb0c17d05f649102ac96b52e7a2"
-        else: password_hash=hash_password(password) if password else ""
-        if phone and password_hash and not self.conn.execute("SELECT 1 FROM partners WHERE phone=?",(phone,)).fetchone(): self.conn.execute("INSERT INTO partners(phone,password_hash,name,created_at,updated_at) VALUES(?,?,?,?,?)",(phone,password_hash,name,now(),now()))
+        # Never ship a default partner password in source control. Provision a
+        # partner only when explicit credentials are supplied through Railway.
+        phone=os.getenv("INITIAL_PARTNER_PHONE","").strip(); password=os.getenv("INITIAL_PARTNER_PASSWORD","").strip(); name=os.getenv("INITIAL_PARTNER_NAME","همکار").strip()
+        if phone and password and not self.conn.execute("SELECT 1 FROM partners WHERE phone=?",(phone,)).fetchone():
+            self.conn.execute("INSERT INTO partners(phone,password_hash,name,created_at,updated_at) VALUES(?,?,?,?,?)",(phone,hash_password(password),name,now(),now()))
         self.conn.commit()
     def setting(self,k,default=""):
         r=self.conn.execute("SELECT value FROM settings WHERE key=?",(k,)).fetchone(); return r["value"] if r else default
