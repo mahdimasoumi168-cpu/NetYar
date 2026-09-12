@@ -9,17 +9,6 @@ def install():
         def modern_amenu(*_args, **_kwargs):
             return B.kb([["👥 کاربران", "🤝 همکاران"],["📋 درخواست‌ها", "🎫 تیکت‌ها"],["🟢/🔴 خدمات ایرانی", "🟢/🔴 خدمات اتباع"],["💰 قیمت خدمات", "📝 تغییر متن‌ها"],["📎 مدارک و فایل‌ها", "👤 مدیران"],["🤖 پیام‌رسان‌ها", "📊 گزارش‌ها"],["⚙️ تنظیمات پایه", "📞 پشتیبانی"],["💬 ارتباط با همکار"],["⬅️ منوی اصلی"]])
         B.amenu = modern_amenu
-        try:
-            from telegram.ext import MessageHandler, filters, ApplicationHandlerStop
-            async def admin_panel_entry(update, context):
-                message=update.effective_message; user=update.effective_user
-                if not message or not user or not B.admin(user.id): return
-                if (message.text or '').strip() not in {"🛠 پنل مدیریت بات","🛠 پنل مدیریت","پنل مدیریت"}: return
-                B.S.setdefault(user.id,{})["mode"]="admin"
-                await message.reply_text("🛠 پنل مدیریت بات",reply_markup=modern_amenu())
-                raise ApplicationHandlerStop
-            B._final_admin_panel_entry=admin_panel_entry
-        except Exception: log.exception("admin entry preparation failed")
         old_exit=getattr(B,"partner_exit_choice",None)
         if old_exit:
             async def stable_exit(update,context):
@@ -41,10 +30,15 @@ def install():
         def admin_rows(): return [[("1","👥 مدیریت همکاران"),("2","💰 مدیریت شارژها")],[("3","📋 مدیریت درخواست‌ها"),("4","💳 مدیریت پرداخت‌ها")],[("5","🛠 مدیریت خدمات"),("6","📝 مدیریت متن‌ها")],[("7","💵 مدیریت قیمت‌ها"),("8","🤖 مدیریت بات‌ها")],[("9","📊 گزارش‌ها"),("10","👤 مدیریت مدیران")],[("11","🎫 مدیریت تیکت‌ها"),("12","⚙️ تنظیمات")],[("99","🔄 شروع مجدد"),("0","❌ انصراف")]]
         R.admin_rows=admin_rows
         def handle(uid,chat,x,update):
-            step=R.STATE.setdefault(str(uid),{}).get("step"); x=str(x or "").strip()
+            uid=str(uid); st=R.STATE.setdefault(uid,{}); step=st.get("step"); x=str(x or "").strip()
             if step in {"partner_ticket_chat","admin_ticket_chat","admin_ticket_reply","ticket_admin_reply"}:
                 if x in {"0","❌ انصراف","99","🔄 شروع مجدد","cancel","Cancel","إلغاء"}:
-                    st=R.STATE[str(uid)]; st["step"]="admin" if R.is_admin(uid) else "partner"; R.send(chat,"✅ گفت‌وگو بسته شد.",R.admin_rows() if R.is_admin(uid) else R.partner_rows()); return
+                    st["step"]="admin" if R.is_admin(uid) else "partner"; R.send(chat,"✅ گفت‌وگو بسته شد.",R.admin_rows() if R.is_admin(uid) else R.partner_rows()); return
+                # Media updates have no text. Let the dedicated final Rubika
+                # ticket router forward the actual media exactly once instead
+                # of converting it into an empty/garbled text reply.
+                if not x:
+                    return old_handle(uid,chat,x,update)
             return old_handle(uid,chat,x,update)
         R.handle=handle; R._cross_platform_stability_final_rubika=True
     except Exception: log.exception("Rubika stability install failed")
