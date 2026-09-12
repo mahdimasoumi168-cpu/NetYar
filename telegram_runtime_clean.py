@@ -29,12 +29,11 @@ import final_requirements_patch
 import final_ux_hardening
 import final_navigation_language_stability
 import cross_platform_stability_final
+import final_terminal_navigation_guard
 
 
 def build():
     """Build Telegram and install the focused production extensions."""
-    # Canonical navigation must be installed before B.build() registers
-    # Telegram handlers that capture these functions.
     final_requirements_patch.install()
     final_ux_hardening.install()
     final_navigation_language_stability.install()
@@ -64,15 +63,12 @@ def build():
     telegram_request_details_fix.install(app, B)
     telegram_request_resend_fa.install(app, B)
 
-    # Residence-booklet media must beat the generic government media handler.
     telegram_residence_booklet_guard.install(app, B)
 
-    # These are deliberately LAST: legacy modules can replace the admin menu
-    # after installation and make buttons appear/disappear between clicks.
+    # Re-apply admin/partner communication after legacy menu patches.
     telegram_admin_partner_chat.install(app, B)
-    cross_platform_stability_final.install()
 
-    # Terminal guard: the visible Telegram reply-keyboard admin button is
-    # handled before every legacy text router, so it cannot be swallowed.
-    telegram_admin_button_guard.install(app, B)
+    # Absolute final terminal layer: admin panel, Iranian -> partner panel,
+    # partner ticket and ticket text must be consumed before legacy routers.
+    final_terminal_navigation_guard.install(app, B)
     return app
