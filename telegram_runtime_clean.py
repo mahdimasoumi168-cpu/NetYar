@@ -4,6 +4,7 @@ import bot as B
 import telegram_panels
 import telegram_service_notifications
 import telegram_ux_billing
+import telegram_admin_plus
 
 
 def build():
@@ -12,4 +13,5 @@ def build():
     telegram_panels.install(app, B)
     telegram_service_notifications.install(app, B)
     telegram_ux_billing.install(app, B)
+    telegram_admin_plus.install(app, B)
     return app
