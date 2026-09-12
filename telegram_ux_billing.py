@@ -1,10 +1,10 @@
 """Telegram UX, manager code-request action, and partner billing hardening."""
 import re
-from types import SimpleNamespace
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup
 from telegram.ext import MessageHandler, CallbackQueryHandler, ApplicationHandlerStop, filters
 
 B = None
+telegram_panels = None
 
 
 def _restart_keyboard():
@@ -17,13 +17,14 @@ def _inline_kb(rows):
         buttons = []
         for item in row or []:
             if isinstance(item, (tuple, list)) and len(item) >= 2:
-                label = str(item[1])
+                original = str(item[1])
             else:
-                label = str(item)
-            # Visual color cues: Telegram does not expose custom button colors.
+                original = str(item)
+            label = original
+            # Telegram does not expose custom button colors; use clear emoji cues.
             if "پنل همکاران" in label and "🔵" not in label:
                 label = "🔵 " + label
-            elif label in {"خدمات چاپ", "🖨 خدمات چاپ"} and "🟢" not in label:
+            elif "خدمات چاپ" in label and "🟢" not in label:
                 label = "🟢 " + label
             elif "دولت من" in label and "🟠" not in label:
                 label = "🟠 " + label
@@ -31,7 +32,7 @@ def _inline_kb(rows):
                 label = "🟡 " + label
             elif "کیف پول" in label and "💰" not in label:
                 label = "💰 " + label
-            buttons.append(InlineKeyboardButton(label, callback_data="ui:" + label[:180]))
+            buttons.append(InlineKeyboardButton(label, callback_data="ui:" + original[:180]))
         if buttons:
             out.append(buttons)
     return InlineKeyboardMarkup(out)
@@ -66,12 +67,10 @@ async def _ui_callback(update, context):
     label = q.data[3:]
     await q.answer()
     proxy = _UpdateProxy(update, label)
-    # Partner/admin panel text handlers get first chance; then the canonical router.
     try:
-        if "telegram_panels" in globals():
-            result = await telegram_panels._panel_text(proxy, context, B)
-            if result is not None:
-                raise ApplicationHandlerStop
+        result = await telegram_panels._panel_text(proxy, context, B)
+        if result is not None:
+            raise ApplicationHandlerStop
     except ApplicationHandlerStop:
         raise
     except Exception:
@@ -100,8 +99,7 @@ async def _gov_postal(update, context):
         return await update.message.reply_text("❌ کد پستی منزل باید دقیقاً ۱۰ رقم باشد. دوباره وارد کنید.", reply_markup=B.cancel_kb(st.get("lang", "fa")))
     st["postal_code"] = digits
     st["mode"] = "gov_photo"
-    prompt = "📮 کد پستی ثبت شد.\n📸 حالا عکس مدرک مشترک را ارسال کنید."
-    return await update.message.reply_text(prompt, reply_markup=B.cancel_kb(st.get("lang", "fa")))
+    return await update.message.reply_text("📮 کد پستی ثبت شد.\n📸 حالا عکس مدرک مشترک را ارسال کنید.", reply_markup=B.cancel_kb(st.get("lang", "fa")))
 
 
 async def _gov_media(update, context):
@@ -116,20 +114,10 @@ async def _gov_media(update, context):
     pid = st.get("partner_id")
     p = B.db.conn.execute("SELECT * FROM partners WHERE id=?", (pid,)).fetchone() if pid else None
     if pid and (not p or int(p["balance"] or 0) < amount):
-        return await update.message.reply_text(
-            f"❌ اعتبار کافی نیست.\n💰 هزینه خدمت: {amount:,} تومان\n💳 اعتبار فعلی: {int(p['balance'] if p else 0):,} تومان\n\nلطفاً ابتدا حساب را شارژ کنید.",
-            reply_markup=B.partner_kb(st.get("lang", "fa")),
-        )
+        return await update.message.reply_text(f"❌ اعتبار کافی نیست.\n💰 هزینه خدمت: {amount:,} تومان\n💳 اعتبار فعلی: {int(p['balance'] if p else 0):,} تومان\n\nلطفاً ابتدا حساب را شارژ کنید.", reply_markup=B.partner_kb(st.get("lang", "fa")))
     owner = pid or B.db.user("telegram", uid, update.effective_user.username, update.effective_user.full_name)
     rid, code = B.db.create_request(owner, "government", "telegram", amount)
-    fields = [
-        ("doc_type", st.get("gov_doc_type", "")),
-        ("phone", st.get("gov_phone", st.get("phone", ""))),
-        ("dob", st.get("dob", "")),
-        ("unique_id", st.get("gov_unique", st.get("unique_id", ""))),
-        ("special_id", st.get("gov_special", st.get("special_id", ""))),
-        ("postal_code", st.get("postal_code", "")),
-    ]
+    fields = [("doc_type", st.get("gov_doc_type", "")), ("phone", st.get("gov_phone", st.get("phone", ""))), ("dob", st.get("dob", "")), ("unique_id", st.get("gov_unique", st.get("unique_id", ""))), ("special_id", st.get("gov_special", st.get("special_id", ""))), ("postal_code", st.get("postal_code", ""))]
     if st.get("gov_doc_type") == "passport":
         fields.append(("passport", st.get("gov_passport", "")))
     for key, value in fields:
@@ -146,21 +134,8 @@ async def _gov_media(update, context):
         B.db.conn.commit()
         left = None
     title = "👔 مدیر — اعلان خدمات جدید"
-    text = (
-        f"{title}\n\n🆕 حل مشکل سامانه دولت من\n🎫 کد پیگیری: {code}\n"
-        f"🪪 نوع مدرک: {st.get('gov_doc_type','-')}\n📱 موبایل مشترک: {st.get('gov_phone',st.get('phone','-'))}\n"
-        f"🎂 تاریخ تولد: {st.get('dob','-')}\n🆔 شناسه یکتا: {st.get('gov_unique',st.get('unique_id','-'))}\n"
-        f"🔖 شناسه اختصاصی: {st.get('gov_special',st.get('special_id','-'))}\n📮 کد پستی منزل: {st.get('postal_code','-')}\n"
-        f"💰 مبلغ خدمت: {amount:,} تومان\n"
-        + (f"💳 کسر از اعتبار همکار: {amount:,} تومان\n💵 اعتبار باقی‌مانده: {left:,} تومان\n" if pid else "")
-        + "📎 مدرک در همین اعلان پیوست شده است."
-    )
-    markup = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📨 درخواست کد از همکار", callback_data=f"panel:askcode:{rid}")],
-        [InlineKeyboardButton("🔎 مشاهده درخواست", callback_data=f"panel:req:{rid}")],
-        [InlineKeyboardButton("⏳ در حال بررسی", callback_data=f"panel:review:{rid}"), InlineKeyboardButton("✅ انجام شد", callback_data=f"panel:approve:{rid}")],
-        [InlineKeyboardButton("❌ رد درخواست", callback_data=f"panel:reject:{rid}"), InlineKeyboardButton("✉️ پاسخ به مشترک", callback_data=f"req:r:{rid}")],
-    ])
+    text = (f"{title}\n\n🆕 حل مشکل سامانه دولت من\n🎫 کد پیگیری: {code}\n🪪 نوع مدرک: {st.get('gov_doc_type','-')}\n📱 موبایل مشترک: {st.get('gov_phone',st.get('phone','-'))}\n🎂 تاریخ تولد: {st.get('dob','-')}\n🆔 شناسه یکتا: {st.get('gov_unique',st.get('unique_id','-'))}\n🔖 شناسه اختصاصی: {st.get('gov_special',st.get('special_id','-'))}\n📮 کد پستی منزل: {st.get('postal_code','-')}\n💰 مبلغ خدمت: {amount:,} تومان\n" + (f"💳 کسر از اعتبار همکار: {amount:,} تومان\n💵 اعتبار باقی‌مانده: {left:,} تومان\n" if pid else "") + "📎 مدرک در همین اعلان پیوست شده است.")
+    markup = InlineKeyboardMarkup([[InlineKeyboardButton("📨 درخواست کد از همکار", callback_data=f"panel:askcode:{rid}")], [InlineKeyboardButton("🔎 مشاهده درخواست", callback_data=f"panel:req:{rid}")], [InlineKeyboardButton("⏳ در حال بررسی", callback_data=f"panel:review:{rid}"), InlineKeyboardButton("✅ انجام شد", callback_data=f"panel:approve:{rid}")], [InlineKeyboardButton("❌ رد درخواست", callback_data=f"panel:reject:{rid}"), InlineKeyboardButton("✉️ پاسخ به مشترک", callback_data=f"req:r:{rid}")]])
     for aid in B.ADM:
         try:
             if update.message.photo:
@@ -171,8 +146,7 @@ async def _gov_media(update, context):
             pass
     st["mode"] = None
     if pid:
-        reply = f"✅ درخواست با موفقیت ثبت و انجام کار برای مدیریت ارسال شد.\n🎫 کد پیگیری: {code}\n💰 مبلغ کسرشده: {amount:,} تومان\n💳 اعتبار باقی‌مانده: {left:,} تومان"
-        return await update.message.reply_text(reply, reply_markup=B.partner_kb(st.get("lang", "fa")))
+        return await update.message.reply_text(f"✅ درخواست با موفقیت ثبت شد.\n🎫 کد پیگیری: {code}\n💰 مبلغ کسرشده: {amount:,} تومان\n💳 اعتبار باقی‌مانده: {left:,} تومان", reply_markup=B.partner_kb(st.get("lang", "fa")))
     return await update.message.reply_text(f"✅ درخواست ثبت شد.\n🎫 کد پیگیری: {code}", reply_markup=B.main(uid))
 
 
@@ -195,7 +169,7 @@ async def _ask_code_callback(update, context):
     partner_uid = rows["external_id"]
     B.S.setdefault(int(partner_uid), {})["mode"] = "partner_send_code"
     try:
-        await context.bot.send_message(chat_id=int(partner_uid), text=f"👔 مدیریت\n\n📨 برای درخواست {r['tracking_code']} کد خدمت/کد انجام کار را برای مدیریت ارسال کنید:", reply_markup=_inline_kb([["لغو"]]))
+        await context.bot.send_message(chat_id=int(partner_uid), text=f"👔 مدیریت\n\n📨 برای درخواست {r['tracking_code']} کد خدمت/کد انجام کار را برای مدیریت ارسال کنید:")
     except Exception:
         return await q.message.reply_text("❌ ارسال درخواست کد به همکار انجام نشد.")
     return await q.message.reply_text(f"✅ درخواست کد برای همکار «{p['name']}» ارسال شد.")
@@ -207,9 +181,8 @@ async def _partner_code_text(update, context):
     if st.get("mode") != "partner_send_code" or not st.get("partner_id"):
         return
     text = (update.message.text or "").strip()
-    if not text or text == "لغو":
-        st["mode"] = None
-        return await update.message.reply_text("❌ ارسال کد لغو شد.", reply_markup=B.partner_kb(st.get("lang", "fa")))
+    if not text:
+        return await update.message.reply_text("❌ کد خالی است؛ کد خدمت را ارسال کنید.")
     p = B.db.conn.execute("SELECT name,phone FROM partners WHERE id=?", (st["partner_id"],)).fetchone()
     for aid in B.ADM:
         try:
@@ -221,13 +194,21 @@ async def _partner_code_text(update, context):
 
 
 def install(app, bot_module):
-    global B
+    global B, telegram_panels
     B = bot_module
-    import telegram_panels
-    # Inline menus: no persistent Telegram reply keyboard except Restart.
+    import telegram_panels as panels
+    telegram_panels = panels
     B.kb = _ui_markup
     B.cancel_kb = lambda lang="fa": _ui_markup([[B.CANCEL]])
-    # Make Restart the only persistent bottom keyboard.
+    old_start = B.start
+    async def start_with_restart(update, context):
+        result = await old_start(update, context)
+        try:
+            await update.message.reply_text("دسترسی سریع:", reply_markup=_restart_keyboard())
+        except Exception:
+            pass
+        return result
+    B.start = start_with_restart
     app.add_handler(MessageHandler(filters.Regex(r"^🔄 شروع مجدد$"), _restart), group=-5)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _gov_postal), group=-4)
     app.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL, _gov_media), group=-4)
