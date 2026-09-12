@@ -41,6 +41,9 @@ def _is_exempt(update, B):
                 row = B.db.conn.execute("SELECT phone FROM partners WHERE id=?", (pid,)).fetchone()
                 if row and str(row["phone"]).strip() == PERMANENT_PARTNER_PHONE:
                     return True
+            chat = B.db.setting(f"partner_chat_{PERMANENT_PARTNER_PHONE}", "").strip()
+            if chat and str(uid) == chat:
+                return True
         except Exception:
             pass
     return False
