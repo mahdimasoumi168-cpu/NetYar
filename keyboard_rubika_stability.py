@@ -42,6 +42,22 @@ def _install_telegram_inline():
 
         original_add_handler = getattr(Application.add_handler, "_netyar_original", Application.add_handler)
 
+        class _MessageProxy:
+            def __init__(self, original, text):
+                self._original = original
+                self.text = text
+
+            def __getattr__(self, name):
+                return getattr(self._original, name)
+
+        class _UpdateProxy:
+            def __init__(self, original, message):
+                self._original = original
+                self.message = message
+
+            def __getattr__(self, name):
+                return getattr(self._original, name)
+
         async def callback(update, context):
             q = update.callback_query
             key = q.data or ""
@@ -64,12 +80,12 @@ def _install_telegram_inline():
             if bot is None or not hasattr(bot, "router"):
                 return
 
-            old_text = q.message.text
-            try:
-                q.message.text = label
-                await bot.router(update, context)
-            finally:
-                q.message.text = old_text
+            # python-telegram-bot Message objects are immutable. Never assign
+            # to q.message.text. Pass a lightweight update/message proxy to the
+            # existing router instead.
+            proxy_message = _MessageProxy(q.message, label)
+            proxy_update = _UpdateProxy(update, proxy_message)
+            await bot.router(proxy_update, context)
 
         def add_handler(self, handler, group=0):
             result = original_add_handler(self, handler, group)
