@@ -1,10 +1,11 @@
-"""Final keyboard + Rubika stability patch.
+"""Rubika stability guard.
 
-Loaded last by runtime_patches so it wins over legacy UI compatibility layers.
+Telegram uses python-telegram-bot's native ReplyKeyboardMarkup/InlineKeyboardMarkup.
+Do not monkey-patch Telegram keyboard classes or Application.add_handler here:
+those compatibility hacks caused normal Telegram reply buttons to be converted
+into inline callbacks and made the menu appear to jump between states.
 """
-import hashlib
 import logging
-import sys
 import threading
 import time
 
@@ -12,98 +13,7 @@ log = logging.getLogger("netyar.final_stability")
 
 
 def install():
-    _install_telegram_inline()
     _install_rubika_guard()
-
-
-def _install_telegram_inline():
-    try:
-        from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
-        from telegram.ext import Application, CallbackQueryHandler
-        import telegram as telegram_pkg
-
-        labels = {}
-        removed = set()
-
-        def inline_keyboard(rows):
-            out = []
-            for row in rows or []:
-                buttons = []
-                for item in row or []:
-                    label = str(getattr(item, "text", item))
-                    key = "nyik:" + hashlib.sha1(label.encode("utf-8")).hexdigest()[:16]
-                    labels[key] = label
-                    buttons.append(InlineKeyboardButton(label, callback_data=key))
-                if buttons:
-                    out.append(buttons)
-            return InlineKeyboardMarkup(out)
-
-        telegram_pkg.ReplyKeyboardMarkup = inline_keyboard
-
-        original_add_handler = getattr(Application.add_handler, "_netyar_original", Application.add_handler)
-
-        class _MessageProxy:
-            def __init__(self, original, text):
-                self._original = original
-                self.text = text
-
-            def __getattr__(self, name):
-                return getattr(self._original, name)
-
-        class _UpdateProxy:
-            def __init__(self, original, message):
-                self._original = original
-                self.message = message
-
-            def __getattr__(self, name):
-                return getattr(self._original, name)
-
-        async def callback(update, context):
-            q = update.callback_query
-            key = q.data or ""
-            label = labels.get(key)
-            if not label or not q.message:
-                await q.answer()
-                return
-
-            await q.answer()
-
-            try:
-                chat_id = q.message.chat_id
-                if chat_id not in removed:
-                    await q.message.reply_text("\u200b", reply_markup=ReplyKeyboardRemove())
-                    removed.add(chat_id)
-            except Exception:
-                pass
-
-            bot = sys.modules.get("bot")
-            if bot is None or not hasattr(bot, "router"):
-                return
-
-            # python-telegram-bot Message objects are immutable. Never assign
-            # to q.message.text. Pass a lightweight update/message proxy to the
-            # existing router instead.
-            proxy_message = _MessageProxy(q.message, label)
-            proxy_update = _UpdateProxy(update, proxy_message)
-            await bot.router(proxy_update, context)
-
-        def add_handler(self, handler, group=0):
-            result = original_add_handler(self, handler, group)
-            if not getattr(self, "_netyar_inline_handler_added", False):
-                self._netyar_inline_handler_added = True
-                original_add_handler(self, CallbackQueryHandler(callback, pattern=r"^nyik:"), 99)
-            return result
-
-        add_handler._netyar_original = original_add_handler
-        Application.add_handler = add_handler
-
-        bot = sys.modules.get("bot")
-        if bot is not None:
-            bot.kb = inline_keyboard
-
-        log.info("final Telegram inline keyboard patch installed")
-    except Exception:
-        log.exception("final Telegram inline keyboard patch failed")
 
 
 def _install_rubika_guard():
