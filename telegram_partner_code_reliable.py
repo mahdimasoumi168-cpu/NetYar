@@ -10,6 +10,7 @@ from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import CallbackQueryHandler, MessageHandler, ApplicationHandlerStop, filters
 
 log = logging.getLogger("netyar.telegram_partner_code_reliable")
+MAX_CODE_REQUESTS = 6
 
 
 def install(app, B):
@@ -20,9 +21,6 @@ def install(app, B):
         """Resolve the partner assigned to a request across old/new schemas."""
         rid = int(r["id"])
         raw_uid = str(r["user_id"] or "").strip()
-
-        # 1) Current schema: service requests created from the partner panel
-        # store the partner primary key directly in requests.user_id.
         try:
             p = B.db.conn.execute(
                 "SELECT id,phone,name,active FROM partners WHERE id=?",
@@ -33,9 +31,6 @@ def install(app, B):
         except Exception:
             pass
 
-        # 2) Older flows sometimes stored the Telegram users.id instead.
-        # Resolve that row to its Telegram external_id, then match it against
-        # the persisted partner-chat mapping created at partner login.
         external_id = ""
         try:
             u = B.db.conn.execute(
@@ -58,7 +53,6 @@ def install(app, B):
                     by_id = B.db.setting(f"partner_chat_{pid}", "")
                     by_phone = B.db.setting(f"partner_chat_{phone}", "")
                     if external_id in {str(by_id).strip(), str(by_phone).strip()}:
-                        # Repair the request linkage for future clicks.
                         try:
                             B.db.set_setting(f"request_partner_{rid}", str(p["id"]))
                         except Exception:
@@ -67,8 +61,6 @@ def install(app, B):
             except Exception:
                 log.exception("legacy partner mapping lookup failed")
 
-        # 3) Newer requests may have an explicit mapping setting. This is
-        # checked last so a stale mapping cannot override a direct partner id.
         try:
             mapped = B.db.setting(f"request_partner_{rid}", "").strip()
             if mapped.isdigit():
@@ -131,9 +123,11 @@ def install(app, B):
 
             attempt_key = f"partner_code_attempts_{rid}"
             attempts = int(B.db.setting(attempt_key, "0") or 0)
-            if attempts >= 3:
-                await q.answer("برای این درخواست سه بار درخواست کد ارسال شده است.", show_alert=True)
-                await q.message.reply_text("⚠️ سقف ۳ درخواست کد برای این درخواست استفاده شده است.")
+            if attempts >= MAX_CODE_REQUESTS:
+                await q.answer(f"حداکثر {MAX_CODE_REQUESTS} درخواست کد مجاز است.", show_alert=True)
+                await q.message.reply_text(
+                    f"⚠️ سقف {MAX_CODE_REQUESTS} درخواست کد برای این درخواست استفاده شده است."
+                )
                 raise ApplicationHandlerStop
 
             chat_id = await resolve_partner_chat(p["id"], p["phone"])
@@ -144,6 +138,7 @@ def install(app, B):
             attempts += 1
             B.db.set_setting(attempt_key, str(attempts))
             B.db.set_setting(f"partner_code_request_{p['id']}", f"{rid}|{r['tracking_code']}")
+            B.db.set_setting(f"partner_code_request_admin_{rid}", str(q.from_user.id))
             B.db.set_setting(f"partner_chat_{p['id']}", str(chat_id))
             B.db.set_setting(f"partner_chat_{p['phone']}", str(chat_id))
             B.db.set_setting(f"request_partner_{rid}", str(p["id"]))
@@ -157,7 +152,7 @@ def install(app, B):
             state.update(partner_id=p["id"], mode="partner_send_code", code_request_rid=rid)
             message = (
                 "👔 مدیریت\n\n"
-                f"📨 درخواست کد خدمت (نوبت {attempts} از ۳)\n"
+                f"📨 درخواست کد خدمت (نوبت {attempts} از {MAX_CODE_REQUESTS})\n"
                 f"🎫 کد پیگیری: {r['tracking_code']}\n"
                 f"🧾 خدمت: {r['service_key']}\n\n"
                 "لطفاً کد خدمت/کد انجام کار را همین‌جا ارسال کنید."
@@ -181,9 +176,9 @@ def install(app, B):
                 await q.answer("ارسال به همکار انجام نشد؛ دوباره تلاش کنید.", show_alert=True)
                 raise ApplicationHandlerStop
 
-            await q.answer(f"درخواست کد نوبت {attempts} از ۳ ارسال شد")
+            await q.answer(f"درخواست کد نوبت {attempts} از {MAX_CODE_REQUESTS} ارسال شد")
             await q.message.reply_text(
-                f"✅ درخواست کد نوبت {attempts} از ۳ برای «{p['name'] or p['phone']}» ارسال شد.\n🎫 {r['tracking_code']}"
+                f"✅ درخواست کد نوبت {attempts} از {MAX_CODE_REQUESTS} برای «{p['name'] or p['phone']}» ارسال شد.\n🎫 {r['tracking_code']}"
             )
             raise ApplicationHandlerStop
         except ApplicationHandlerStop:
@@ -221,7 +216,11 @@ def install(app, B):
             f"🔐 کد خدمت: {text}"
         )
         delivered = False
-        for aid in B.ADM:
+        admin_id = B.db.setting(f"partner_code_request_admin_{rid}", "").strip()
+        recipients = [admin_id] if admin_id else [str(aid) for aid in B.ADM]
+        for aid in recipients:
+            if not aid:
+                continue
             for attempt in range(3):
                 try:
                     await context.bot.send_message(chat_id=int(aid), text=admin_text)
@@ -233,6 +232,7 @@ def install(app, B):
                     else:
                         log.exception("partner code admin notification failed")
         B.db.set_setting(f"partner_code_request_{pid}", "")
+        B.db.set_setting(f"partner_code_request_admin_{rid}", "")
         st["mode"] = None
         st.pop("code_request_rid", None)
         await update.message.reply_text(
