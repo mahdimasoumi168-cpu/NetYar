@@ -19,7 +19,7 @@ _PATCH_MODULES = (
     "rubika_admin_full", "rubika_final_stability", "rubika_final_stability_patch",
     "rubika_button_guard", "admin_control_v4", "admin_control_v5", "rubika_admin_control_v5",
     "admin_full_v6", "keyboard_rubika_stability", "production_hotfix_v3",
-    "telegram_reconnect_patch", "telegram_polling_guard",
+    "telegram_reconnect_patch", "telegram_polling_guard", "telegram_production_final",
 )
 
 
