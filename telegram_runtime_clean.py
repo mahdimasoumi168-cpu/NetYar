@@ -31,6 +31,9 @@ def _install_features(app):
     B.start=_start
     import telegram_business_features as F; F.install(app,B)
     import telegram_ui_policy_v2 as UI; UI.install(app,B)
+    try:
+        import telegram_partner_ui_fix as PUI; PUI.install(app,B)
+    except Exception: log.exception("partner UI fix unavailable")
     import telegram_status_ui as SU; SU.install(app,B)
     try:
         import telegram_public_tracking as PT; PT.install(app,B)
@@ -56,6 +59,9 @@ def _install_features(app):
     import telegram_night_shift_v2 as N; N.install(app,B)
     import telegram_admin_menu_v2 as AM; AM.install(B)
     import telegram_request_control_v2 as RC; RC.install(app,B)
+    try:
+        import telegram_legacy_callback_bridge as LCB; LCB.install(app,B)
+    except Exception: log.exception("legacy callback bridge unavailable")
 
     # Reliable admin actions: request a service code from the assigned partner
     # (up to 10 rounds) and resend the complete request with attachments to the
