@@ -19,6 +19,11 @@ rubika_stability_fix.install()
 import rubika_reliability_fix
 rubika_reliability_fix.install()
 
+# Final Rubika hardening: reliable inline buttons and no semantic dropping of
+# legitimate repeated clicks.
+import rubika_final_hardening
+rubika_final_hardening.install()
+
 # Never let the webhook path and polling path process the same Rubika update.
 import rubika_webhook_guard
 rubika_webhook_guard.install()
