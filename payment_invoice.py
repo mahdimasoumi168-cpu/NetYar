@@ -19,7 +19,8 @@ def payment_url(B=None):
     return value or DEFAULT_PAYMENT_URL
 
 
-def invoice_text(title, amount, tracking_code=None):
+def invoice_text(title, amount, tracking_code=None, B=None):
+    url = payment_url(B)
     lines = [
         f"🧾 <b>{title}</b>",
         "━━━━━━━━━━━━━━━━━━",
@@ -29,7 +30,10 @@ def invoice_text(title, amount, tracking_code=None):
         lines.append(f"🎫 کد پیگیری: <code>{tracking_code}</code>")
     lines += [
         "━━━━━━━━━━━━━━━━━━",
-        "📌 برای پرداخت روی دکمه زیر بزنید.",
+        "💳 لینک پرداخت:",
+        url,
+        "",
+        "📌 برای پرداخت روی لینک بالا یا دکمه زیر بزنید.",
         "⏳ پس از پرداخت، رسید/وضعیت پرداخت توسط مدیریت بررسی می‌شود.",
     ]
     return "\n".join(lines)
