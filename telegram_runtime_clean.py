@@ -37,6 +37,7 @@ import telegram_start_flow_fix
 import canonical_button_router
 import telegram_universal_button_guard
 import telegram_partner_ticket_fix
+import telegram_business_hours_guard
 
 
 def build():
@@ -83,4 +84,8 @@ def build():
     telegram_no_reply_keyboard.reassert(B)
     telegram_universal_button_guard.install(app, B)
     telegram_partner_ticket_fix.install(B)
+
+    # Hard gate: this handler is installed last but uses an earlier handler
+    # group, so it always blocks all user traffic outside 07:00-19:00 Tehran.
+    telegram_business_hours_guard.install(app, B)
     return app
