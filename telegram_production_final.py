@@ -77,12 +77,11 @@ def build():
         raise RuntimeError("BOT_TOKEN is missing")
 
     app = Application.builder().token(token).build()
-
-    # Diagnostics run in a separate earlier group and never consume updates.
     app.add_handler(TypeHandler(Update, _telegram_update_diagnostic), group=-10)
 
-    # This is the single authoritative /start handler.
-    app.add_handler(CommandHandler("start", _authoritative_start), group=0)
+    # /start is authoritative. Also accept the common /srart typo so a
+    # mistyped command cannot make the bot appear dead to the user.
+    app.add_handler(CommandHandler(["start", "srart"], _authoritative_start), group=0)
     app.add_handler(CommandHandler("addpartner", B.addpartner), group=0)
     app.add_handler(MessageHandler(filters.Regex(r"^/Admin2025$"), B.admin_command), group=0)
     app.add_handler(CallbackQueryHandler(B.langcb, pattern=r"^lang:"), group=0)
