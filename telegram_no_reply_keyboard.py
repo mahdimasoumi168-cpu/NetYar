@@ -15,6 +15,7 @@ _ACTIONS = OrderedDict()
 _LOCK = threading.Lock()
 _SEQ = 0
 _REMOVED = set()
+_RESTART_CHATS = set()
 
 
 def _remember(label):
@@ -56,7 +57,7 @@ async def _remove_legacy_keyboard(message):
     if not message:
         return
     chat_id = getattr(getattr(message, "chat", None), "id", None)
-    if chat_id is None or chat_id in _REMOVED:
+    if chat_id is None or chat_id in _REMOVED or chat_id in _RESTART_CHATS:
         return
     try:
         probe = await message.reply_text("\u2063", reply_markup=ReplyKeyboardRemove())
@@ -70,7 +71,6 @@ async def _remove_legacy_keyboard(message):
 
 
 async def _remove_on_message(update, context):
-    # Do not remove our restart keyboard when the restart button itself is used.
     msg = getattr(update, "effective_message", None)
     if getattr(msg, "text", None) == "🔄 شروع مجدد":
         return
@@ -155,6 +155,9 @@ def install(app, B):
     async def start_without_reply_keyboard(update, context):
         result = await old_start(update, context)
         try:
+            chat_id = getattr(getattr(update, "effective_chat", None), "id", None)
+            if chat_id is not None:
+                _RESTART_CHATS.add(chat_id)
             await update.effective_message.reply_text("منوی اصلی:", reply_markup=restart_keyboard())
         except Exception:
             log.exception("failed to install restart keyboard")
