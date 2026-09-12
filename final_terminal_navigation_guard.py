@@ -27,7 +27,6 @@ TICKET_LABELS = {
 CANCEL_LABELS = {"❌ انصراف", "❌ Cancel", "❌ إلغاء", "لغو", "cancel", "Cancel", "إلغاء"}
 
 ALIASES = {
-    # Persian visual labels
     "🟦 فیدای غیر حضوری": "🪪 فیدای غیر حضوری", "🟩 خدمات چاپ": "🖨 خدمات چاپ",
     "🟨 حل مشکل ورود اتباع دولت من": "🪪 حل مشکل ورود اتباع دولت من", "🟦 کد رهگیری تمدید کارت‌ها": "🎫 کد رهگیری تمدید کارت‌ها",
     "🟩 خدمات سیم کارت": "📱 خدمات سیم کارت", "🟨 آزمون غربالگری": "📝 آزمون غربالگری",
@@ -36,7 +35,6 @@ ALIASES = {
     "🟦 شارژ حساب": "➕ شارژ حساب", "🟩 حل مشکل سامانه دولت من": "🏛 حل مشکل سامانه دولت من",
     "🟨 پیگیری کد": "🔎 پیگیری کد", "🟦 سوابق": "📋 سوابق", "🟩 موجودی": "💰 موجودی",
     "🟦 تیکت به مدیریت": "✉️ تیکت به مدیریت", "🟩 خروج از پنل": "🚪 خروج از پنل",
-    # English visual labels
     "🟦 FIDA service": "🪪 FIDA service", "🟩 Printing": "🖨 Printing", "🟨 Government access": "🏛 Government access",
     "🟦 Card renewal tracking": "🎫 Card renewal tracking", "🟩 SIM services": "📱 SIM services", "🟨 Screening": "📝 Screening",
     "🟦 Tracking": "🎫 Tracking", "🟩 My wallet": "💰 My wallet", "🟨 Contact us": "📞 Contact us",
@@ -44,7 +42,6 @@ ALIASES = {
     "🟦 Top up account": "➕ Top up account", "🟩 Government access issue": "🏛 Government access issue",
     "🟨 Track code": "🔎 Track code", "🟦 History": "📋 History", "🟩 Balance": "💰 Balance",
     "✉️ Ticket to management": "✉️ Ticket to management", "🚪 Exit panel": "🚪 Exit panel",
-    # Arabic visual labels
     "🟦 خدمة فيدا": "🪪 خدمة فيدا", "🟩 خدمات الطباعة": "🖨 خدمات الطباعة", "🟨 خدمات الحكومة": "🏛 خدمات الحكومة",
     "🟦 متابعة تجديد البطاقة": "🎫 متابعة تجديد البطاقة", "🟩 خدمات الشريحة": "📱 خدمات الشريحة", "🟨 الفحص": "📝 الفحص",
     "🟦 المتابعة": "🎫 المتابعة", "🟩 محفظتي": "💰 محفظتي", "🟨 اتصل بنا": "📞 اتصل بنا",
@@ -94,13 +91,12 @@ def install(app, B):
             raise ApplicationHandlerStop
 
         if text in PARTNER_LABELS:
-            if not st.get("partner_id") and st.get("mode") not in {"partner", "p_phone", "p_pass"}:
-                st["mode"], st["step"] = "p_phone", "partner_phone"
-                lang = st.get("lang", "fa")
-                prompt = {"fa":"📱 شماره موبایل اختصاصی همکار را وارد کنید:","en":"📱 Enter the partner's registered mobile number:","ar":"📱 أدخل رقم هاتف الشريك المسجل:"}.get(lang)
-                await message.reply_text(prompt, reply_markup=B.kb([[B.CANCEL]]))
-            else:
-                await B.partner(update, context)
+            # Do not create a legacy p_phone/p_pass state here. The partner
+            # registration wrapper is the single owner of partner entry and
+            # decides whether this is login, registration, pending approval,
+            # or the active partner panel. This prevents one button from
+            # switching the user into a different panel/state.
+            await B.partner(update, context)
             raise ApplicationHandlerStop
 
         if text in TICKET_LABELS and st.get("partner_id"):
