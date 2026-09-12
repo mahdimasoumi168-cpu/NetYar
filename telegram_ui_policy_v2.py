@@ -107,8 +107,6 @@ async def _dispatch(update,context,B,label):
     if label=="🚪 خروج از پنل":return await B.partner_exit(fake,context)
     if label=="🛠 پنل مدیریت بات":
         if not B.admin(uid): return await q.message.reply_text("❌ دسترسی مدیریت ندارید.",reply_markup=B.main(uid))
-        # Do not call telegram_admin_plus._callback with a fake CallbackQuery:
-        # that callback calls q.answer(), which caused the generic execution error.
         import telegram_admin_plus as A
         return await q.message.reply_text("🛠 پنل مدیریت کامل\n\nاز منوی زیر بخش موردنظر را انتخاب کنید:",reply_markup=A._admin_menu())
     if label=="➕ شارژ حساب":
@@ -166,11 +164,29 @@ def install(app,B):
     except Exception:pass
     old_start=B.start
     async def start(update,context):
+        # Preserve all existing state (especially partner/admin authorization) and
+        # always send exactly one persistent ReplyKeyboard with the restart action.
         result=await old_start(update,context)
         try: await update.effective_message.reply_text("دسترسی سریع:",reply_markup=restart_keyboard())
         except Exception: pass
         return result
     B.start=start
+
+    async def restart_text(update,context):
+        if not update.message:return
+        text=(update.message.text or "").strip()
+        if text not in {RESTART,"شروع مجدد"}:return
+        try:
+            # Route the ReplyKeyboard action through the real /start handler.
+            await B.start(update,context)
+        except Exception:
+            log.exception("persistent restart failed")
+            try: await update.effective_message.reply_text("❌ شروع مجدد انجام نشد. لطفاً چند لحظه بعد دوباره تلاش کنید.",reply_markup=restart_keyboard())
+            except Exception: pass
+        raise ApplicationHandlerStop
+
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, restart_text),group=-20)
+
     async def callback(update,context):
         q=update.callback_query
         if not q or not str(q.data or "").startswith("ui2:"):return
