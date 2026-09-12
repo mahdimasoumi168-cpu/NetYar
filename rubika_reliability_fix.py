@@ -32,7 +32,22 @@ def _fast_call_factory(rb):
     return fast_call
 
 
+def _started_bot(server, rb, update):
+    if not isinstance(update, dict) or update.get("type") != "StartedBot":
+        return False
+    msg = update.get("new_message") or update.get("message") or {}
+    chat = str(update.get("chat_id") or (msg or {}).get("chat_id") or (msg or {}).get("chat_key") or "")
+    uid = str((msg or {}).get("sender_id") or (msg or {}).get("user_id") or chat)
+    if not chat:
+        return True
+    rb.restart(uid, chat)
+    log.info("Rubika StartedBot handled in polling mode: user=%s", uid)
+    return True
+
+
 def _run_sync(server, update, rb):
+    if _started_bot(server, rb, update):
+        return
     normalized = server._normalize_rubika_button(update, rb)
     rb.process(normalized)
 
