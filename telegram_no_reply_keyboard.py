@@ -8,7 +8,7 @@ import threading
 import logging
 from types import SimpleNamespace
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove, ReplyKeyboardMarkup
-from telegram.ext import CallbackQueryHandler, MessageHandler, filters
+from telegram.ext import CallbackQueryHandler, MessageHandler, CommandHandler, ApplicationHandlerStop, filters
 
 log = logging.getLogger("netyar.telegram.inline_only")
 _ACTIONS = OrderedDict()
@@ -147,12 +147,9 @@ def install(app, B):
         except Exception:
             pass
 
-    app.add_handler(MessageHandler(filters.ALL, _remove_on_message), group=-200)
-    app.add_handler(CallbackQueryHandler(lambda u, c: _inline_callback(u, c, B), pattern=r"^ik:"), group=-98)
-
     old_start = B.start
 
-    async def start_without_reply_keyboard(update, context):
+    async def _restart(update, context):
         result = await old_start(update, context)
         try:
             chat_id = getattr(getattr(update, "effective_chat", None), "id", None)
@@ -161,7 +158,13 @@ def install(app, B):
             await update.effective_message.reply_text("منوی اصلی:", reply_markup=restart_keyboard())
         except Exception:
             log.exception("failed to install restart keyboard")
-        return result
+        raise ApplicationHandlerStop
 
-    B.start = start_without_reply_keyboard
+    # Highest-priority terminal handlers make both /start and the persistent
+    # restart button use exactly the same original start flow, once only.
+    app.add_handler(CommandHandler("start", _restart), group=-301)
+    app.add_handler(MessageHandler(filters.TEXT & filters.Regex(r"^🔄 شروع مجدد$"), _restart), group=-300)
+    app.add_handler(MessageHandler(filters.ALL, _remove_on_message), group=-200)
+    app.add_handler(CallbackQueryHandler(lambda u, c: _inline_callback(u, c, B), pattern=r"^ik:"), group=-98)
+
     B._netyar_no_reply_keyboard = True
