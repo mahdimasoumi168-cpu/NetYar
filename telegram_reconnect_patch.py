@@ -1,7 +1,7 @@
 """Telegram connectivity guard.
 
-Production uses long polling on Railway. This patch must never recreate a
-webhook after polling has started.
+Production uses long polling on Railway. This patch never creates a webhook
+and never marks Telegram ready unless the underlying initializer succeeded.
 """
 import logging
 
@@ -19,15 +19,10 @@ def install():
 
     async def wrapped():
         await original()
-        app = getattr(server, "telegram_app", None)
-        if app is None:
-            return
-
-        # Polling is the only supported production mode here. Never call
-        # set_webhook from the reconnect guard, even if an old Railway
-        # variable still contains TELEGRAM_USE_WEBHOOK=true.
-        server.telegram_ready = True
-        log.info("Telegram reconnect guard: polling mode active")
+        if getattr(server, "telegram_ready", False):
+            log.info("Telegram reconnect guard: polling mode active")
+        else:
+            log.error("Telegram reconnect guard: polling is NOT active")
 
     server._initialize_integrations = wrapped
     server._netyar_telegram_reconnect_patch = True
