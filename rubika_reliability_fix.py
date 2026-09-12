@@ -1,8 +1,8 @@
 """Rubika production reliability layer.
 
 Runs the synchronous Rubika business handler off the asyncio event loop,
-keeps exactly one polling task, and serializes each user's updates so state
-transitions cannot race each other.
+keeps exactly one polling task, serializes each user's updates, and installs
+the same UI/service hardening used by the legacy fallback.
 """
 import asyncio
 import logging
@@ -49,9 +49,7 @@ async def _process_one(server, rb, update, locks):
                 before = pf._rubika_request_snapshot(rb, uid)
             except Exception:
                 pass
-
             await asyncio.to_thread(_run_sync, server, update, rb)
-
             try:
                 import rubika_polling_fallback as pf
                 await pf._notify_telegram_admins(server, rb, uid, before)
@@ -105,6 +103,32 @@ async def _fast_poll(server, rb):
             await asyncio.sleep(0.3)
 
 
+def _install_rubika_hardening(server, rb):
+    server._patch_rubika(rb)
+    try:
+        import rubika_polling_fallback as pf
+        rb.normalize_phone = pf.normalize_phone
+        pf._patch_rubika_inline_ui(rb)
+        log.info("Rubika inline UI and fallback hardening installed")
+    except Exception:
+        log.exception("Rubika inline UI hardening could not be installed")
+    try:
+        import partner_pricing
+        partner_pricing.install_rubika(rb)
+    except Exception:
+        log.exception("Rubika partner pricing could not be installed")
+    try:
+        import rubika_iranian_complaints
+        rubika_iranian_complaints.install(rb)
+    except Exception:
+        log.exception("Rubika Iranian UX could not be installed")
+    try:
+        import rubika_admin_control_v5
+        rubika_admin_control_v5.install()
+    except Exception:
+        log.exception("Rubika admin controls could not be installed")
+
+
 def install():
     import server
     if getattr(server, "_rubika_reliability_fix_installed", False):
@@ -116,6 +140,7 @@ def install():
         await original_initialize()
         try:
             import rubika_v2 as rb
+            _install_rubika_hardening(server, rb)
             rb.call = _fast_call_factory(rb)
             old_task = getattr(server, "_rubika_polling_task", None)
             if old_task is not None and not old_task.done():
