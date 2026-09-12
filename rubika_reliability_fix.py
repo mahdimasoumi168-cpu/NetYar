@@ -14,7 +14,6 @@ log = logging.getLogger("netyar.rubika.reliability")
 
 def _fast_call_factory(rb):
     def fast_call(method, payload=None):
-        # getUpdates is long-polling, but must not hold the asyncio event loop.
         timeout = 8 if method == "getUpdates" else 10
         last = None
         for attempt in range(2):
@@ -33,6 +32,13 @@ def _fast_call_factory(rb):
     return fast_call
 
 
+def _run_sync(server, update, rb):
+    # Keep exactly the same button normalization used by the server endpoint,
+    # but execute the synchronous handler outside the asyncio event loop.
+    normalized = server._normalize_rubika_button(update, rb)
+    rb.process(normalized)
+
+
 async def _process_one(server, rb, update):
     uid = None
     try:
@@ -44,9 +50,7 @@ async def _process_one(server, rb, update):
         except Exception:
             pass
 
-        # rb.process is synchronous and may perform HTTP/DB work. Running it
-        # directly inside an async coroutine was the main source of stalls.
-        await asyncio.to_thread(server._run_rubika_sync, update, rb)
+        await asyncio.to_thread(_run_sync, server, update, rb)
 
         try:
             import rubika_polling_fallback as pf
@@ -106,14 +110,6 @@ def install():
         return
 
     original_initialize = server._initialize_integrations
-
-    # Keep a synchronous processing entry point so the polling loop can safely
-    # move all Rubika business work to a worker thread.
-    if not hasattr(server, "_run_rubika_sync"):
-        def _run_rubika_sync(update, rb):
-            server._run_rubika_sync_original(update, rb)
-        server._run_rubika_sync_original = lambda update, rb: rb.process(update)
-        server._run_rubika_sync = _run_rubika_sync
 
     async def initialize():
         await original_initialize()
