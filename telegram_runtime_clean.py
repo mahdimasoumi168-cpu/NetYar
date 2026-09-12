@@ -8,6 +8,7 @@ import telegram_admin_plus
 import telegram_admin_entry
 import telegram_residence_booklet
 import telegram_no_reply_keyboard
+import partner_pricing
 
 
 def build():
@@ -15,6 +16,7 @@ def build():
     app = B.build()
     telegram_panels.install(app, B)
     telegram_service_notifications.install(app, B)
+    partner_pricing.install_telegram(app, B)
     telegram_ux_billing.install(app, B)
     telegram_admin_plus.install(app, B)
     telegram_admin_entry.install(app, B)
