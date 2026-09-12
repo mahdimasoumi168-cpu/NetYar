@@ -3,17 +3,32 @@ from __future__ import annotations
 import logging
 log = logging.getLogger("netyar.cross_platform_stability_final")
 
+
 def install():
     try:
         import bot as B
         def modern_amenu(*_args, **_kwargs):
-            return B.kb([["👥 کاربران", "🤝 همکاران"],["📋 درخواست‌ها", "🎫 تیکت‌ها"],["🟢/🔴 خدمات ایرانی", "🟢/🔴 خدمات اتباع"],["💰 قیمت خدمات", "📝 تغییر متن‌ها"],["📎 مدارک و فایل‌ها", "👤 مدیران"],["🤖 پیام‌رسان‌ها", "📊 گزارش‌ها"],["⚙️ تنظیمات پایه", "📞 پشتیبانی"],["💬 ارتباط با همکار"],["⬅️ منوی اصلی"]])
+            return B.kb([
+                ["🟦 کاربران", "🟩 همکاران"],
+                ["🟨 درخواست‌ها", "🟦 تیکت‌ها"],
+                ["🟩 خدمات ایرانی", "🟨 خدمات اتباع"],
+                ["🟦 قیمت خدمات", "🟩 تغییر متن‌ها"],
+                ["🟨 مدارک و فایل‌ها", "🟦 مدیران"],
+                ["🟩 پیام‌رسان‌ها", "🟨 گزارش‌ها"],
+                ["🟦 تنظیمات پایه", "🟩 پشتیبانی"],
+                ["💬 ارتباط با همکار"],
+                ["⬅️ منوی اصلی"],
+            ])
         B.amenu = modern_amenu
+
         def localized_partner_kb(lang="fa"):
-            if lang == "en": return B.kb([["➕ Top up account", "🏛 Government access issue"],["🎫 My requests", "🔎 Track code"],["📋 History", "💰 Balance"],["✉️ Ticket to management"],["🚪 Exit panel"],["❌ Cancel"]])
-            if lang == "ar": return B.kb([["➕ شحن الحساب", "🏛 حل مشكلة خدمات الحكومة"],["🎫 طلباتي", "🔎 رمز المتابعة"],["📋 السجل", "💰 الرصيد"],["✉️ إرسال تذكرة إلى الإدارة"],["🚪 خروج من اللوحة"],["❌ إلغاء"]])
-            return B.kb([["➕ شارژ حساب", "🏛 حل مشکل سامانه دولت من"],["🎫 درخواست‌های من", "🔎 پیگیری کد"],["📋 سوابق", "💰 موجودی"],["✉️ ارسال تیکت به مدیریت"],["🚪 خروج از پنل"],[B.CANCEL]])
+            if lang == "en":
+                return B.kb([["🟦 Top up account", "🟩 Government access issue"],["🟨 My requests", "🟦 Track code"],["🟩 History", "🟨 Balance"],["✉️ Ticket to management"],["🚪 Exit panel"],["❌ Cancel"]])
+            if lang == "ar":
+                return B.kb([["🟦 شحن الحساب", "🟩 حل مشكلة خدمات الحكومة"],["🟨 طلباتي", "🟦 رمز المتابعة"],["🟩 السجل", "🟨 الرصيد"],["✉️ إرسال تذكرة إلى الإدارة"],["🚪 خروج من اللوحة"],["❌ إلغاء"]])
+            return B.kb([["🟦 شارژ حساب", "🟩 حل مشکل سامانه دولت من"],["🟨 درخواست‌های من", "🟦 پیگیری کد"],["🟩 سوابق", "🟨 موجودی"],["✉️ تیکت به مدیریت"],["🚪 خروج از پنل"],[B.CANCEL]])
         B.partner_kb = localized_partner_kb
+
         old_exit=getattr(B,"partner_exit_choice",None)
         if old_exit:
             async def stable_exit(update,context):
@@ -22,7 +37,7 @@ def install():
                 if text in {"🔒 خروج دائمی","🔒 Permanent exit","🔒 خروج دائم"}:
                     status=st.get("status","foreign"); B.S[uid]={"status":status,"lang":lang}
                     if status=="iranian":
-                        kb=B.kb([["🎫 Tracking" if lang=="en" else "🎫 المتابعة" if lang=="ar" else "🎫 پیگیری"],["👥 Partner panel" if lang=="en" else "👥 لوحة الشركاء" if lang=="ar" else "👥 پنل همکاران"],["❌ Cancel" if lang=="en" else "❌ إلغاء" if lang=="ar" else B.CANCEL]])
+                        kb=B.kb([["🟦 Tracking" if lang=="en" else "🟦 المتابعة" if lang=="ar" else "🟦 پیگیری"],["🟩 Partner panel" if lang=="en" else "🟩 لوحة الشركاء" if lang=="ar" else "🟩 پنل همکاران"],["❌ Cancel" if lang=="en" else "❌ إلغاء" if lang=="ar" else B.CANCEL]])
                         msg={"fa":"🔒 خروج دائمی انجام شد.\n🇮🇷 به منوی ایرانی برگشتید.","en":"🔒 Permanent exit completed.\n🇮🇷 You are back in the Iranian user menu.","ar":"🔒 تم تسجيل الخروج الدائم.\n🇮🇷 عدت إلى قائمة المستخدم الإيراني."}[lang]
                     else:
                         kb=B.main(uid); msg={"fa":"🔒 خروج دائمی انجام شد.\n🪪 به منوی اتباع برگشتید.","en":"🔒 Permanent exit completed.\n🪪 You are back in the foreign-resident menu.","ar":"🔒 تم تسجيل الخروج الدائم.\n🪪 عدت إلى قائمة المقيمين الأجانب."}[lang]
@@ -31,6 +46,7 @@ def install():
             B.partner_exit_choice=stable_exit
         B._cross_platform_stability_final_telegram=True
     except Exception: log.exception("Telegram stability install failed")
+
     try:
         import rubika_v2 as R
         if getattr(R,"_cross_platform_stability_final_rubika",False): return
