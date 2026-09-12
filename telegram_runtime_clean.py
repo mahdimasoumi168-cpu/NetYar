@@ -16,6 +16,7 @@ import telegram_iranian_admin
 import telegram_partner_login_fix
 import partner_balance_guard
 import partner_balance_reset
+import telegram_notification_guard
 
 
 def build():
@@ -36,4 +37,5 @@ def build():
     telegram_partner_login_fix.install(app, B)
     partner_balance_guard.install(B)
     partner_balance_reset.install(app, B)
+    telegram_notification_guard.install(app, B)
     return app
