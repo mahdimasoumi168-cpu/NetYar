@@ -1,8 +1,8 @@
 """Absolute Telegram callback/navigation owner."""
 import logging
 from types import SimpleNamespace
-from telegram import CallbackQueryHandler, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationHandlerStop
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import CallbackQueryHandler, ApplicationHandlerStop
 
 log=logging.getLogger("netyar.telegram.absolute_fix")
 ALIASES={
