@@ -18,6 +18,11 @@ production_stability.install()
 import telegram_single_poller_guard
 telegram_single_poller_guard.install()
 
+# server.startup still directly schedules the legacy 90-second watchdog.
+# Cancel that task after startup so it cannot interfere with Telegram polling.
+import telegram_startup_watchdog_cleanup
+telegram_startup_watchdog_cleanup.install()
+
 import rubika_stability_fix
 rubika_stability_fix.install()
 
