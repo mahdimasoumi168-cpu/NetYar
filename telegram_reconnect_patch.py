@@ -1,4 +1,8 @@
-"""Final Telegram webhook reconnect guard."""
+"""Telegram connectivity guard.
+
+Polling is the production default on Railway. This patch must not re-create a
+webhook after polling has started, otherwise Telegram delivery is interrupted.
+"""
 import asyncio
 import logging
 
@@ -19,6 +23,16 @@ def install():
         app = getattr(server, "telegram_app", None)
         if app is None:
             return
+
+        use_webhook = server.os.getenv("TELEGRAM_USE_WEBHOOK", "false").strip().lower() in {
+            "1", "true", "yes", "on"
+        }
+        if not use_webhook:
+            # Long polling is already running; never call set_webhook here.
+            server.telegram_ready = True
+            log.info("Telegram reconnect guard: polling mode active")
+            return
+
         expected = server.public_url("/telegram/update")
         last_error = None
         for attempt in range(6):
@@ -47,4 +61,4 @@ def install():
 
     server._initialize_integrations = wrapped
     server._netyar_telegram_reconnect_patch = True
-    log.info("Telegram webhook reconnect guard installed")
+    log.info("Telegram reconnect guard installed")
