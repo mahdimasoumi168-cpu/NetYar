@@ -11,6 +11,10 @@ import server
 import production_stability
 production_stability.install()
 
+# Telegram recovery watchdog: keeps the single long-polling updater alive.
+import telegram_reliability_fix
+telegram_reliability_fix.install()
+
 # Normalize Rubika sender/chat identities and make first contact reliable.
 import rubika_stability_fix
 rubika_stability_fix.install()
