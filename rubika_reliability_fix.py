@@ -1,22 +1,21 @@
 """Rubika production reliability layer.
 
-Keeps the existing business handlers, but removes long blocking HTTP waits and
-processes a batch of updates concurrently so one slow request cannot stall the
-whole Rubika bot.
+Runs the synchronous Rubika business handler off the asyncio event loop and
+keeps exactly one short-timeout polling task active. This prevents a slow
+Rubika API/database operation for one user from delaying every other user.
 """
 import asyncio
-import json
 import logging
-import os
-import time
 import requests
+import time
 
 log = logging.getLogger("netyar.rubika.reliability")
 
 
 def _fast_call_factory(rb):
     def fast_call(method, payload=None):
-        timeout = 10 if method == "getUpdates" else 12
+        # getUpdates is long-polling, but must not hold the asyncio event loop.
+        timeout = 8 if method == "getUpdates" else 10
         last = None
         for attempt in range(2):
             try:
@@ -29,7 +28,7 @@ def _fast_call_factory(rb):
             except (requests.RequestException, RuntimeError) as exc:
                 last = exc
                 if attempt == 0:
-                    time.sleep(0.15)
+                    time.sleep(0.1)
         raise last or RuntimeError(f"Rubika {method} failed")
     return fast_call
 
@@ -40,12 +39,15 @@ async def _process_one(server, rb, update):
         uid = server._rubika_user(update)
         before = 0
         try:
-            # Keep the existing snapshot helper when available.
             import rubika_polling_fallback as pf
             before = pf._rubika_request_snapshot(rb, uid)
         except Exception:
             pass
-        await server._run_rubika(update, rb)
+
+        # rb.process is synchronous and may perform HTTP/DB work. Running it
+        # directly inside an async coroutine was the main source of stalls.
+        await asyncio.to_thread(server._run_rubika_sync, update, rb)
+
         try:
             import rubika_polling_fallback as pf
             await pf._notify_telegram_admins(server, rb, uid, before)
@@ -59,8 +61,8 @@ async def _process_one(server, rb, update):
 
 async def _fast_poll(server, rb):
     offset_id = None
-    sem = asyncio.Semaphore(8)
-    log.warning("Rubika fast polling started")
+    sem = asyncio.Semaphore(12)
+    log.warning("Rubika single fast polling started")
 
     async def limited(update):
         async with sem:
@@ -95,14 +97,23 @@ async def _fast_poll(server, rb):
             return
         except Exception:
             log.exception("Rubika fast polling error")
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.3)
 
 
 def install():
     import server
     if getattr(server, "_rubika_reliability_fix_installed", False):
         return
+
     original_initialize = server._initialize_integrations
+
+    # Keep a synchronous processing entry point so the polling loop can safely
+    # move all Rubika business work to a worker thread.
+    if not hasattr(server, "_run_rubika_sync"):
+        def _run_rubika_sync(update, rb):
+            server._run_rubika_sync_original(update, rb)
+        server._run_rubika_sync_original = lambda update, rb: rb.process(update)
+        server._run_rubika_sync = _run_rubika_sync
 
     async def initialize():
         await original_initialize()
@@ -118,9 +129,10 @@ def install():
                     pass
             server._rubika_polling_task = asyncio.create_task(_fast_poll(server, rb))
             server.rubika_ready = True
-            log.warning("Rubika reliability layer active")
+            log.warning("Rubika single reliability polling layer active")
         except Exception:
             log.exception("Rubika reliability layer could not start")
+            server.rubika_ready = False
 
     server._initialize_integrations = initialize
     server._rubika_reliability_fix_installed = True
