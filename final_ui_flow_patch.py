@@ -41,7 +41,6 @@ def _remember(uid, label):
 
 
 def _button_style(label):
-    """Return a Telegram button style without relying on unsupported extras."""
     s = str(label or "")
     if any(x in s for x in ("انصراف", "لغو", "رد", "حذف", "خروج", "Cancel", "Reject", "Delete", "Exit", "إلغاء")):
         return "danger"
@@ -62,35 +61,46 @@ def _inline_kb(bot, uid, rows):
             try:
                 out.append(bot.InlineKeyboardButton(label, callback_data=token, style=_button_style(label)))
             except TypeError:
-                # Compatibility with python-telegram-bot versions that do not expose
-                # InlineKeyboardButton.style yet. The callback remains fully functional.
                 out.append(bot.InlineKeyboardButton(label, callback_data=token))
         if out:
             buttons.append(out)
     return bot.InlineKeyboardMarkup(buttons)
 
 
+class _MessageProxy:
+    """Read-only Telegram Message proxy with an overridden text value.
+
+    python-telegram-bot 20+ exposes Message.text as a read-only property.
+    Older code attempted to assign to it directly, which raises AttributeError
+    and surfaced to users as «❌ اجرای گزینه با خطا مواجه شد.» for inline buttons.
+    The proxy preserves every original Message attribute while safely providing
+    the selected button label as .text.
+    """
+    def __init__(self, original, label):
+        self._original = original
+        self.text = str(label or "")
+
+    def __getattr__(self, name):
+        return getattr(self._original, name)
+
+
 def _fake_update(update, label):
     """Build the small update surface used by the existing text router."""
-    msg = copy.copy(update.callback_query.message)
-    msg.text = label
+    q = update.callback_query
+    msg = _MessageProxy(q.message, label)
     user = update.effective_user
-    chat = update.effective_chat
+    chat = update.effective_chat or getattr(q, "message", None).chat
     return SimpleNamespace(
         message=msg,
         effective_user=user,
         effective_chat=chat,
         callback_query=None,
+        update_id=getattr(update, "update_id", None),
     )
 
 
 async def _ui_callback(update, context):
-    """Resolve UI callbacks from memory first and SQLite after a restart.
-
-    Unknown old callbacks never produce the confusing 'expired/invalid' error.
-    Instead, the user receives a fresh menu. Current callbacks are executed for
-    the person who actually pressed them, not for an owner stored in memory.
-    """
+    """Resolve UI callbacks from memory first and SQLite after a restart."""
     q = update.callback_query
     await q.answer()
     token = str(q.data or "")
@@ -111,8 +121,6 @@ async def _ui_callback(update, context):
 
     import bot as B
     if not entry:
-        # The callback belongs to a menu that predates the persistent registry.
-        # Do not expose an 'expired/invalid' error; rebuild the correct menu.
         try:
             await q.message.reply_text(
                 "🔄 منو به‌روزرسانی شد. لطفاً از گزینه‌های زیر ادامه دهید:",
@@ -123,10 +131,29 @@ async def _ui_callback(update, context):
         return
 
     _owner, label = entry
-    # Telegram's callback sender is authoritative. Do not compare against a
-    # potentially stale process-local owner after a restart.
     fake = _fake_update(update, label)
     try:
+        # Partner panel is a navigation entry and must bypass legacy wrappers.
+        # This prevents old partner patches from replacing the menu or throwing
+        # before the login state has been initialized.
+        if str(label).strip() in {"👥 پنل همکاران", "🔵 👥 پنل همکاران", "👥 Partner panel", "👥 لوحة الشركاء"}:
+            st = B.S.setdefault(update.effective_user.id, {})
+            pid = st.get("partner_id")
+            if pid and st.get("partner_active", True):
+                p = B.db.conn.execute("SELECT * FROM partners WHERE id=? AND active=1", (pid,)).fetchone()
+                if p:
+                    return await q.message.reply_text(
+                        f"👥 پنل همکاران\n👤 {p['name']}\n📱 {p['phone']}\n💰 اعتبار: {int(p['balance'] or 0):,} تومان",
+                        reply_markup=B.partner_kb(st.get("lang", "fa")),
+                    )
+            st["mode"] = "p_phone"
+            st.pop("phone", None)
+            st.pop("partner_active", None)
+            return await q.message.reply_text(
+                "👥 ورود به پنل همکاران\n\n📱 لطفاً شماره موبایل اختصاصی همکار را وارد کنید:",
+                reply_markup=B.cancel_kb(st.get("lang", "fa")),
+            )
+
         result = await B.router(fake, context)
         if result is None:
             if await B.ptext(fake, context):
@@ -168,14 +195,8 @@ async def _finalize_amayesh(update, context, st, card_file, sim_file=""):
     if sim_file:
         B.db.answer(rid, "sim_card_document", file_id=sim_file)
     if pid:
-        B.db.conn.execute(
-            "UPDATE requests SET status='submitted',payment_status='paid',payment_method='partner_balance' WHERE id=?",
-            (rid,),
-        )
-        B.db.conn.execute(
-            "UPDATE partners SET balance=balance-?,updated_at=? WHERE id=?",
-            (amount, B.now(), pid),
-        )
+        B.db.conn.execute("UPDATE requests SET status='submitted',payment_status='paid',payment_method='partner_balance' WHERE id=?", (rid,))
+        B.db.conn.execute("UPDATE partners SET balance=balance-?,updated_at=? WHERE id=?", (amount, B.now(), pid))
     else:
         B.db.conn.execute("UPDATE requests SET status='submitted' WHERE id=?", (rid,))
     B.db.conn.commit()
@@ -191,22 +212,20 @@ async def _finalize_amayesh(update, context, st, card_file, sim_file=""):
     for aid in B.ADM:
         try:
             await context.bot.send_message(chat_id=int(aid), text=text)
-            await context.bot.send_photo(chat_id=int(aid), photo=card_file, caption=f"🪪 کارت آمایش | {code}")
+            if card_file:
+                await context.bot.send_photo(chat_id=int(aid), photo=card_file, caption=f"🪪 کارت آمایش | {code}")
             if sim_file:
                 await context.bot.send_document(chat_id=int(aid), document=sim_file, caption=f"📎 سند سیم‌کارت | {code}")
         except Exception:
             log.exception("Amayesh admin notification failed")
     reply_markup = B.partner_kb(st.get("lang", "fa")) if pid else B.main(uid)
-    return await update.message.reply_text(
-        f"✅ درخواست کارت آمایش ثبت شد.\n🎫 کد پیگیری: {code}",
-        reply_markup=reply_markup,
-    )
+    return await update.message.reply_text(f"✅ درخواست کارت آمایش ثبت شد.\n🎫 کد پیگیری: {code}", reply_markup=reply_markup)
 
 
 def install():
     import bot as B
     import telegram_runtime as TG
-    from telegram import CallbackQueryHandler
+    from telegram.ext import CallbackQueryHandler
 
     if getattr(B, "_final_ui_flow_installed", False):
         return
@@ -238,79 +257,5 @@ def install():
         return old_partner_kb(lang) if uid is None else _inline_kb(B, uid, [["➕ شارژ حساب", "🏛 حل مشکل سامانه دولت من"], ["🔎 پیگیری کد", "📋 سوابق"], ["💰 موجودی"], ["🚪 خروج از پنل"], [B.CANCEL]])
     B.partner_kb = tracked_partner_kb
 
-    old_service_text = B.service_text
-    async def service_text(update, context):
-        uid = update.effective_user.id
-        st = B.S.setdefault(uid, {})
-        t = _digits((update.message.text or "").strip())
-        if st.get("mode") == "gov_unique":
-            if not re.fullmatch(r"9\d{9}", t):
-                return await update.message.reply_text(
-                    "❌ کد یکتا باید دقیقاً ۱۰ رقم باشد و با ۹ شروع شود.\nمثال: 9xxxxxxxxx",
-                    reply_markup=B.cancel_kb(st.get("lang", "fa")),
-                )
-            st["gov_unique"] = t
-            st["mode"] = "gov_special"
-            return await update.message.reply_text(
-                "🔖 کد اختصاصی مشترک را وارد کنید.\nباید دقیقاً ۱۲ رقم باشد و با ۱ شروع شود.",
-                reply_markup=B.cancel_kb(st.get("lang", "fa")),
-            )
-        if st.get("mode") == "gov_special":
-            if not re.fullmatch(r"1\d{11}", t):
-                return await update.message.reply_text(
-                    "❌ کد اختصاصی باید دقیقاً ۱۲ رقم باشد و با ۱ شروع شود.\nمثال: 1xxxxxxxxxxx",
-                    reply_markup=B.cancel_kb(st.get("lang", "fa")),
-                )
-            st["gov_special"] = t
-            if st.get("gov_doc_type") == "passport":
-                st["mode"] = "gov_passport"
-                return await update.message.reply_text("🛂 شماره گذرنامه/پاسپورت مشترک را وارد کنید.", reply_markup=B.cancel_kb(st.get("lang", "fa")))
-            st["mode"] = "gov_household"
-            return await update.message.reply_text("👨‍👩‍👧‍👦 کد خانوار کارت آمایش را وارد کنید:", reply_markup=B.cancel_kb(st.get("lang", "fa")))
-        if st.get("mode") == "gov_household":
-            if not re.fullmatch(r"\d{1,20}", t):
-                return await update.message.reply_text("❌ کد خانوار را فقط به صورت عدد وارد کنید.", reply_markup=B.cancel_kb(st.get("lang", "fa")))
-            st["gov_household"] = t
-            st["mode"] = "gov_photo"
-            return await update.message.reply_text("📸 عکس کارت آمایش را ارسال کنید.", reply_markup=B.cancel_kb(st.get("lang", "fa")))
-        if st.get("mode") == "gov_photo" and st.get("gov_doc_type") == "amaysh":
-            return await update.message.reply_text("📸 عکس کارت آمایش را ارسال کنید.", reply_markup=B.cancel_kb(st.get("lang", "fa")))
-        if st.get("mode") == "gov_sim_doc_optional":
-            if t in {"⏭ سند سیم‌کارت ندارم", "سند سیم‌کارت ندارم", "ندارم"}:
-                return await _finalize_amayesh(update, context, st, st.get("gov_card_file", ""), "")
-        return await old_service_text(update, context)
-    B.service_text = service_text
-
-    old_media = B.media
-    async def media(update, context):
-        uid = update.effective_user.id
-        st = B.S.setdefault(uid, {})
-        fid = update.message.photo[-1].file_id if update.message.photo else (update.message.document.file_id if update.message.document else "")
-        if st.get("mode") == "gov_photo" and st.get("gov_doc_type") == "amaysh":
-            if not fid:
-                return await update.message.reply_text("❌ عکس کارت آمایش را به صورت تصویر یا فایل ارسال کنید.", reply_markup=B.cancel_kb(st.get("lang", "fa")))
-            st["gov_card_file"] = fid
-            st["mode"] = "gov_sim_doc_optional"
-            return await update.message.reply_text(
-                "📎 اگر سند سیم‌کارت به نام مشترک را دارید، ارسال کنید.\nاگر ندارید، گزینه «⏭ سند سیم‌کارت ندارم» را بزنید.\nاین مورد اختیاری است.",
-                reply_markup=B.kb([["📎 ارسال سند سیم‌کارت"], ["⏭ سند سیم‌کارت ندارم"], [B.CANCEL]]),
-            )
-        if st.get("mode") == "gov_sim_doc_optional":
-            if not fid:
-                return await update.message.reply_text("📎 لطفاً سند سیم‌کارت را به صورت تصویر یا فایل ارسال کنید؛ یا گزینه «⏭ سند سیم‌کارت ندارم» را بزنید.", reply_markup=B.kb([["⏭ سند سیم‌کارت ندارم"], [B.CANCEL]]))
-            return await _finalize_amayesh(update, context, st, st.get("gov_card_file", ""), fid)
-        return await old_media(update, context)
-    B.media = media
-
-    old_router = B.router
-    async def router(update, context):
-        uid = update.effective_user.id
-        st = B.S.setdefault(uid, {})
-        t = (update.message.text or "").strip()
-        if st.get("mode") == "gov_sim_doc_optional" and t in {"📎 ارسال سند سیم‌کارت"}:
-            return await update.message.reply_text("📎 حالا تصویر یا فایل سند سیم‌کارت را ارسال کنید.", reply_markup=B.kb([["⏭ سند سیم‌کارت ندارم"], [B.CANCEL]]))
-        return await old_router(update, context)
-    B.router = router
-
     B._final_ui_flow_installed = True
-    log.info("final UI flow patch installed")
+    log.info("Final Telegram UI flow installed")
