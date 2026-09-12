@@ -52,8 +52,30 @@ def install():
     }
     def norm(x): return aliases.get(str(x or "").strip(), str(x or "").strip())
 
-    # Final text router: reply-keyboard buttons must work even when an older
-    # router has a narrower alias table.
+    # Do not call the large/stacked partner wrapper from button callbacks.
+    # Several legacy patches wrap B.partner and may throw before the login
+    # state is initialized. This small canonical entry point owns only the
+    # navigation state; ptext continues the actual phone/password flow.
+    async def open_partner(update, context):
+        uid = int(update.effective_user.id)
+        st = B.S.setdefault(uid, {})
+        pid = st.get("partner_id")
+        if pid and st.get("partner_active", True):
+            p = B.db.conn.execute("SELECT * FROM partners WHERE id=? AND active=1", (pid,)).fetchone()
+            if p:
+                return await update.message.reply_text(
+                    f"👥 پنل همکاران\n👤 {p['name']}\n📱 {p['phone']}\n💰 اعتبار: {int(p['balance'] or 0):,} تومان",
+                    reply_markup=B.partner_kb(st.get("lang", "fa")),
+                )
+        # Always initialize the login state BEFORE asking for the phone.
+        st["mode"] = "p_phone"
+        st.pop("phone", None)
+        st.pop("partner_active", None)
+        return await update.message.reply_text(
+            "👥 ورود به پنل همکاران\n\n📱 لطفاً شماره موبایل اختصاصی همکار را وارد کنید:",
+            reply_markup=B.cancel_kb(st.get("lang", "fa")),
+        )
+
     old_router = B.router
     async def canonical_router(update, context):
         uid = int(update.effective_user.id)
@@ -64,7 +86,7 @@ def install():
                 B.S[uid] = {}
                 return await B.start(update, context)
             if text == "👥 پنل همکاران":
-                return await B.partner(update, context)
+                return await open_partner(update, context)
             if text == "🛠 پنل مدیریت بات":
                 if not B.admin(uid):
                     return await update.message.reply_text("❌ دسترسی مدیریت ندارید.", reply_markup=B.main(uid))
@@ -81,14 +103,13 @@ def install():
         return await old_router(update, context)
     B.router = canonical_router
 
-    # Make previous partner requests actionable instead of a plain text dump.
     old_phistory = B.phistory
     async def phistory(update, context):
         uid = int(update.effective_user.id)
         st = B.S.get(uid, {})
         pid = st.get("partner_id")
         if not pid:
-            return await B.partner(update, context)
+            return await open_partner(update, context)
         rows = B.db.conn.execute(
             "SELECT id,tracking_code,service_key,status,amount,created_at FROM requests WHERE user_id=? ORDER BY id DESC LIMIT 20",
             (pid,),
@@ -147,9 +168,8 @@ def install():
                 B.S[uid] = {}
                 return await B.start(update, context)
             if label == "👥 پنل همکاران":
-                # CallbackQuery has no .message on Update; call partner with a tiny adapter.
                 fake = type("U", (), {"effective_user":q.from_user,"message":q.message})()
-                return await B.partner(fake, context)
+                return await open_partner(fake, context)
             if label == "🛠 پنل مدیریت بات":
                 if not B.admin(uid): return await q.message.reply_text("❌ دسترسی مدیریت ندارید.", reply_markup=B.main(uid))
                 return await q.message.reply_text("🛠 پنل مدیریت", reply_markup=B.amenu())
