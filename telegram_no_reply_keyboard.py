@@ -6,7 +6,6 @@ is «🔄 شروع مجدد», which executes the same flow as /start.
 from collections import OrderedDict
 import threading
 import logging
-from types import SimpleNamespace
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove, ReplyKeyboardMarkup
 from telegram.ext import CallbackQueryHandler, MessageHandler, CommandHandler, ApplicationHandlerStop, filters
 
@@ -86,6 +85,33 @@ async def _remove_on_message(update, context):
     await _remove_legacy_keyboard(msg)
 
 
+class _CallbackMessageProxy:
+    """Message proxy that keeps Telegram's real reply methods but overrides text.
+
+    Several legacy routers only inspect update.message.text. Passing a plain
+    SimpleNamespace there loses Telegram Message methods; mutating q.message is
+    also unsafe. This proxy gives the router the selected button text while all
+    reply/edit/file operations continue to target the real Telegram message.
+    """
+    def __init__(self, message, text):
+        self._message = message
+        self.text = text
+
+    def __getattr__(self, name):
+        return getattr(self._message, name)
+
+
+class _CallbackUpdateProxy:
+    def __init__(self, update, q, label):
+        message = _CallbackMessageProxy(q.message, label)
+        self.update_id = getattr(update, "update_id", None)
+        self.message = message
+        self.effective_message = message
+        self.effective_user = q.from_user
+        self.effective_chat = getattr(q.message, "chat", None)
+        self.callback_query = q
+
+
 def _button_label_from_message(q):
     try:
         markup = getattr(q.message, "reply_markup", None)
@@ -98,17 +124,6 @@ def _button_label_from_message(q):
     return ""
 
 
-def _message_update_from_callback(update, q):
-    return SimpleNamespace(
-        update_id=getattr(update, "update_id", None),
-        message=q.message,
-        effective_message=q.message,
-        effective_user=q.from_user,
-        effective_chat=getattr(q.message, "chat", None),
-        callback_query=q,
-    )
-
-
 async def _inline_callback(update, context, B):
     q = update.callback_query
     key = str(q.data or "")
@@ -116,22 +131,18 @@ async def _inline_callback(update, context, B):
     if not label:
         await q.answer("این گزینه دیگر معتبر نیست؛ لطفاً از منوی فعلی استفاده کنید.")
         return
+
     label = _clean_label(label)
     await q.answer()
-    original = getattr(q.message, "text", None)
-    proxy = _message_update_from_callback(update, q)
+    proxy = _CallbackUpdateProxy(update, q, label)
     try:
-        object.__setattr__(q.message, "text", label)
+        # Route through the FINAL B.router so every existing service, partner,
+        # admin and cancellation flow keeps its current behavior.
         await B.router(proxy, context)
     except Exception:
         log.exception("Inline button routing failed: %s", label)
         try:
             await q.message.reply_text("❌ اجرای این گزینه با خطا مواجه شد. لطفاً دوباره همین گزینه را بزنید.")
-        except Exception:
-            pass
-    finally:
-        try:
-            object.__setattr__(q.message, "text", original)
         except Exception:
             pass
 
@@ -165,8 +176,6 @@ def install(app, B):
             chat_id = getattr(getattr(update, "effective_chat", None), "id", None)
             if chat_id is not None:
                 _RESTART_CHATS.add(chat_id)
-            # Install the persistent keyboard without adding another visible
-            # startup heading/message to the conversation.
             await update.effective_message.reply_text("\u2063", reply_markup=restart_keyboard())
         except Exception:
             log.exception("failed to install restart keyboard")
@@ -175,6 +184,8 @@ def install(app, B):
     app.add_handler(CommandHandler("start", _restart), group=-301)
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex(r"^🔄 شروع مجدد$"), _restart), group=-300)
     app.add_handler(MessageHandler(filters.ALL, _remove_on_message), group=-200)
-    app.add_handler(CallbackQueryHandler(lambda u, c: _inline_callback(u, c, B), pattern=r"^ik:"), group=-98)
+    # Must run before every legacy CallbackQueryHandler. Otherwise an older
+    # callback handler can consume the update before the canonical label router.
+    app.add_handler(CallbackQueryHandler(lambda u, c: _inline_callback(u, c, B), pattern=r"^ik:"), group=-10000)
 
     B._netyar_no_reply_keyboard = True
