@@ -1,47 +1,24 @@
-"""Production entrypoint shared by Railway and local execution."""
+"""Production entrypoint shared by Railway and local execution.
+
+Telegram is the primary runtime.  Keep the process startup path free of
+Rubika monkey-patches so a Rubika failure can never prevent Telegram from
+starting.
+"""
 import os
 import sys
 
+# Use the single canonical Telegram runtime.  It builds one Application;
+# server.py owns the only polling lifecycle.
 import telegram_runtime_clean
 sys.modules["telegram_runtime"] = telegram_runtime_clean
 
 import uvicorn
 import server
 
-# Telegram UI/data stability only. Polling itself is owned exclusively by
-# server._initialize_integrations so there is exactly one Application/updater.
+# Telegram-only stability guards.  These serialize updates/callbacks but do
+# not create or start another polling loop.
 import production_stability
 production_stability.install()
-
-# Rubika layers are kept isolated from Telegram's polling lifecycle.
-import rubika_stability_fix
-rubika_stability_fix.install()
-
-import rubika_reliability_fix
-rubika_reliability_fix.install()
-
-import rubika_final_hardening
-rubika_final_hardening.install()
-
-import rubika_ticket_chat
-rubika_ticket_chat.install()
-
-import rubika_webhook_guard
-rubika_webhook_guard.install()
-
-import cross_platform_stability_final
-cross_platform_stability_final.install()
-
-import partner_price_exact
-import rubika_v2 as _rubika
-partner_price_exact.install_rubika(_rubika)
-
-import rubika_navigation_stability
-rubika_navigation_stability.install()
-
-# Must be last: server._patch_rubika runs again when a webhook arrives.
-import rubika_final_button_router
-rubika_final_button_router.install()
 
 
 def main():
