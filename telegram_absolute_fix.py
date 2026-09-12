@@ -1,13 +1,8 @@
-"""Absolute Telegram callback/navigation owner.
-
-Runs before legacy callback handlers and directly dispatches canonical inline
-buttons. Unknown or disabled options always receive an explicit closed/not
-available response instead of silently doing nothing.
-"""
+"""Absolute Telegram callback/navigation owner."""
 import logging
 from types import SimpleNamespace
-from telegram import InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import CallbackQueryHandler, ApplicationHandlerStop
+from telegram import CallbackQueryHandler, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationHandlerStop
 
 log=logging.getLogger("netyar.telegram.absolute_fix")
 ALIASES={
@@ -25,7 +20,7 @@ def clean(s):
   if s.startswith(p): s=s[len(p):].strip()
  return ALIASES.get(s,s)
 
-def label(update,q):
+def label(q):
  try:
   import telegram_no_reply_keyboard as N
   v=N._ACTIONS.get(str(q.data))
@@ -49,20 +44,16 @@ def proxy(update,q,text):
 async def click(update,context,B):
  q=update.callback_query
  if not q:return
- await q.answer()
- t=label(update,q); uid=q.from_user.id; st=B.S.setdefault(uid,{})
+ await q.answer(); t=label(q); uid=q.from_user.id; st=B.S.setdefault(uid,{})
  if not t:
   await q.message.reply_text('⛔ این گزینه فعلاً بسته یا نامعتبر است. لطفاً از منوی فعلی استفاده کنید.'); raise ApplicationHandlerStop
  try:
   if t=='🔄 شروع مجدد':
-   old=dict(st); B.S[uid]={'lang':old.get('lang','fa')}
-   status=old.get('status') or old.get('citizenship')
+   old=dict(st); B.S[uid]={'lang':old.get('lang','fa')}; status=old.get('status') or old.get('citizenship')
    if status:B.S[uid].update(status=status,citizenship=status)
    await B.start(proxy(update,q,'/start'),context); raise ApplicationHandlerStop
-  if t=='❌ انصراف':
-   await B.cancel(proxy(update,q,t),context); raise ApplicationHandlerStop
-  if t=='👥 پنل همکاران':
-   await B.partner(proxy(update,q,t),context); raise ApplicationHandlerStop
+  if t=='❌ انصراف': await B.cancel(proxy(update,q,t),context); raise ApplicationHandlerStop
+  if t=='👥 پنل همکاران': await B.partner(proxy(update,q,t),context); raise ApplicationHandlerStop
   if t=='🛠 پنل مدیریت بات':
    if not B.admin(uid): await q.message.reply_text('⛔ این بخش فقط برای مدیریت فعال است.'); raise ApplicationHandlerStop
    fn=getattr(B,'admin_text',None)
@@ -90,18 +81,13 @@ async def click(update,context,B):
    raise ApplicationHandlerStop
   if t=='✉️ تیکت به مدیریت':
    if not st.get('partner_id'): await q.message.reply_text('⛔ ابتدا وارد پنل همکاران شوید.'); raise ApplicationHandlerStop
-   st['mode']='partner_message'
-   await q.message.reply_text('✉️ متن تیکت خود را ارسال کنید.\n\nبرای لغو، «❌ انصراف» را بزنید.',reply_markup=B.cancel_kb(st.get('lang','fa'))); raise ApplicationHandlerStop
-  # Common main-menu aliases not implemented in the canonical runtime.
+   st['mode']='partner_message'; await q.message.reply_text('✉️ متن تیکت خود را ارسال کنید.\n\nبرای لغو، «❌ انصراف» را بزنید.',reply_markup=B.cancel_kb(st.get('lang','fa'))); raise ApplicationHandlerStop
   service_map={'🎫 کد رهگیری تمدید کارت‌ها':'renewal','📝 آزمون غربالگری':'screening','🎫 پیگیری':'tracking','💰 کیف پول من':'wallet','📞 تماس با ما':'contact','📝 ثبت شکایت مشتریان':'complaint'}
   if t in service_map:
-   key=service_map[t]; row=B.db.conn.execute('SELECT active FROM services WHERE key=?',(key,)).fetchone()
-   if not row or not int(row['active']):
-    await q.message.reply_text('⛔ این خدمت فعلاً بسته می‌باشد.',reply_markup=B.main(uid)); raise ApplicationHandlerStop
-  # Let specialized callback-aware router handle anything else.
+   row=B.db.conn.execute('SELECT active FROM services WHERE key=?',(service_map[t],)).fetchone()
+   if not row or not int(row['active']): await q.message.reply_text('⛔ این خدمت فعلاً بسته می‌باشد.',reply_markup=B.main(uid)); raise ApplicationHandlerStop
   result=await B.router(proxy(update,q,t),context)
-  if result is None:
-   await q.message.reply_text('⛔ این گزینه فعلاً بسته می‌باشد.',reply_markup=B.main(uid))
+  if result is None: await q.message.reply_text('⛔ این گزینه فعلاً بسته می‌باشد.',reply_markup=B.main(uid))
  except ApplicationHandlerStop: raise
  except Exception:
   log.exception('absolute Telegram callback failed: %s',t)
@@ -110,6 +96,14 @@ async def click(update,context,B):
 
 def install(app,B):
  if getattr(B,'_telegram_absolute_fix',False): return
+ def main(uid):
+  rows=[["🪪 فیدای غیر حضوری","🖨 خدمات چاپ"],["🪪 حل مشکل ورود اتباع دولت من","🎫 کد رهگیری تمدید کارت‌ها"],["📱 خدمات سیم کارت","📝 آزمون غربالگری"],["🎫 پیگیری","💰 کیف پول من"],["📞 تماس با ما","📝 ثبت شکایت مشتریان"]]
+  if B.admin(uid): rows.append(["🛠 پنل مدیریت بات"])
+  rows += [["👥 پنل همکاران"],[B.CANCEL],["🔄 شروع مجدد"]]
+  return B.kb(rows)
+ def partner_kb(lang='fa'):
+  return B.kb([["➕ شارژ حساب","🏛 حل مشکل سامانه دولت من"],["📱 خدمات سیم کارت","🔎 پیگیری کد"],["📋 سوابق","💰 موجودی"],["✉️ تیکت به مدیریت"],["🚪 خروج از پنل"],[B.CANCEL]])
+ B.main=main; B.partner_kb=partner_kb
  app.add_handler(CallbackQueryHandler(lambda u,c: click(u,c,B),pattern=r'^ik:'),group=-4000)
  B._telegram_absolute_fix=True
  log.info('Absolute Telegram callback/navigation fix installed')
