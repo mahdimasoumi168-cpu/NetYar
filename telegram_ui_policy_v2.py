@@ -45,15 +45,13 @@ def inline(rows,B,uid=None):
 
 
 def restart_keyboard():
-    # The ONLY persistent keyboard below the chat.
     return ReplyKeyboardMarkup([[RESTART]],resize_keyboard=True,one_time_keyboard=False,is_persistent=True)
 
 
 def _main_rows(B,uid):
     st=B.S.get(uid,{})
-    rows=[]
     if st.get("status")=="iranian":
-        rows=[["🎫 پیگیری","👥 پنل همکاران"],["💰 کیف پول من","📞 تماس با ما"],["📝 ثبت شکایت مشتریان"]]
+        rows=[["🎫 پیگیری","💰 کیف پول من"],["📞 تماس با ما","📝 ثبت شکایت مشتریان"]]
     else:
         rows=[["🪪 فیدای غیر حضوری","🖨 خدمات چاپ"],["🪪 حل مشکل ورود اتباع دولت من","🎫 کد رهگیری تمدید کارت‌ها"],["📱 خدمات سیم کارت","📝 آزمون غربالگری"],["🎫 پیگیری","💰 کیف پول من"],["📞 تماس با ما","📝 ثبت شکایت مشتریان"]]
     # Partner panel is shown only to an actually authorized partner/admin.
@@ -69,8 +67,7 @@ def _main_rows(B,uid):
                     st["partner_active"]=1
         except Exception:
             log.exception("partner resolution failed")
-    if partner_ok:
-        rows.append(["👥 پنل همکاران"])
+    if partner_ok:rows.append(["👥 پنل همکاران"])
     if B.admin(uid):rows.append(["🛠 پنل مدیریت بات"])
     return rows
 
