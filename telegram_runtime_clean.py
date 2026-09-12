@@ -23,7 +23,6 @@ async def _start(update, context):
     try:B.db.user("telegram",uid,user.username,user.full_name)
     except Exception:log.exception("user persistence")
     old=B.S.get(uid,{})
-    # /start resets only transient flow state; durable identity/settings remain.
     B.S[uid]={k:old[k] for k in ("partner_id","partner_active","admin","lang","status","phone") if k in old}
     await update.message.reply_text(
         "سلام و خوش آمدید 🌷\nلطفاً زبان را انتخاب کنید:",
@@ -32,14 +31,11 @@ async def _start(update, context):
 
 
 def _install_features(app):
-    # One startup path only. Feature modules own business logic; this file owns
-    # the Application and handler installation order.
     B.start=_start
     import telegram_business_features as F; F.install(app,B)
     import telegram_ui_policy_v2 as UI; UI.install(app,B)
+    import telegram_status_ui as SU; SU.install(app,B)
 
-    # Canonical public tracking and SIM-card flows are installed before the
-    # generic text/media handlers so their state machines always win.
     try:
         import telegram_public_tracking as PT; PT.install(app,B)
     except Exception: log.exception("public tracking unavailable")
