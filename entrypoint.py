@@ -14,11 +14,15 @@ import server
 import production_stability
 production_stability.install()
 
+# Normalize Rubika sender/chat identities and make first contact reliable.
+import rubika_stability_fix
+rubika_stability_fix.install()
+
 # Restore the Iranian subscriber route after the generic server Rubika patch.
 import rubika_iranian_restore
 rubika_iranian_restore.install()
 
-# Replace the old blocking polling loop with a short-timeout, concurrent loop.
+# Use one short-timeout, concurrent Rubika polling loop.
 import rubika_reliability_fix
 rubika_reliability_fix.install()
 
