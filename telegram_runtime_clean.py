@@ -54,6 +54,9 @@ def _install_features(app):
         import telegram_admin_entry as AE; AE.install(app,B)
     except Exception: log.exception("admin entry unavailable")
     import telegram_government_flow_v2 as G; G.install(app,B)
+    try:
+        import telegram_government_flow_runtime_fix as GF; GF.install(app,B)
+    except Exception: log.exception("government flow runtime fix unavailable")
     import partner_pricing as P; P.install_telegram(app,B)
     import telegram_service_pricing as SP; SP.install(app,B)
     import telegram_night_shift_v2 as N; N.install(app,B)
