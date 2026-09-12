@@ -14,11 +14,13 @@ import server
 import production_stability
 production_stability.install()
 
-# Must be installed after server exists: the canonical server reapplies its
-# generic Rubika patch on every update, so this guard restores the Iranian
-# subscriber routing afterward.
+# Restore the Iranian subscriber route after the generic server Rubika patch.
 import rubika_iranian_restore
 rubika_iranian_restore.install()
+
+# Replace the old blocking polling loop with a short-timeout, concurrent loop.
+import rubika_reliability_fix
+rubika_reliability_fix.install()
 
 
 def main():
