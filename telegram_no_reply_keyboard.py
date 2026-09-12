@@ -7,7 +7,7 @@ from collections import OrderedDict
 import threading
 import logging
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove, ReplyKeyboardMarkup
-from telegram.ext import CallbackQueryHandler, MessageHandler, CommandHandler, ApplicationHandlerStop, filters
+from telegram.ext import MessageHandler, CommandHandler, ApplicationHandlerStop, filters
 
 log = logging.getLogger("netyar.telegram.inline_only")
 _ACTIONS = OrderedDict()
@@ -66,7 +66,6 @@ def reassert(B):
     B.kb = _inline_kb
     B.ReplyKeyboardMarkup = _InlineOnlyReplyKeyboard
     B.restart_keyboard = restart_keyboard
-    # bot.kb() resolves ReplyKeyboardMarkup from bot module globals at call time.
     try:
         B.__dict__["ReplyKeyboardMarkup"] = _InlineOnlyReplyKeyboard
     except Exception:
@@ -95,59 +94,6 @@ async def _remove_on_message(update, context):
     if getattr(msg, "text", None) == "🔄 شروع مجدد":
         return
     await _remove_legacy_keyboard(msg)
-
-
-class _CallbackMessageProxy:
-    """Message proxy that preserves real Telegram message methods while overriding text."""
-    def __init__(self, message, text):
-        self._message = message
-        self.text = text
-
-    def __getattr__(self, name):
-        return getattr(self._message, name)
-
-
-class _CallbackUpdateProxy:
-    def __init__(self, update, q, label):
-        message = _CallbackMessageProxy(q.message, label)
-        self.update_id = getattr(update, "update_id", None)
-        self.message = message
-        self.effective_message = message
-        self.effective_user = q.from_user
-        self.effective_chat = getattr(q.message, "chat", None)
-        self.callback_query = q
-
-
-def _button_label_from_message(q):
-    try:
-        markup = getattr(q.message, "reply_markup", None)
-        for row in getattr(markup, "inline_keyboard", []) or []:
-            for button in row:
-                if getattr(button, "callback_data", None) == str(q.data or ""):
-                    return _clean_label(getattr(button, "text", "") or "")
-    except Exception:
-        log.exception("inline button label recovery failed")
-    return ""
-
-
-async def _inline_callback(update, context, B):
-    q = update.callback_query
-    key = str(q.data or "")
-    label = _ACTIONS.get(key) or _button_label_from_message(q)
-    if not label:
-        await q.answer("این گزینه دیگر معتبر نیست؛ لطفاً از منوی فعلی استفاده کنید.")
-        return
-    label = _clean_label(label)
-    await q.answer()
-    proxy = _CallbackUpdateProxy(update, q, label)
-    try:
-        await B.router(proxy, context)
-    except Exception:
-        log.exception("Inline button routing failed: %s", label)
-        try:
-            await q.message.reply_text("❌ اجرای این گزینه با خطا مواجه شد. لطفاً دوباره همین گزینه را بزنید.")
-        except Exception:
-            pass
 
 
 def install(app, B):
@@ -185,7 +131,8 @@ def install(app, B):
     app.add_handler(CommandHandler("start", _restart), group=-301)
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex(r"^🔄 شروع مجدد$"), _restart), group=-300)
     app.add_handler(MessageHandler(filters.ALL, _remove_on_message), group=-200)
-    app.add_handler(CallbackQueryHandler(lambda u, c: _inline_callback(u, c, B), pattern=r"^ik:"), group=-10000)
 
+    # Inline callbacks are owned exclusively by telegram_universal_button_guard.
+    # The old dispatcher here caused the same click to be routed twice.
     B._netyar_no_reply_keyboard = True
     reassert(B)
