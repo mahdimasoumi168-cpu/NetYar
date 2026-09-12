@@ -1,7 +1,7 @@
 """Canonical Telegram UI and callback routing.
 
 Only one ReplyKeyboard button is kept below the chat: ``🔄 شروع مجدد``.
-All normal options are inline buttons. Callback tokens are persisted in SQLite.
+All normal options are inline buttons attached to messages.
 """
 from contextvars import ContextVar
 from types import SimpleNamespace
@@ -45,13 +45,32 @@ def inline(rows,B,uid=None):
 
 
 def restart_keyboard():
+    # The ONLY persistent keyboard below the chat.
     return ReplyKeyboardMarkup([[RESTART]],resize_keyboard=True,one_time_keyboard=False,is_persistent=True)
 
 
 def _main_rows(B,uid):
-    if B.S.get(uid,{}).get("status")=="iranian":
-        return [["🎫 پیگیری","👥 پنل همکاران"],["💰 کیف پول من","📞 تماس با ما"],["📝 ثبت شکایت مشتریان"]]
-    rows=[["🪪 فیدای غیر حضوری","🖨 خدمات چاپ"],["🪪 حل مشکل ورود اتباع دولت من","🎫 کد رهگیری تمدید کارت‌ها"],["📱 خدمات سیم کارت","📝 آزمون غربالگری"],["🎫 پیگیری","💰 کیف پول من"],["📞 تماس با ما","📝 ثبت شکایت مشتریان"],["👥 پنل همکاران"]]
+    st=B.S.get(uid,{})
+    rows=[]
+    if st.get("status")=="iranian":
+        rows=[["🎫 پیگیری","👥 پنل همکاران"],["💰 کیف پول من","📞 تماس با ما"],["📝 ثبت شکایت مشتریان"]]
+    else:
+        rows=[["🪪 فیدای غیر حضوری","🖨 خدمات چاپ"],["🪪 حل مشکل ورود اتباع دولت من","🎫 کد رهگیری تمدید کارت‌ها"],["📱 خدمات سیم کارت","📝 آزمون غربالگری"],["🎫 پیگیری","💰 کیف پول من"],["📞 تماس با ما","📝 ثبت شکایت مشتریان"]]
+    # Partner panel is shown only to an actually authorized partner/admin.
+    partner_ok=bool(st.get("partner_id") and st.get("partner_active",True)) or bool(B.admin(uid))
+    if not partner_ok:
+        try:
+            phone=str(st.get("phone") or "").strip()
+            if phone:
+                row=B.db.conn.execute("SELECT id FROM partners WHERE phone=? AND active=1",(phone,)).fetchone()
+                partner_ok=bool(row)
+                if partner_ok:
+                    st["partner_id"]=row["id"]
+                    st["partner_active"]=1
+        except Exception:
+            log.exception("partner resolution failed")
+    if partner_ok:
+        rows.append(["👥 پنل همکاران"])
     if B.admin(uid):rows.append(["🛠 پنل مدیریت بات"])
     return rows
 
