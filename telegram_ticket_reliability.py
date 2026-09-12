@@ -4,7 +4,7 @@ Text and media are all optional: a ticket participant can send any supported
 message type without being forced to attach a photo or any other file.
 """
 import logging
-from telegram.ext import MessageHandler, filters
+from telegram.ext import ApplicationHandlerStop, MessageHandler, filters
 
 log = logging.getLogger("netyar.telegram.ticket_reliability")
 
@@ -65,37 +65,51 @@ async def _media_or_text(update, context, B):
             text = f"📨 پیام همکار\n👤 {p['name']}\n📱 {p['phone']}\n🆔 شناسه همکار: {pid}\n\n{caption or 'پیام بدون متن'}"
             for aid in B.ADM:
                 await _send(context.bot, int(aid), message, text, _button(pid))
-            # Keep ticket mode active: every next text/photo/video/voice is accepted.
-            return await message.reply_text("✅ پیام شما برای مدیریت ارسال شد.\nهر تعداد پیام، متن، عکس، ویدیو یا ویس خواستید می‌توانید ارسال کنید.")
+            await message.reply_text("✅ پیام شما برای مدیریت ارسال شد.\nهر تعداد پیام، متن، عکس، ویدیو یا ویس خواستید می‌توانید ارسال کنید.")
+            raise ApplicationHandlerStop
 
         if mode == "ticket_admin_reply" and B.admin(user.id):
             pid = st.get("ticket_partner_id")
             chat_id = _chat(B, pid)
             if not chat_id:
-                return await message.reply_text("❌ ارتباط با همکار پیدا نشد. همکار باید یک‌بار وارد پنل شود.")
+                await message.reply_text("❌ ارتباط با همکار پیدا نشد. همکار باید یک‌بار وارد پنل شود.")
+                raise ApplicationHandlerStop
             text = f"👔 پیام مدیریت\n\n{caption or 'پیام بدون متن'}"
             await _send(context.bot, chat_id, message, text, _button(pid))
             B.db.set_setting(f"ticket_admin_{pid}", str(user.id))
-            return await message.reply_text("✅ پیام برای همکار ارسال شد.\nمی‌توانید پیام بعدی را هم بفرستید.")
+            await message.reply_text("✅ پیام برای همکار ارسال شد.\nمی‌توانید پیام بعدی را هم بفرستید.")
+            raise ApplicationHandlerStop
 
         if mode == "ticket_partner_reply":
             pid = st.get("partner_id")
             admin_id = B.db.setting(f"ticket_admin_{pid}", "").strip() or str(next(iter(B.ADM), ""))
             if not admin_id:
-                return await message.reply_text("❌ مدیریت برای پاسخ در دسترس نیست.")
+                await message.reply_text("❌ مدیریت برای پاسخ در دسترس نیست.")
+                raise ApplicationHandlerStop
             p = B.db.conn.execute("SELECT name,phone FROM partners WHERE id=?", (pid,)).fetchone()
             text = f"📨 پیام همکار\n👤 {p['name'] if p else '-'}\n📱 {p['phone'] if p else '-'}\n\n{caption or 'پیام بدون متن'}"
             await _send(context.bot, int(admin_id), message, text, _button(pid))
-            return await message.reply_text("✅ پیام شما برای مدیریت ارسال شد.\nمی‌توانید پیام بعدی را هم بفرستید.")
+            await message.reply_text("✅ پیام شما برای مدیریت ارسال شد.\nمی‌توانید پیام بعدی را هم بفرستید.")
+            raise ApplicationHandlerStop
+    except ApplicationHandlerStop:
+        raise
     except Exception:
         log.exception("ticket free-form forwarding failed")
         try:
             await message.reply_text("❌ ارسال پیام انجام نشد. لطفاً دوباره تلاش کنید.")
         except Exception:
             pass
+        raise ApplicationHandlerStop
 
 
 def install(app, B):
-    # Runs before the generic text/media handlers so ticket mode consumes the
-    # message without making any attachment mandatory.
-    app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, lambda u, c: _media_or_text(u, c, B)), group=-92)
+    # This is the single canonical ticket message/media handler. Stopping
+    # propagation prevents legacy generic panel/media handlers from consuming
+    # the same message a second time.
+    app.add_handler(
+        MessageHandler(
+            filters.ALL & ~filters.COMMAND,
+            lambda u, c: _media_or_text(u, c, B),
+        ),
+        group=-92,
+    )
