@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse
 
 log = logging.getLogger("netyar.variza")
 _REGISTERED = False
+VARIZA_AMOUNT_TOLERANCE = 5000
 
 
 def _register():
@@ -52,7 +53,7 @@ def _register():
             return JSONResponse({"ok": False, "error": "request_not_found"}, status_code=404)
         rid = int(row["id"])
         expected_amount = int(row["amount"] or 0)
-        if amount != expected_amount:
+        if abs(amount - expected_amount) > VARIZA_AMOUNT_TOLERANCE:
             log.warning("Variza amount mismatch request=%s expected=%s got=%s", rid, expected_amount, amount)
             return JSONResponse({"ok": False, "error": "amount_mismatch"}, status_code=400)
 
@@ -68,7 +69,7 @@ def _register():
         B.db.conn.commit()
 
         tracking = str(row["tracking_code"] or "-")
-        message = f"✅ پرداخت واریزا تأیید شد\n🎫 کد پیگیری: {tracking}\n💰 مبلغ: {amount:,} تومان\n💳 روش: واریزا\n\nاکنون درخواست قابل انجام است."
+        message = f"✅ پرداخت واریزا تأیید شد\n🎫 کد پیگیری: {tracking}\n💰 مبلغ ثبت‌شده: {amount:,} تومان\n💳 روش: واریزا\n\nاکنون درخواست قابل انجام است."
         try:
             import server
             if server.telegram_app:
@@ -80,7 +81,7 @@ def _register():
                 user = B.db.conn.execute("SELECT platform,external_id FROM users WHERE id=?", (int(row["user_id"]),)).fetchone()
                 if user and user["platform"] == "telegram":
                     try:
-                        await server.telegram_app.bot.send_message(int(user["external_id"]), f"✅ پرداخت شما با موفقیت تأیید شد.\n🎫 کد پیگیری: {tracking}\n💰 مبلغ: {amount:,} تومان\n\nدرخواست شما اکنون در حال انجام است.")
+                        await server.telegram_app.bot.send_message(int(user["external_id"]), f"✅ پرداخت شما با موفقیت تأیید شد.\n🎫 کد پیگیری: {tracking}\n💰 مبلغ ثبت‌شده: {amount:,} تومان\n\nدرخواست شما اکنون در حال انجام است.")
                     except Exception:
                         pass
         except Exception:
