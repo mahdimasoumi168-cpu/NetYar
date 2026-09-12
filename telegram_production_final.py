@@ -10,33 +10,50 @@ log = logging.getLogger("netyar.telegram_final")
 
 
 async def _authoritative_start(update, context):
-    """Minimal, independent /start entry point for production."""
+    """Send the exact first screen: language selection only."""
     import bot as B
     try:
-        log.info(
-            "Telegram /start received: user=%s chat=%s",
-            getattr(getattr(update, "effective_user", None), "id", None),
-            getattr(getattr(update, "effective_chat", None), "id", None),
-        )
-        await B.start(update, context)
-    except Exception:
-        log.exception("Telegram /start handler failed")
+        user = getattr(update, "effective_user", None)
         msg = getattr(update, "message", None)
-        if msg is not None:
+        if msg is None:
+            return
+
+        uid = getattr(user, "id", None)
+        if uid is not None:
             try:
-                from telegram import InlineKeyboardMarkup, InlineKeyboardButton
-                await msg.reply_text(
-                    "سلام و خوش آمدید 🌷\nلطفاً زبان را انتخاب کنید:",
-                    reply_markup=InlineKeyboardMarkup([
-                        [
-                            InlineKeyboardButton("🇮🇷 فارسی", callback_data="lang:fa"),
-                            InlineKeyboardButton("🇬🇧 English", callback_data="lang:en"),
-                            InlineKeyboardButton("🇸🇦 العربية", callback_data="lang:ar"),
-                        ]
-                    ]),
+                B.db.user(
+                    "telegram",
+                    uid,
+                    getattr(user, "username", None),
+                    getattr(user, "full_name", None),
                 )
             except Exception:
-                log.exception("Telegram /start fallback reply failed")
+                log.exception("Telegram user initialization failed")
+            try:
+                B.S[uid] = {}
+            except Exception:
+                pass
+
+        log.info(
+            "Telegram /start received: user=%s chat=%s",
+            uid,
+            getattr(getattr(update, "effective_chat", None), "id", None),
+        )
+
+        from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+        await msg.reply_text(
+            "سلام و خوش آمدید 🌷\n"
+            "لطفاً زبان را انتخاب کنید / Choose your language / اختر اللغة:",
+            reply_markup=InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("🇮🇷 فارسی", callback_data="lang:fa"),
+                    InlineKeyboardButton("🇬🇧 English", callback_data="lang:en"),
+                    InlineKeyboardButton("🇸🇦 العربية", callback_data="lang:ar"),
+                ]
+            ]),
+        )
+    except Exception:
+        log.exception("Telegram /start handler failed")
 
 
 async def _telegram_update_diagnostic(update, context):
