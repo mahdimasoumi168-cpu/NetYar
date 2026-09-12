@@ -1,8 +1,8 @@
 """Rubika production reliability layer.
 
-Runs the synchronous Rubika business handler off the asyncio event loop and
-keeps exactly one short-timeout polling task active. This prevents a slow
-Rubika API/database operation for one user from delaying every other user.
+Runs the synchronous Rubika business handler off the asyncio event loop,
+keeps exactly one polling task, and serializes each user's updates so state
+transitions cannot race each other.
 """
 import asyncio
 import logging
@@ -33,30 +33,30 @@ def _fast_call_factory(rb):
 
 
 def _run_sync(server, update, rb):
-    # Keep exactly the same button normalization used by the server endpoint,
-    # but execute the synchronous handler outside the asyncio event loop.
     normalized = server._normalize_rubika_button(update, rb)
     rb.process(normalized)
 
 
-async def _process_one(server, rb, update):
+async def _process_one(server, rb, update, locks):
     uid = None
     try:
         uid = server._rubika_user(update)
-        before = 0
-        try:
-            import rubika_polling_fallback as pf
-            before = pf._rubika_request_snapshot(rb, uid)
-        except Exception:
-            pass
+        lock = locks.setdefault(str(uid or "unknown"), asyncio.Lock())
+        async with lock:
+            before = 0
+            try:
+                import rubika_polling_fallback as pf
+                before = pf._rubika_request_snapshot(rb, uid)
+            except Exception:
+                pass
 
-        await asyncio.to_thread(_run_sync, server, update, rb)
+            await asyncio.to_thread(_run_sync, server, update, rb)
 
-        try:
-            import rubika_polling_fallback as pf
-            await pf._notify_telegram_admins(server, rb, uid, before)
-        except Exception:
-            log.exception("Rubika admin notification failed")
+            try:
+                import rubika_polling_fallback as pf
+                await pf._notify_telegram_admins(server, rb, uid, before)
+            except Exception:
+                log.exception("Rubika admin notification failed")
     except asyncio.CancelledError:
         raise
     except Exception:
@@ -66,11 +66,12 @@ async def _process_one(server, rb, update):
 async def _fast_poll(server, rb):
     offset_id = None
     sem = asyncio.Semaphore(12)
+    locks = {}
     log.warning("Rubika single fast polling started")
 
     async def limited(update):
         async with sem:
-            await _process_one(server, rb, update)
+            await _process_one(server, rb, update, locks)
 
     while True:
         try:
