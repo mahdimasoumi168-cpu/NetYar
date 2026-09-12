@@ -29,11 +29,12 @@ import final_requirements_patch
 import final_ux_hardening
 import final_navigation_language_stability
 import cross_platform_stability_final
+import telegram_global_stability
 import final_terminal_navigation_guard
 
 
 def build():
-    """Build Telegram and install the focused production extensions."""
+    """Build Telegram and install extensions in a deterministic order."""
     final_requirements_patch.install()
     final_ux_hardening.install()
     final_navigation_language_stability.install()
@@ -62,13 +63,13 @@ def build():
     telegram_partner_code_reliable.install(app, B)
     telegram_request_details_fix.install(app, B)
     telegram_request_resend_fa.install(app, B)
-
     telegram_residence_booklet_guard.install(app, B)
 
-    # Re-apply admin/partner communication after legacy menu patches.
+    # Re-apply cross-cutting UI/ticket patches after legacy menu modules.
     telegram_admin_partner_chat.install(app, B)
+    telegram_global_stability.install(B)
 
-    # Absolute final terminal layer: admin panel, Iranian -> partner panel,
-    # partner ticket and ticket text must be consumed before legacy routers.
+    # Absolute terminal layer. PTB evaluates lower handler groups first and
+    # ApplicationHandlerStop prevents a handled update from falling through.
     final_terminal_navigation_guard.install(app, B)
     return app
