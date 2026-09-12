@@ -5,9 +5,6 @@ import sys
 import telegram_runtime_clean
 sys.modules["telegram_runtime"] = telegram_runtime_clean
 
-import rubika_polling_fallback
-rubika_polling_fallback.install()
-
 import uvicorn
 import server
 
@@ -18,11 +15,9 @@ production_stability.install()
 import rubika_stability_fix
 rubika_stability_fix.install()
 
-# Restore the Iranian subscriber route after the generic server Rubika patch.
-import rubika_iranian_restore
-rubika_iranian_restore.install()
-
-# Use one short-timeout, concurrent Rubika polling loop.
+# Keep a single Rubika polling implementation. The reliability layer also
+# reuses the fallback module's dedupe/notification helpers without installing
+# a second initialize wrapper or a second polling task.
 import rubika_reliability_fix
 rubika_reliability_fix.install()
 
