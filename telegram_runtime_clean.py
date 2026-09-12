@@ -29,16 +29,22 @@ import final_requirements_patch
 import final_ux_hardening
 import final_navigation_language_stability
 import cross_platform_stability_final
+import admin_control_v4
 import telegram_global_stability
 import final_terminal_navigation_guard
 
 
 def build():
-    """Build Telegram and install extensions in a deterministic order."""
+    """Build Telegram with a deterministic, database-driven control plane."""
     final_requirements_patch.install()
     final_ux_hardening.install()
     final_navigation_language_stability.install()
     cross_platform_stability_final.install()
+
+    # Long-term control center: service state, prices, texts, support and
+    # admin roles live in SQLite and can be changed from the admin panel.
+    # Install before B.build() so captured handlers see the final admin_text.
+    admin_control_v4.install()
 
     app = B.build()
     telegram_ticket_reliability.install(app, B)
@@ -69,7 +75,7 @@ def build():
     telegram_admin_partner_chat.install(app, B)
     telegram_global_stability.install(B)
 
-    # Absolute terminal layer. PTB evaluates lower handler groups first and
-    # ApplicationHandlerStop prevents a handled update from falling through.
+    # Absolute terminal layer. It consumes admin/partner/ticket labels before
+    # any legacy router can misinterpret them.
     final_terminal_navigation_guard.install(app, B)
     return app
