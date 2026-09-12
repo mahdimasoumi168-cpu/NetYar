@@ -1,26 +1,24 @@
 """Production entrypoint shared by Railway and local execution."""
-
 import os
 import sys
 
 import telegram_runtime_clean
-
-# server.py imports the runtime by the historical module name. Point that
-# import at the clean canonical runtime before server is loaded.
 sys.modules["telegram_runtime"] = telegram_runtime_clean
 
-# Install only the isolated Rubika fallback. Do not load the old runtime patch
-# chain: it contains legacy monkey-patches that can override Telegram routing.
 import rubika_polling_fallback
 rubika_polling_fallback.install()
 
 import uvicorn
 import server
 
-# Install small, idempotent production guards after server is loaded so they
-# wrap the canonical routing functions used by both platforms.
 import production_stability
 production_stability.install()
+
+# Must be installed after server exists: the canonical server reapplies its
+# generic Rubika patch on every update, so this guard restores the Iranian
+# subscriber routing afterward.
+import rubika_iranian_restore
+rubika_iranian_restore.install()
 
 
 def main():
