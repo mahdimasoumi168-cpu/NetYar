@@ -14,15 +14,18 @@ _telegram_workers=[]
 _RB_SEEN={}
 _RB_SEEN_TTL=30
 
+
 def public_url(path=""):
     base=(PUBLIC_BASE_URL or (f"https://{RAILWAY_PUBLIC_DOMAIN}" if RAILWAY_PUBLIC_DOMAIN else "")).rstrip("/")
     if not base: raise RuntimeError("Railway public domain is not set")
     return base+path
 
+
 def _rb_key(update):
     try: raw=json.dumps(update,ensure_ascii=False,sort_keys=True,separators=(",",":"))
     except Exception: raw=repr(update)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
 
 def _rb_seen(key):
     now=time.time()
@@ -32,8 +35,12 @@ def _rb_seen(key):
     _RB_SEEN[key]=now
     return False
 
+
 @api.get("/health")
-async def health(): return {"ok":True,"service":"NetYar","telegram":telegram_ready,"rubika":rubika_ready}
+async def health():
+    updater=getattr(telegram_app,"updater",None) if telegram_app else None
+    return {"ok":True,"service":"NetYar","telegram":bool(telegram_ready),"telegram_polling":bool(getattr(updater,"running",False)),"rubika":rubika_ready}
+
 
 @api.post("/telegram/update")
 async def telegram_update(request:Request):
@@ -50,9 +57,11 @@ async def telegram_update(request:Request):
         log.exception("Telegram webhook update failed")
         return {"ok":False,"error":"telegram_update_failed"}
 
+
 async def _process_telegram_update(update):
     try: await telegram_app.process_update(update)
     except Exception: log.exception("Telegram background update processing failed")
+
 
 async def _telegram_worker(n):
     while True:
@@ -63,15 +72,18 @@ async def _telegram_worker(n):
         except asyncio.CancelledError: return
         except Exception: log.exception("Telegram worker %s failed",n)
 
+
 def _rubika_inner(update):
     if isinstance(update,dict) and isinstance(update.get("update"),dict): return update["update"]
     return update
+
 
 def _rubika_message(update):
     u=_rubika_inner(update)
     if not isinstance(u,dict): return {}
     m=u.get("message") or u.get("new_message") or u
     return m if isinstance(m,dict) else {}
+
 
 def _rubika_text(update):
     m=_rubika_message(update)
@@ -85,13 +97,16 @@ def _rubika_text(update):
         except Exception: return ""
     return ""
 
+
 def _rubika_chat(update):
     u=_rubika_inner(update); m=_rubika_message(u)
     return str((u.get("chat_id") if isinstance(u,dict) else "") or m.get("chat_id") or m.get("chat_key") or "")
 
+
 def _rubika_user(update):
     u=_rubika_inner(update); m=_rubika_message(u); s=m.get("sender") or {}
     return str(s.get("user_id") or m.get("sender_id") or m.get("user_id") or _rubika_chat(u))
+
 
 def _safe_rubika_rows(rows):
     out=[]
@@ -104,11 +119,13 @@ def _safe_rubika_rows(rows):
         if buttons: out.append({"buttons":buttons})
     return out
 
+
 def _split_main_rows(rb,uid):
     l=rb.STATE.get(str(uid),{}).get("lang","fa")
     if l=="en": return [[("1","🪪 FIDA non-in-person"),("2","🖨 Printing")],[("3","🏛 Government access issue"),("4","🎫 Tracking")],[("5","📱 SIM services"),("6","📝 Screening test")],[("7","💰 My wallet"),("8","👥 Partner panel")],[("9","📞 Contact us"),("0","❌ Cancel")]]
     if l=="ar": return [[("1","🪪 خدمة فيدا"),("2","🖨 الطباعة")],[("3","🏛 مشكلة خدمات الحكومة"),("4","🎫 متابعة")],[("5","📱 خدمات الشريحة"),("6","📝 اختبار الفحص")],[("7","💰 محفظتي"),("8","👥 لوحة الشركاء")],[("9","📞 اتصل بنا"),("0","❌ إلغاء")]]
     return [[("1","🪪 فیدای غیر حضوری"),("2","🖨 خدمات چاپ")],[("3","🏛 حل مشکل ورود اتباع دولت من"),("4","🎫 پیگیری")],[("5","📱 خدمات سیم کارت"),("6","📝 آزمون غربالگری")],[("7","💰 کیف پول من"),("8","👥 پنل همکاران")],[("9","📞 تماس با ما"),("0",rb.CANCEL)]]
+
 
 def _patch_rubika(rb):
     rb.rows=_safe_rubika_rows
@@ -137,6 +154,7 @@ def _patch_rubika(rb):
             return original_handle(uid,chat,x,u)
         rb.handle=handle_fixed; rb._netyar_handle_fixed=True
 
+
 def _normalize_rubika_button(update,rb):
     raw=_rubika_text(update)
     if raw not in {str(i) for i in range(10)}: return update
@@ -149,6 +167,7 @@ def _normalize_rubika_button(update,rb):
     if isinstance(m,dict): m["text"]=label
     return update
 
+
 async def _run_rubika(update,rb):
     try:
         normalized=_normalize_rubika_button(update,rb)
@@ -156,11 +175,14 @@ async def _run_rubika(update,rb):
         log.info("Rubika update processed: user=%s",_rubika_user(update))
     except Exception: log.exception("Rubika background update processing failed")
 
+
 @api.get("/rubika/update")
 async def rubika_update_probe(): return {"ok":True,"service":"NetYar","provider":"rubika"}
 
+
 @api.head("/rubika/update")
 async def rubika_update_head(): return None
+
 
 @api.post("/rubika/update")
 async def rubika_update(request:Request):
@@ -175,8 +197,7 @@ async def rubika_update(request:Request):
         return {"ok":True}
     try:
         update=_rubika_inner(body)
-        if not isinstance(update,dict) or not update:
-            return {"ok":True}
+        if not isinstance(update,dict) or not update: return {"ok":True}
         log.info("Rubika webhook received: type=%s",update.get("type","unknown"))
         key=_rb_key(update)
         if _rb_seen(key): return {"ok":True,"duplicate":True}
@@ -195,33 +216,34 @@ async def rubika_update(request:Request):
         log.exception("Rubika webhook update failed")
         return {"ok":False,"error":"rubika_update_failed"}
 
+
 @api.get("/rubika/receiveUpdate")
 async def rubika_receive_update_probe(): return {"ok":True,"service":"NetYar","provider":"rubika"}
+
 
 @api.head("/rubika/receiveUpdate")
 async def rubika_receive_update_head(): return None
 
+
 @api.post("/rubika/receiveUpdate")
-async def rubika_receive_update(request:Request):
-    return await rubika_update(request)
+async def rubika_receive_update(request:Request): return await rubika_update(request)
+
 
 async def _integration_watchdog():
+    # Legacy compatibility only. The entrypoint cleanup module cancels this
+    # task; it must never start/stop polling or create another Telegram owner.
     while True:
         try:
-            await asyncio.sleep(90)
-            if telegram_app is not None:
-                try:
-                    info=await telegram_app.bot.get_webhook_info()
-                    if (info.url or "").strip():
-                        log.warning("Stale Telegram webhook detected; removing it")
-                        await telegram_app.bot.delete_webhook(drop_pending_updates=False)
-                except Exception:
-                    log.exception("Telegram polling watchdog failed")
-        except asyncio.CancelledError: return
-        except Exception: log.exception("Integration watchdog failed")
+            await asyncio.sleep(300)
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            log.exception("Legacy integration watchdog failed")
+
 
 async def _initialize_integrations():
     global telegram_app,telegram_ready,rubika_ready
+    telegram_ready=False
     try:
         import telegram_runtime as tg
         telegram_app=tg.build()
@@ -230,12 +252,16 @@ async def _initialize_integrations():
         await telegram_app.bot.delete_webhook(drop_pending_updates=False)
         updater=getattr(telegram_app,"updater",None)
         if updater is None: raise RuntimeError("python-telegram-bot updater is unavailable")
-        await updater.start_polling(allowed_updates=None)
+        if not getattr(updater,"running",False):
+            await updater.start_polling(allowed_updates=None,drop_pending_updates=False)
+        if not getattr(updater,"running",False):
+            raise RuntimeError("Telegram polling did not enter running state")
         telegram_ready=True
-        log.info("Telegram long polling started successfully")
+        log.info("Telegram long polling started successfully; updater.running=%s",getattr(updater,"running",False))
     except Exception:
         log.exception("Telegram startup failed")
         telegram_ready=False
+
     try:
         use_webhook=os.getenv("RUBIKA_USE_WEBHOOK","0").strip().lower() in {"1","true","yes","on"}
         if use_webhook:
@@ -251,14 +277,18 @@ async def _initialize_integrations():
         log.exception("Rubika startup failed; Telegram remains active")
         rubika_ready=False
 
+
 @api.on_event("startup")
 async def startup():
     global _telegram_workers
     init_db()
+    # These workers are retained only for the explicit /telegram/update
+    # webhook endpoint. Normal Telegram operation is long polling and does not
+    # feed this queue, so they cannot create a second Telegram consumer.
     for i in range(2):
         task=asyncio.create_task(_telegram_worker(i)); _telegram_workers.append(task)
-    asyncio.create_task(_integration_watchdog())
     await _initialize_integrations()
+
 
 @api.on_event("shutdown")
 async def shutdown():
