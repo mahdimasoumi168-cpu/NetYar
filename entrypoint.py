@@ -1,12 +1,15 @@
-"""Production entrypoint shared by Railway and local execution."""
+"""Production entrypoint shared by Railway and local execution.
+
+Use the canonical FastAPI server directly. The previous entrypoint loaded a
+large legacy monkey-patch chain before startup; that chain could overwrite
+Telegram handlers and button routing multiple times.
+"""
 
 import os
 
 import uvicorn
 
-from runtime_patches import install
-
-server = install()
+import server
 
 
 def main():
