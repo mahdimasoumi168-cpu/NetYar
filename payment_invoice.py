@@ -11,12 +11,15 @@ def _variza_enabled():
 
 
 def _public_return_url():
+    explicit = os.getenv("VARIZA_RETURN_URL", "").strip().rstrip("/")
+    if explicit:
+        return explicit
     base = os.getenv("PUBLIC_BASE_URL", "").strip().rstrip("/")
     if not base:
         domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "").strip()
         if domain:
             base = "https://" + domain
-    return (os.getenv("VARIZA_RETURN_URL", "").strip().rstrip("/") or base) + "/health" if (os.getenv("VARIZA_RETURN_URL", "").strip() or base) else ""
+    return base + "/health" if base else ""
 
 
 def _existing_variza_url(B, tracking_code):
