@@ -12,11 +12,10 @@ log = logging.getLogger("netyar.telegram.admin_partner_chat")
 BUTTON = "💬 ارتباط با همکار"
 
 
-def _admin_keyboard_with_contact(original, B):
-    rows = [list(row) for row in original(B).inline_keyboard]
-    # Keep this option visible in the main management panel without creating
-    # a ReplyKeyboard; B.kb is already normalized to inline UI by the project.
-    rows.insert(-1 if rows else 0, [InlineKeyboardButton(BUTTON, callback_data="adminpartner:list")])
+def _add_button(markup):
+    rows = [list(row) for row in markup.inline_keyboard]
+    if not any(any(getattr(btn, "text", "") == BUTTON for btn in row) for row in rows):
+        rows.insert(-1 if rows else 0, [InlineKeyboardButton(BUTTON, callback_data="adminpartner:list")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -64,21 +63,17 @@ async def _select_partner(update, B, pid):
             "از همکار بخواهید یک‌بار وارد پنل همکاران ربات شود تا ارتباط او ثبت شود."
         )
     try:
-        chat_id = int(chat_value)
+        int(chat_value)
     except Exception:
         return await q.message.reply_text("❌ شناسه چت همکار نامعتبر است.")
-
     st = B.S.setdefault(uid, {})
     st["mode"] = "ticket_admin_reply"
     st["ticket_partner_id"] = pid
     B.db.set_setting(f"ticket_admin_{pid}", str(uid))
-
     name = (p["name"] or "بدون نام").strip()
     phone = (p["phone"] or "-").strip()
     await q.message.reply_text(
-        f"💬 ارتباط با همکار فعال شد.\n\n"
-        f"👤 همکار: {name}\n"
-        f"📱 موبایل: {phone}\n\n"
+        f"💬 ارتباط با همکار فعال شد.\n\n👤 همکار: {name}\n📱 موبایل: {phone}\n\n"
         "حالا پیام خود را بفرستید.\n"
         "✍️ متن، 🖼 عکس، 🎥 ویدیو، 🎤 ویس یا 📎 فایل همگی قابل ارسال هستند.\n\n"
         "برای هر پیام جدید لازم نیست دوباره همکار را انتخاب کنید."
@@ -100,8 +95,7 @@ async def _callback(update, context, B):
         elif data == "adminpartner:close":
             await q.message.reply_text("✅ بخش ارتباط با همکار بسته شد.")
         elif data.startswith("adminpartner:select:"):
-            pid = int(data.rsplit(":", 1)[1])
-            await _select_partner(update, B, pid)
+            await _select_partner(update, B, int(data.rsplit(":", 1)[1]))
     except Exception:
         log.exception("admin partner chat callback failed")
         await q.message.reply_text("❌ انجام عملیات ارتباط با همکار ناموفق بود.")
@@ -113,25 +107,42 @@ async def _entry(update, context, B):
     user = update.effective_user
     if not message or not user or not B.admin(user.id):
         return
-    text = (message.text or "").strip()
-    if text != BUTTON:
+    if (message.text or "").strip() != BUTTON:
         return
-    # This catches the label too, so it remains compatible if another legacy
-    # layer turns the inline button back into a visible text callback.
-    await message.reply_text("💬 برای شروع ارتباط، همکار موردنظر را انتخاب کنید:", reply_markup=InlineKeyboardMarkup([
-        [InlineKeyboardButton("👥 انتخاب همکار", callback_data="adminpartner:list")],
-    ]))
+    await message.reply_text(
+        "💬 برای شروع ارتباط، همکار موردنظر را انتخاب کنید:",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("👥 انتخاب همکار", callback_data="adminpartner:list")]]),
+    )
     raise ApplicationHandlerStop
 
 
 def install(app, B):
-    import telegram_panels as panels
-    original = panels.admin_keyboard
-    if not getattr(original, "_admin_partner_chat_patched", False):
-        def patched_admin_keyboard(B_):
-            return _admin_keyboard_with_contact(original, B_)
-        patched_admin_keyboard._admin_partner_chat_patched = True
-        panels.admin_keyboard = patched_admin_keyboard
+    # Patch both possible admin-menu producers: the clean panel and the
+    # durable v5 admin controller. This is why the button remains visible in
+    # the actual management panel instead of only in a secondary keyboard.
+    try:
+        import telegram_panels as panels
+        original = panels.admin_keyboard
+        if not getattr(original, "_admin_partner_chat_patched", False):
+            def patched_admin_keyboard(B_):
+                return _add_button(original(B_))
+            patched_admin_keyboard._admin_partner_chat_patched = True
+            panels.admin_keyboard = patched_admin_keyboard
+    except Exception:
+        log.exception("could not patch telegram panel keyboard")
+
+    try:
+        import admin_control_v5 as A
+        original_menu = A.menu
+        if not getattr(original_menu, "_admin_partner_chat_patched", False):
+            def patched_menu(B_):
+                return _add_button(original_menu(B_))
+            patched_menu._admin_partner_chat_patched = True
+            A.menu = patched_menu
+            if hasattr(B, "amenu"):
+                B.amenu = lambda: patched_menu(B)
+    except Exception:
+        log.exception("could not patch v5 admin menu")
 
     app.add_handler(
         CallbackQueryHandler(lambda u, c: _callback(u, c, B), pattern=r"^adminpartner:"),
