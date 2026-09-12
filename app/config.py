@@ -1,6 +1,14 @@
 import os
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
+# Telegram token: accept the canonical BOT_TOKEN plus the legacy/explicit
+# TELEGRAM_BOT_TOKEN name so a Railway variable rename cannot silently
+# disconnect Telegram.
+BOT_TOKEN = (
+    os.getenv("BOT_TOKEN", "").strip()
+    or os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+    or os.getenv("TELEGRAM_TOKEN", "").strip()
+)
+
 ADMIN_IDS = {int(x.strip()) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip().isdigit()}
 DB_PATH = os.getenv("DB_PATH", "netyar.sqlite3")
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
