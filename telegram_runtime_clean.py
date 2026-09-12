@@ -54,8 +54,6 @@ def build():
     telegram_partner_price_adjustment.install(app, B)
     telegram_gov_documents_flow.install(app, B)
     telegram_ux_billing.install(app, B)
-    # Remove the legacy second startup message before the canonical restart
-    # keyboard layer wraps B.start.
     telegram_start_flow_fix.install(B)
     telegram_admin_plus.install(app, B)
     telegram_admin_entry.install(app, B)
@@ -76,4 +74,8 @@ def build():
     telegram_admin_partner_chat.install(app, B)
     telegram_global_stability.install(B)
     final_terminal_navigation_guard.install(app, B)
+
+    # Final UI assertion: legacy compatibility layers must not replace the
+    # canonical inline keyboard implementation after it has been installed.
+    telegram_no_reply_keyboard.reassert(B)
     return app
