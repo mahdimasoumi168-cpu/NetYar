@@ -18,6 +18,7 @@ import partner_balance_guard
 import partner_balance_reset
 import telegram_notification_guard
 import telegram_partner_code_reliable
+import telegram_request_details_fix
 
 
 def build():
@@ -39,5 +40,7 @@ def build():
     partner_balance_guard.install(B)
     partner_balance_reset.install(app, B)
     telegram_notification_guard.install(app, B)
+    partner_balance_reset.install(app, B)
     telegram_partner_code_reliable.install(app, B)
+    telegram_request_details_fix.install(app, B)
     return app
