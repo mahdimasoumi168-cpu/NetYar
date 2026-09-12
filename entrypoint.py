@@ -28,6 +28,10 @@ rubika_reliability_fix.install()
 import rubika_final_hardening
 rubika_final_hardening.install()
 
+# Continuous free-form partner/admin conversation on Rubika.
+import rubika_ticket_chat
+rubika_ticket_chat.install()
+
 # Never let the webhook path and polling path process the same Rubika update.
 import rubika_webhook_guard
 rubika_webhook_guard.install()
