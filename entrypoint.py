@@ -32,15 +32,18 @@ rubika_webhook_guard.install()
 import cross_platform_stability_final
 cross_platform_stability_final.install()
 
-# Exact-price mode is loaded after the legacy partner pricing module and after
-# the full admin panel, so the administrator can enter the final amount directly.
 import partner_price_exact
 import rubika_v2 as _rubika
 partner_price_exact.install_rubika(_rubika)
 
-# Last-mile navigation is deliberately loaded last.
 import rubika_navigation_stability
 rubika_navigation_stability.install()
+
+# Must be last: server._patch_rubika runs again when a webhook arrives.
+# This guard prevents that runtime patch from translating numeric button IDs
+# into labels and accidentally disabling partner/admin/foreign menu routing.
+import rubika_final_button_router
+rubika_final_button_router.install()
 
 
 def main():
