@@ -32,11 +32,21 @@ async def _start(update, context):
 
 
 def _install_features(app):
-    # The UI layer wraps this exact start function so /start and the visible
-    # restart button always execute the same path.
+    # One startup path only. Feature modules own business logic; this file owns
+    # the Application and handler installation order.
     B.start=_start
     import telegram_business_features as F; F.install(app,B)
     import telegram_ui_policy_v2 as UI; UI.install(app,B)
+
+    # Canonical public tracking and SIM-card flows are installed before the
+    # generic text/media handlers so their state machines always win.
+    try:
+        import telegram_public_tracking as PT; PT.install(app,B)
+    except Exception: log.exception("public tracking unavailable")
+    try:
+        import telegram_sim_service_v2 as SIM; SIM.install(app,B)
+    except Exception: log.exception("SIM service unavailable")
+
     import telegram_admin_plus as A
     app.add_handler(CallbackQueryHandler(lambda u,c:A._callback(u,c,B),pattern=r'^adm:'),group=-20)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,lambda u,c:A._text(u,c,B)),group=-19)
