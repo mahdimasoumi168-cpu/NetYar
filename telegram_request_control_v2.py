@@ -1,4 +1,10 @@
-"""Stable manager request review and ten-stage partner-code exchange."""
+"""Stable manager request review and ten-stage partner-code exchange.
+
+Payment safety: a request cannot be marked completed until its payment is
+explicitly verified. Since the current Variza integration is a payment URL
+without a verified callback/API in this project, the manager can confirm a
+payment manually; the bot never treats a link click as proof of payment.
+"""
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import CallbackQueryHandler, MessageHandler, filters
 
@@ -6,8 +12,16 @@ def partner_uid(B,pid):
     r=B.db.conn.execute("SELECT telegram_user_id FROM partner_telegram_links WHERE partner_id=?",(pid,)).fetchone()
     return int(r["telegram_user_id"]) if r and str(r["telegram_user_id"]).isdigit() else None
 
-def menu(rid):
-    return InlineKeyboardMarkup([[InlineKeyboardButton("🔎 جزئیات کامل",callback_data=f"rq:detail:{rid}")],[InlineKeyboardButton("📨 درخواست کد از همکار",callback_data=f"rq:ask:{rid}" )],[InlineKeyboardButton("⏳ در حال بررسی",callback_data=f"rq:review:{rid}"),InlineKeyboardButton("✅ انجام شد",callback_data=f"rq:approve:{rid}")],[InlineKeyboardButton("❌ رد درخواست",callback_data=f"rq:reject:{rid}")]])
+def menu(rid, paid=False):
+    rows=[[InlineKeyboardButton("🔎 جزئیات کامل",callback_data=f"rq:detail:{rid}")],
+          [InlineKeyboardButton("📨 درخواست کد از همکار",callback_data=f"rq:ask:{rid}")]]
+    if paid:
+        rows.append([InlineKeyboardButton("⏳ در حال بررسی",callback_data=f"rq:review:{rid}"),InlineKeyboardButton("✅ انجام شد",callback_data=f"rq:approve:{rid}")])
+    else:
+        rows.append([InlineKeyboardButton("💰 تأیید دریافت وجه",callback_data=f"rq:payconfirm:{rid}")])
+        rows.append([InlineKeyboardButton("⏳ بررسی اولیه",callback_data=f"rq:review:{rid}")])
+    rows.append([InlineKeyboardButton("❌ رد درخواست",callback_data=f"rq:reject:{rid}")])
+    return InlineKeyboardMarkup(rows)
 
 async def cb(update,context,B):
     q=update.callback_query; d=(q.data or "").split(":")
@@ -16,20 +30,32 @@ async def cb(update,context,B):
     await q.answer();rid=int(d[2]);r=B.db.conn.execute("SELECT * FROM requests WHERE id=?",(rid,)).fetchone()
     if not r:return await q.message.reply_text("❌ درخواست پیدا نشد.")
     action=d[1]
+    paid=str(r["payment_status"] or "").lower()=="paid"
     if action=="detail":
         ans=B.db.conn.execute("SELECT key,answer FROM request_answers WHERE request_id=?",(rid,)).fetchall()
-        lines=[f"🎫 کد پیگیری: {r['tracking_code']}",f"🧾 خدمت: {r['service_key']}",f"📌 وضعیت: {r['status']}",f"💰 مبلغ: {int(r['amount'] or 0):,} تومان"]+[f"{a['key']}: {a['answer']}" for a in ans if a['answer']]
-        return await q.message.reply_text("🔎 بررسی جزئیات درخواست\n\n"+"\n".join(lines),reply_markup=menu(rid))
+        lines=[f"🎫 کد پیگیری: {r['tracking_code']}",f"🧾 خدمت: {r['service_key']}",f"📌 وضعیت: {r['status']}",f"💰 مبلغ: {int(r['amount'] or 0):,} تومان",f"💳 پرداخت: {'تأیید شده' if paid else 'تأیید نشده'}"]+[f"{a['key']}: {a['answer']}" for a in ans if a['answer']]
+        return await q.message.reply_text("🔎 بررسی جزئیات درخواست\n\n"+"\n".join(lines),reply_markup=menu(rid,paid))
+    if action=="payconfirm":
+        if paid:return await q.message.reply_text("ℹ️ این پرداخت قبلاً تأیید شده است.",reply_markup=menu(rid,True))
+        B.db.conn.execute("UPDATE requests SET payment_status='paid',payment_method='manual_admin',updated_at=? WHERE id=?",(B.now(),rid));B.db.conn.commit()
+        return await q.message.reply_text("✅ دریافت وجه توسط مدیریت تأیید شد. اکنون امکان انجام خدمت فعال است.",reply_markup=menu(rid,True))
     if action in {"review","approve","reject"}:
-        status={"review":"reviewing","approve":"completed","reject":"rejected"}[action]
+        if action=="approve" and not paid:
+            return await q.message.reply_text("⛔ این درخواست هنوز پرداخت تأییدشده ندارد. ابتدا «💰 تأیید دریافت وجه» را بزنید.",reply_markup=menu(rid,False))
+        if action=="reject":
+            status="rejected"
+        elif action=="review":
+            status="reviewing"
+        else:
+            status="completed"
         B.db.conn.execute("UPDATE requests SET status=?,updated_at=? WHERE id=?",(status,B.now(),rid));B.db.conn.commit()
-        return await q.message.reply_text("✅ وضعیت درخواست بروزرسانی شد.",reply_markup=menu(rid))
+        return await q.message.reply_text("✅ وضعیت درخواست بروزرسانی شد.",reply_markup=menu(rid,paid))
     if action=="ask":
         pid=r["user_id"];target=partner_uid(B,pid)
         if not target:return await q.message.reply_text("❌ تلگرام همکار برای این درخواست متصل نیست.")
         st=B.S.setdefault(q.from_user.id,{});st.update(code_request_id=rid,code_partner_id=pid,code_stage=1)
         await context.bot.send_message(target,f"🔐 درخواست کد مدیریت\n🎫 {r['tracking_code']}\n\nمرحله ۱ از ۱۰\nکد مرحله ۱ را ارسال کنید.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📨 ارسال کد مرحله ۱",callback_data=f"rqcode:send:{rid}:1")]]))
-        return await q.message.reply_text("📨 مرحله ۱ برای همکار ارسال شد.",reply_markup=menu(rid))
+        return await q.message.reply_text("📨 مرحله ۱ برای همکار ارسال شد.",reply_markup=menu(rid,paid))
 
 async def code_cb(update,context,B):
     q=update.callback_query;d=(q.data or "").split(":")
