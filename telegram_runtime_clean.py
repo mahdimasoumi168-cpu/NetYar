@@ -7,6 +7,7 @@ import telegram_ux_billing
 import telegram_admin_plus
 import telegram_admin_entry
 import telegram_residence_booklet
+import telegram_no_reply_keyboard
 
 
 def build():
@@ -18,4 +19,5 @@ def build():
     telegram_admin_plus.install(app, B)
     telegram_admin_entry.install(app, B)
     telegram_residence_booklet.install(app, B)
+    telegram_no_reply_keyboard.install(app, B)
     return app
