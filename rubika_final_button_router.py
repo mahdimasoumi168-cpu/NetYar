@@ -1,13 +1,46 @@
 """Final Rubika button router.
 
-Rubika ChatKeypad sends the button id in aux_data.button_id.  Several legacy
-layers were translating that id to visible text and then wrapping process()
-multiple times.  This final layer dispatches real keypad clicks directly to the
-current handler, while leaving normal typed messages untouched.
+Real Rubika ChatKeypad clicks carry the button id in aux_data.button_id.
+This layer dispatches those ids directly to the current handler so stacked
+legacy normalization layers cannot break the visible buttons.
 """
 import logging
 
 log = logging.getLogger("netyar.rubika_final_router")
+
+
+def _inner(update):
+    if isinstance(update, dict) and isinstance(update.get("update"), dict): return update["update"]
+    return update
+
+
+def _message(update):
+    u = _inner(update)
+    if not isinstance(u, dict): return {}
+    m = u.get("message") or u.get("new_message") or u
+    return m if isinstance(m, dict) else {}
+
+
+def _chat(update):
+    u = _inner(update); m = _message(update)
+    return str((u.get("chat_id") if isinstance(u, dict) else "") or m.get("chat_id") or m.get("chat_key") or "")
+
+
+def _user(update):
+    m = _message(update); sender = m.get("sender") or {}
+    return str(sender.get("user_id") or m.get("sender_id") or m.get("user_id") or _chat(update))
+
+
+def _button_id(update):
+    m = _message(update); a = m.get("aux_data")
+    if isinstance(a, str):
+        try:
+            import json; a = json.loads(a)
+        except Exception: a = None
+    if isinstance(a, dict):
+        bid = a.get("button_id")
+        if bid is not None and str(bid).strip(): return str(bid).strip()
+    return ""
 
 
 def _clean_rows(rows):
@@ -15,72 +48,21 @@ def _clean_rows(rows):
     for row in rows or []:
         rr = []
         for item in row or []:
-            if isinstance(item, (tuple, list)) and len(item) >= 2:
-                bid, label = str(item[0]), str(item[1])
-            else:
-                bid, label = "0", str(item)
+            if isinstance(item, (tuple, list)) and len(item) >= 2: bid, label = str(item[0]), str(item[1])
+            else: bid, label = "0", str(item)
             for p in ("🔵 ", "🟦 ", "🟩 ", "🟨 "):
-                if label.startswith(p):
-                    label = label[len(p):].strip()
+                if label.startswith(p): label = label[len(p):].strip()
             rr.append((bid, label))
-        if rr:
-            out.append(rr)
+        if rr: out.append(rr)
     return out
-
-
-def _inner(update):
-    if isinstance(update, dict) and isinstance(update.get("update"), dict):
-        return update["update"]
-    return update
-
-
-def _message(update):
-    u = _inner(update)
-    if not isinstance(u, dict):
-        return {}
-    m = u.get("message") or u.get("new_message") or u
-    return m if isinstance(m, dict) else {}
-
-
-def _chat(update):
-    u = _inner(update)
-    m = _message(update)
-    return str((u.get("chat_id") if isinstance(u, dict) else "") or m.get("chat_id") or m.get("chat_key") or "")
-
-
-def _user(update):
-    m = _message(update)
-    sender = m.get("sender") or {}
-    return str(sender.get("user_id") or m.get("sender_id") or m.get("user_id") or _chat(update))
-
-
-def _button_id(update):
-    """Return a real ChatKeypad id only when Rubika supplied one explicitly."""
-    m = _message(update)
-    a = m.get("aux_data")
-    if isinstance(a, str):
-        try:
-            import json
-            a = json.loads(a)
-        except Exception:
-            a = None
-    if isinstance(a, dict):
-        bid = a.get("button_id")
-        if bid is not None and str(bid).strip():
-            return str(bid).strip()
-    return ""
 
 
 def install():
     try:
         import server
         import rubika_v2 as rb
-
-        # Never rewrite a numeric keypad id into its label.
         server._normalize_rubika_button = lambda update, _rb: update
 
-        # Keep the compatibility patch from replacing the canonical menu, and
-        # install our dispatch wrapper after it runs for the first webhook.
         old_patch = getattr(server, "_patch_rubika", None)
         if old_patch and not getattr(server, "_netyar_final_router_patch", False):
             def patch(r):
@@ -89,44 +71,41 @@ def install():
                 def main_rows(uid):
                     lang = r.STATE.get(str(uid), {}).get("lang", "fa")
                     if lang == "en":
-                        return [[("1", "FIDA non-in-person"), ("2", "Printing")],
+                        rows = [[("1", "FIDA non-in-person"), ("2", "Printing")],
                                 [("3", "Government access issue"), ("4", "Tracking")],
                                 [("5", "SIM services"), ("6", "Screening & follow-up")],
                                 [("7", "My wallet"), ("8", "Partner panel")],
                                 [("9", "Contact us"), ("10", "Start again")]]
-                    if lang == "ar":
-                        return [[("1", "خدمة فيدا"), ("2", "الطباعة")],
+                    elif lang == "ar":
+                        rows = [[("1", "خدمة فيدا"), ("2", "الطباعة")],
                                 [("3", "مشكلة خدمات الحكومة"), ("4", "متابعة")],
                                 [("5", "خدمات الشريحة"), ("6", "الفحص والمتابعة")],
                                 [("7", "محفظتي"), ("8", "لوحة الشركاء")],
                                 [("9", "اتصل بنا"), ("10", "بدء من جديد")]]
-                    return [[("1", "🪪 فیدای غیر حضوری"), ("2", "🖨 خدمات چاپ")],
-                            [("3", "🏛 حل مشکل ورود اتباع دولت من"), ("4", "🎫 پیگیری")],
-                            [("5", "📱 خدمات سیم کارت"), ("6", "📝 آزمون غربالگری و پیگیری")],
-                            [("7", "💰 کیف پول من"), ("8", "👥 پنل همکاران")],
-                            [("9", "📞 تماس با ما"), ("10", "🔄 شروع مجدد")]]
+                    else:
+                        rows = [[("1", "🪪 فیدای غیر حضوری"), ("2", "🖨 خدمات چاپ")],
+                                [("3", "🏛 حل مشکل ورود اتباع دولت من"), ("4", "🎫 پیگیری")],
+                                [("5", "📱 خدمات سیم کارت"), ("6", "📝 آزمون غربالگری و پیگیری")],
+                                [("7", "💰 کیف پول من"), ("8", "👥 پنل همکاران")],
+                                [("9", "📞 تماس با ما"), ("10", "🔄 شروع مجدد")]]
+                    if str(uid) in getattr(r, "ADMIN_IDS", set()):
+                        rows.append([("99", "🛠 پنل مدیریت بات")])
+                    return _clean_rows(rows)
 
                 r.main_rows = main_rows
 
-                # Direct keypad dispatch is the final authority for real
-                # button clicks.  Typed messages continue through normal process.
                 if not getattr(r, "_netyar_final_process_router", False):
                     old_process = r.process
-
                     def process(update):
                         bid = _button_id(update)
                         if bid:
-                            uid = _user(update)
-                            chat = _chat(update)
+                            uid = _user(update); chat = _chat(update)
                             if uid and chat:
                                 return r.handle(uid, chat, bid, update)
                         return old_process(update)
-
                     r.process = process
                     r._netyar_final_process_router = True
 
-                # Also accept visible labels if an older Rubika client sends
-                # text instead of aux_data.button_id.
                 if not getattr(r, "_netyar_final_handle_router", False):
                     previous = r.handle
                     aliases = {
@@ -136,14 +115,14 @@ def install():
                         "🛠 پنل مدیریت بات": r.ADMIN_COMMAND, "🛠 پنل مدیریت": r.ADMIN_COMMAND,
                         "Admin panel": r.ADMIN_COMMAND, "لوحة الإدارة": r.ADMIN_COMMAND,
                     }
-
                     def handle(uid, chat, x, u):
                         text = str(x or "").strip()
+                        st = r.STATE.setdefault(str(uid), {})
+                        if text == "99" and st.get("step") in {"main", "menu", "service"} and str(uid) in getattr(r, "ADMIN_IDS", set()):
+                            text = r.ADMIN_COMMAND
                         mapped = aliases.get(text)
-                        if mapped is not None:
-                            text = mapped
+                        if mapped is not None: text = mapped
                         if text == "10":
-                            st = r.STATE.setdefault(str(uid), {})
                             lang = st.get("lang", "fa")
                             citizenship = st.get("citizenship") or st.get("status")
                             r.STATE[str(uid)] = {"lang": lang}
@@ -153,12 +132,9 @@ def install():
                             r.STATE[str(uid)]["step"] = "language"
                             return r.send(chat, r.TEXT[lang]["lang"], [[("1", "🇮🇷 فارسی"), ("2", "🇬🇧 English"), ("3", "🇸🇦 العربية")]])
                         return previous(uid, chat, text, u)
-
                     r.handle = handle
                     r._netyar_final_handle_router = True
-
                 return result
-
             server._patch_rubika = patch
             server._netyar_final_router_patch = True
     except Exception:
