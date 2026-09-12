@@ -49,11 +49,7 @@ def _patch_inline_ui(rb):
         payload = {"chat_id": str(chat), "text": visible_text}
         if rows:
             payload["inline_keypad"] = _rows_to_inline(rows, fa=fa, translate=pf._fa_ui_text)
-            # Do not send a legacy reply-keyboard payload together with an
-            # inline keypad. Inline buttons remain attached to this message.
         else:
-            # Explicitly remove any old reply keyboard when sending a plain
-            # message, while leaving the inline-only UI policy intact.
             payload["chat_keypad_type"] = "Remove"
         return rb.call("sendMessage", payload)
 
@@ -64,7 +60,6 @@ def _patch_inline_ui(rb):
 def _patch_polling(module):
     async def fast_poll(server, rb):
         offset_id = None
-        semaphore = asyncio.Semaphore(12)
         locks = {}
         seen = OrderedDict()
         seen_ttl = 180.0
@@ -120,9 +115,6 @@ def _patch_polling(module):
                 clean = [u for u in updates if isinstance(u, dict) and not already_seen(u)]
                 if clean:
                     await asyncio.gather(*(process_one(u) for u in clean), return_exceptions=True)
-                # Advance only after this batch has been handed to the
-                # per-user workers. This avoids losing a batch on processing
-                # exceptions while keeping one active polling cursor.
                 nxt = result.get("next_offset_id")
                 if nxt:
                     offset_id = str(nxt)
@@ -141,6 +133,10 @@ def install():
     import rubika_reliability_fix as reliability
     try:
         _patch_polling(reliability)
+        import rubika_polling_fallback as pf
+        # Reliability calls this hook during integration initialization. Point
+        # it at our final sender so the older sender cannot overwrite it.
+        pf._patch_rubika_inline_ui = _patch_inline_ui
         import rubika_v2 as rb
         _patch_inline_ui(rb)
         log.info("Rubika final hardening installed")
