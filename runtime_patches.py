@@ -22,6 +22,7 @@ _PATCH_MODULES = (
     "final_platform_fix",
     "telegram_reconnect_patch", "telegram_polling_guard", "telegram_production_final",
     "telegram_final_hardening", "final_telegram_universal_stability",
+    "last_messenger_stability",
 )
 
 
