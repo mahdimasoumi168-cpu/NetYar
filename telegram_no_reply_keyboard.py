@@ -7,6 +7,9 @@ lose it immediately.
 from telegram import ReplyKeyboardRemove
 
 
+_INVISIBLE = "\u200b"
+
+
 def install(app, B):
     if getattr(B, "_netyar_no_reply_keyboard", False):
         return
@@ -18,7 +21,7 @@ def install(app, B):
         try:
             if update.message:
                 await update.message.reply_text(
-                    "",
+                    _INVISIBLE,
                     reply_markup=ReplyKeyboardRemove(),
                 )
         except Exception:
