@@ -1,8 +1,9 @@
-"""Continuous free-form Rubika partner <-> admin chat.
+"""Continuous, reliable Rubika partner <-> admin chat.
 
-Uses Rubika's official bot API sendMessage/forwardMessage model: text is sent as
-text, while media is forwarded by message id so photos/videos/voice/files do
-not need a second upload step. Neither side is forced to attach media.
+The partner identity used by rubika_v2 is the partner phone number. This module
+keeps that identity consistently for persisted chat routing, while using the
+actual Rubika chat id for delivery. Text and media are both supported and no
+attachment is mandatory.
 """
 import logging
 
@@ -72,6 +73,10 @@ def _send_text(rb, chat, text):
     return False
 
 
+def _partner_phone(st):
+    return str(st.get("partner") or st.get("ticket_partner_phone") or "").strip()
+
+
 def install():
     import rubika_v2 as R
     if getattr(R, "_netyar_ticket_chat_installed", False):
@@ -86,8 +91,6 @@ def install():
         st = R.STATE.setdefault(uid, {})
         step = st.get("step")
 
-        # Admin panel -> ticket list. The partner id is encoded in the button id,
-        # so the admin never has to type a partner phone manually.
         if step == "admin" and x == "12":
             rows = []
             partners = R.db.conn.execute(
@@ -99,8 +102,8 @@ def install():
             rows.append([("15", "🔄 شروع مجدد")])
             R.send(
                 chat,
-                "🎫 مدیریت تیکت‌ها\n\nهمکار موردنظر را انتخاب کنید.\nبعد از انتخاب، هر متن، عکس، ویدیو، ویس یا فایل که بفرستید مستقیماً برای همان همکار ارسال می‌شود.",
-                rows or [[("15", "🔄 شروع مجدد")]],
+                "🎫 ارتباط با همکار\n\nهمکار موردنظر را انتخاب کنید.\nبعد از انتخاب، می‌توانید هر تعداد پیام متنی یا رسانه‌ای برای همان همکار ارسال کنید.",
+                rows,
             )
             return
 
@@ -115,21 +118,36 @@ def install():
             if not p:
                 R.send(chat, "❌ همکار پیدا نشد.", R.admin_rows())
                 return
-            partner_chat = R.db.setting(f"partner_chat_{p['phone']}", "")
+
+            phone = str(p["phone"] or "").strip()
+            partner_chat = R.db.setting(f"partner_chat_{phone}", "").strip()
             if not partner_chat:
-                R.send(chat, "❌ این همکار هنوز در روبیکا وارد پنل نشده است؛ ابتدا همکار یک‌بار وارد پنل همکاران شود.", R.admin_rows())
+                # Compatibility with older records that may have been saved by id.
+                partner_chat = R.db.setting(f"partner_chat_{pid}", "").strip()
+            if not partner_chat:
+                R.send(
+                    chat,
+                    "❌ چت روبیکای این همکار هنوز ثبت نشده است.\n\nاز همکار بخواهید یک‌بار وارد «پنل همکاران» شود تا ارتباط او ثبت شود.",
+                    R.admin_rows(),
+                )
                 return
+
             st["step"] = "admin_ticket_chat"
             st["ticket_partner_id"] = int(p["id"])
-            st["ticket_partner_phone"] = str(p["phone"])
+            st["ticket_partner_phone"] = phone
             st["ticket_partner_chat"] = str(partner_chat)
             st["ticket_admin_chat"] = str(chat)
-            R.db.set_setting(f"ticket_admin_{p['phone']}", str(chat))
-            R.send(chat, f"💬 گفت‌وگوی مستقیم با همکار {p['name'] or p['phone']} فعال شد.\n\nهر تعداد پیام خواستید بفرستید؛ متن، عکس، ویدیو، ویس یا فایل. هیچ‌کدام اجباری نیست.\n\nبرای خروج: 🔄 شروع مجدد")
+            R.db.set_setting(f"ticket_admin_{phone}", str(chat))
+            R.send(
+                chat,
+                f"💬 ارتباط با همکار «{p['name'] or phone}» فعال شد.\n\n"
+                "حالا متن، عکس، ویدیو، ویس یا فایل را بفرستید. هیچ نوع فایل اجباری نیست.\n\n"
+                "برای خروج: 🔄 شروع مجدد"
+            )
             return
 
         if step == "admin_ticket_chat" and R.is_admin(uid):
-            target = st.get("ticket_partner_chat")
+            target = str(st.get("ticket_partner_chat") or "").strip()
             if not target:
                 st["step"] = "admin"
                 R.send(chat, "❌ ارتباط با همکار پیدا نشد.", R.admin_rows())
@@ -139,15 +157,12 @@ def install():
                 R.send(chat, "✅ گفت‌وگو بسته شد.", R.admin_rows())
                 return
             try:
-                if _has_media({"message": {"text": x}}):
-                    pass
                 _send_text(R, target, f"👔 پیام مدیریت\n\n{x}")
-                R.db.set_setting(f"ticket_admin_{st.get('ticket_partner_phone')}", str(chat))
-                return
+                R.db.set_setting(f"ticket_admin_{_partner_phone(st)}", str(chat))
             except Exception:
                 log.exception("Rubika admin text ticket send failed")
                 R.send(chat, "❌ ارسال پیام انجام نشد. دوباره تلاش کنید.")
-                return
+            return
 
         return old_admin(uid, chat, x)
 
@@ -158,11 +173,19 @@ def install():
         step = st.get("step")
 
         if step == "partner" and x in {"6", "✉️ تیکت به مدیریت", "🎫 ارسال تیکت به مدیریت"}:
+            phone = _partner_phone(st)
             st["step"] = "partner_ticket_chat"
             st["ticket_partner_chat"] = str(chat)
-            st["ticket_admin_chat"] = R.db.setting(f"ticket_admin_{st.get('partner')}", "") or (next(iter(R.ADMIN_IDS), ""))
-            R.db.set_setting(f"partner_chat_{st.get('partner')}", str(chat))
-            R.send(chat, "💬 ارتباط مستقیم با مدیریت فعال شد.\n\nهر تعداد پیام خواستید بفرستید: متن، عکس، ویدیو، ویس یا فایل. هیچ‌کدام اجباری نیست.\n\nبرای خروج: 🔄 شروع مجدد")
+            st["ticket_partner_phone"] = phone
+            st["ticket_admin_chat"] = R.db.setting(f"ticket_admin_{phone}", "") or next(iter(R.ADMIN_IDS), "")
+            R.db.set_setting(f"partner_chat_{phone}", str(chat))
+            R.send(
+                chat,
+                "💬 ارتباط مستقیم با مدیریت فعال شد.\n\n"
+                "هر تعداد پیام خواستید بفرستید: متن، عکس، ویدیو، ویس یا فایل.\n"
+                "هیچ‌کدام اجباری نیست.\n\n"
+                "برای خروج: 🔄 شروع مجدد"
+            )
             return
 
         if step == "partner_ticket_chat":
@@ -170,17 +193,19 @@ def install():
                 st["step"] = "partner"
                 R.send(chat, "✅ گفت‌وگو بسته شد.", R.partner_rows())
                 return
-            target = st.get("ticket_admin_chat") or R.db.setting(f"ticket_admin_{st.get('partner')}", "") or next(iter(R.ADMIN_IDS), "")
+
+            phone = _partner_phone(st)
+            target = str(st.get("ticket_admin_chat") or R.db.setting(f"ticket_admin_{phone}", "") or next(iter(R.ADMIN_IDS), "")).strip()
             if not target:
                 R.send(chat, "❌ مدیریت برای پاسخ در دسترس نیست.")
                 return
             try:
                 if _has_media(update):
                     if not _forward(R, chat, _message_id(update), target):
-                        _send_text(R, target, f"📨 پیام همکار\n👥 {st.get('partner', '-') }\n\n{x or 'پیام رسانه‌ای'}")
+                        _send_text(R, target, f"📨 پیام همکار\n👥 {phone or '-'}\n\n{x or 'پیام رسانه‌ای'}")
                 else:
-                    _send_text(R, target, f"📨 پیام همکار\n👥 {st.get('partner', '-') }\n\n{x or 'پیام بدون متن'}")
-                R.db.set_setting(f"ticket_admin_{st.get('partner')}", str(target))
+                    _send_text(R, target, f"📨 پیام همکار\n👥 {phone or '-'}\n\n{x or 'پیام بدون متن'}")
+                R.db.set_setting(f"ticket_admin_{phone}", str(target))
                 R.send(chat, "✅ پیام برای مدیریت ارسال شد.\nمی‌توانید پیام بعدی را هم بفرستید.")
             except Exception:
                 log.exception("Rubika partner ticket send failed")
@@ -188,10 +213,14 @@ def install():
             return
 
         if step == "admin_ticket_chat" and R.is_admin(uid):
-            target = st.get("ticket_partner_chat")
+            target = str(st.get("ticket_partner_chat") or "").strip()
             if x in {"15", "99", R.RESTART, "🔄 شروع مجدد"}:
                 st["step"] = "admin"
                 R.send(chat, "✅ گفت‌وگو بسته شد.", R.admin_rows())
+                return
+            if not target:
+                R.send(chat, "❌ چت همکار پیدا نشد.", R.admin_rows())
+                st["step"] = "admin"
                 return
             try:
                 if _has_media(update):
@@ -199,7 +228,7 @@ def install():
                         _send_text(R, target, f"👔 پیام مدیریت\n\n{x or 'پیام رسانه‌ای'}")
                 else:
                     _send_text(R, target, f"👔 پیام مدیریت\n\n{x or 'پیام بدون متن'}")
-                R.db.set_setting(f"ticket_admin_{st.get('ticket_partner_phone')}", str(chat))
+                R.db.set_setting(f"ticket_admin_{_partner_phone(st)}", str(chat))
             except Exception:
                 log.exception("Rubika admin media ticket send failed")
                 R.send(chat, "❌ ارسال پیام انجام نشد. دوباره تلاش کنید.")
