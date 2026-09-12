@@ -1,8 +1,7 @@
 """Canonical Telegram inline-only UI.
 
-All navigation buttons are attached to messages. Legacy ReplyKeyboard UI is
-removed and legacy modules that still construct ReplyKeyboardMarkup are bridged
-to inline buttons without changing their business logic.
+Legacy reply keyboards are removed. Inline buttons are routed through the same
+text router used by normal messages, including after a restart/deploy.
 """
 from collections import OrderedDict
 import threading
@@ -42,7 +41,6 @@ def _inline_kb(rows):
 
 
 class _InlineOnlyReplyKeyboard:
-    """Compatibility adapter for old modules calling ReplyKeyboardMarkup."""
     def __new__(cls, keyboard, *args, **kwargs):
         return _inline_kb(keyboard)
 
@@ -83,30 +81,36 @@ def _button_label_from_message(q):
 async def _inline_callback(update, context, B):
     q = update.callback_query
     key = str(q.data or "")
-    label = _ACTIONS.get(key)
-    # The action registry is intentionally in-memory, so it can disappear on
-    # restart/deploy. The actual button text travels with the Telegram message;
-    # recover it and route it instead of telling the user the button expired.
-    if label is None:
-        label = _button_label_from_message(q)
+    label = _ACTIONS.get(key) or _button_label_from_message(q)
     if not label:
-        await q.answer("این گزینه دیگر قابل اجرا نیست؛ لطفاً از منوی فعلی استفاده کنید.")
+        await q.answer("این گزینه دیگر معتبر نیست؛ لطفاً از منوی فعلی استفاده کنید.")
         return
+
     await q.answer()
     await _remove_legacy_keyboard(q.message)
     original = getattr(q.message, "text", None)
+
     try:
-        object.__setattr__(q.message, "text", label)
-        await B.router(update, context)
+        # IMPORTANT: python-telegram-bot exposes callback messages through
+        # effective_message, while legacy NetYar routers read update.message.
+        # Bridge both fields so an inline click follows exactly the same path
+        # as a normal text message instead of falling into the generic error.
+        try:
+            object.__setattr__(update, "message", q.message)
+        except Exception:
+            pass
+        try:
+            object.__setattr__(q.message, "text", label)
+            await B.router(update, context)
+        finally:
+            try:
+                object.__setattr__(q.message, "text", original)
+            except Exception:
+                pass
     except Exception:
         log.exception("Inline button routing failed: %s", label)
         try:
-            await q.message.reply_text("❌ اجرای این گزینه با خطا مواجه شد.")
-        except Exception:
-            pass
-    finally:
-        try:
-            object.__setattr__(q.message, "text", original)
+            await q.message.reply_text("❌ اجرای این گزینه با خطا مواجه شد. لطفاً دوباره همین گزینه را بزنید.")
         except Exception:
             pass
 
