@@ -35,6 +35,7 @@ import telegram_global_stability
 import final_terminal_navigation_guard
 import telegram_start_flow_fix
 import canonical_button_router
+import telegram_universal_button_guard
 
 
 def build():
@@ -76,9 +77,12 @@ def build():
     telegram_global_stability.install(B)
     final_terminal_navigation_guard.install(app, B)
 
-    # Final routing owner. Legacy layers may wrap B.router, but the canonical
-    # router must be installed after all of them so inline foreign-menu clicks
-    # are translated into the exact existing service flow.
+    # Canonical routing owner for the existing inline-button system.
     canonical_button_router.install()
     telegram_no_reply_keyboard.reassert(B)
+
+    # Last guard: recover every visible ik: button by its actual label, bridge
+    # legacy label variants, and provide the admin -> selected-partner reply
+    # callback. This must be last so no later module can shadow it.
+    telegram_universal_button_guard.install(app, B)
     return app
