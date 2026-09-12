@@ -1,8 +1,4 @@
-"""Rubika reliability fallback.
-
-If Rubika rejects the Railway webhook URL with InvalidUrl, keep the bot alive
-using the official getUpdates long-polling API instead of marking Rubika offline.
-"""
+"""Rubika reliability fallback and production UI hardening."""
 import asyncio
 import logging
 import os
@@ -20,6 +16,50 @@ def normalize_phone(value):
     elif s.startswith("0098"):
         s = "0" + s[4:]
     return s
+
+
+def _inline_keypad(rows):
+    """Convert the existing Rubika row format to an inline keypad.
+
+    The old implementation used chat_keypad, which stays under the chat input.
+    InlineKeypad is attached to the actual message, matching Telegram's UX.
+    """
+    return {
+        "rows": [
+            {
+                "buttons": [
+                    {"id": str(item[0]), "type": "Simple", "button_text": str(item[1])}
+                    for item in (row or [])
+                    if isinstance(item, (tuple, list)) and len(item) >= 2
+                ]
+            }
+            for row in (rows or [])
+            if row
+        ]
+    }
+
+
+def _patch_rubika_inline_ui(rb):
+    """Replace reply keypads with message-attached inline keypads.
+
+    Also explicitly removes any legacy chat keypad so users do not retain the
+    old persistent keyboard after upgrading.
+    """
+    if getattr(rb, "_netyar_inline_ui_installed", False):
+        return
+
+    def inline_send(chat, text, rows=None):
+        payload = {
+            "chat_id": str(chat),
+            "text": str(text or ""),
+            "chat_keypad_type": "Remove",
+        }
+        if rows:
+            payload["inline_keypad"] = _inline_keypad(rows)
+        return rb.call("sendMessage", payload)
+
+    rb.send = inline_send
+    rb._netyar_inline_ui_installed = True
 
 
 async def _poll(server, rb):
@@ -67,11 +107,18 @@ def install():
             import rubika_v2 as rb
             rb.normalize_phone = normalize_phone
             server._patch_rubika(rb)
+            _patch_rubika_inline_ui(rb)
+            try:
+                import rubika_admin_control_v5
+                rubika_admin_control_v5.install()
+                log.info("Rubika full admin control installed")
+            except Exception:
+                log.exception("Rubika full admin control could not be installed")
             task = getattr(server, "_rubika_polling_task", None)
             if task is None or task.done():
                 server._rubika_polling_task = asyncio.create_task(_poll(server, rb))
             server.rubika_ready = True
-            log.warning("Rubika is online with getUpdates polling fallback")
+            log.warning("Rubika is online with getUpdates polling fallback and inline UI")
         except Exception:
             server.rubika_ready = False
             log.exception("Could not start Rubika getUpdates fallback")
