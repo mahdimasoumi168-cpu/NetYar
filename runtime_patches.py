@@ -1,10 +1,4 @@
-"""Deterministic compatibility-layer loader for the production bot.
-
-Legacy patch files are still loaded in their historical order for backwards
-compatibility. The final inline-only Telegram patch is intentionally excluded:
-it replaced normal reply keyboards and was the source of inconsistent Telegram
-UI/routing. A single production hotfix is loaded last for deterministic fixes.
-"""
+"""Deterministic compatibility-layer loader for the production bot."""
 import importlib
 import logging
 
@@ -25,7 +19,7 @@ _PATCH_MODULES = (
     "rubika_admin_full", "rubika_final_stability", "rubika_final_stability_patch",
     "rubika_button_guard", "admin_control_v4", "admin_control_v5", "rubika_admin_control_v5",
     "admin_full_v6", "keyboard_rubika_stability", "production_hotfix_v3",
-    "telegram_reconnect_patch",
+    "telegram_reconnect_patch", "telegram_polling_guard",
 )
 
 
