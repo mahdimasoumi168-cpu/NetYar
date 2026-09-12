@@ -195,10 +195,6 @@ async def rubika_update(request:Request):
         log.exception("Rubika webhook update failed")
         return {"ok":False,"error":"rubika_update_failed"}
 
-# Rubika's ReceiveUpdate registration can probe the conventional /receiveUpdate
-# path even when updateBotEndpoints was given a custom /rubika/update URL. Keep
-# both paths as equivalent aliases so provider validation cannot reject a valid
-# deployment because of the provider's endpoint convention.
 @api.get("/rubika/receiveUpdate")
 async def rubika_receive_update_probe(): return {"ok":True,"service":"NetYar","provider":"rubika"}
 
@@ -214,13 +210,15 @@ async def _integration_watchdog():
         try:
             await asyncio.sleep(90)
             if telegram_app is not None:
-                try:
-                    info=await telegram_app.bot.get_webhook_info(); expected=public_url("/telegram/update"); actual=(info.url or "").rstrip("/")
-                    if actual != expected.rstrip("/"):
-                        log.warning("Telegram webhook mismatch; restoring endpoint")
-                        secret=os.getenv("TELEGRAM_WEBHOOK_SECRET","").strip() or None
-                        await telegram_app.bot.set_webhook(url=expected,allowed_updates=None,secret_token=secret)
-                except Exception: log.exception("Telegram webhook watchdog failed")
+                use_webhook = os.getenv("TELEGRAM_USE_WEBHOOK", "false").strip().lower() in {"1", "true", "yes", "on"}
+                if use_webhook:
+                    try:
+                        info=await telegram_app.bot.get_webhook_info(); expected=public_url("/telegram/update"); actual=(info.url or "").rstrip("/")
+                        if actual != expected.rstrip("/"):
+                            log.warning("Telegram webhook mismatch; restoring endpoint")
+                            secret=os.getenv("TELEGRAM_WEBHOOK_SECRET","").strip() or None
+                            await telegram_app.bot.set_webhook(url=expected,allowed_updates=None,secret_token=secret)
+                    except Exception: log.exception("Telegram webhook watchdog failed")
         except asyncio.CancelledError: return
         except Exception: log.exception("Integration watchdog failed")
 
