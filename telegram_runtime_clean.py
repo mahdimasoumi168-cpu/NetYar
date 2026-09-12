@@ -9,6 +9,7 @@ import telegram_gov_documents_flow
 import telegram_admin_plus
 import telegram_admin_entry
 import telegram_residence_booklet
+import telegram_residence_booklet_guard
 import telegram_no_reply_keyboard
 import telegram_iranian_complaints
 import admin_editable_texts
@@ -23,6 +24,7 @@ import telegram_partner_code_reliable
 import telegram_request_details_fix
 import telegram_request_resend_fa
 import telegram_ticket_reliability
+import final_requirements_patch
 
 
 def build():
@@ -50,4 +52,13 @@ def build():
     telegram_partner_code_reliable.install(app, B)
     telegram_request_details_fix.install(app, B)
     telegram_request_resend_fa.install(app, B)
+
+    # Final UX layer runs after legacy modules so the stable government
+    # document menu, including residence booklet, is not overwritten.
+    final_requirements_patch.install()
+    telegram_residence_booklet_guard.install(app, B)
+
+    # Re-apply admin/partner communication LAST because legacy modules can
+    # replace B.amenu after installation and make buttons appear/disappear.
+    telegram_admin_partner_chat.install(app, B)
     return app
