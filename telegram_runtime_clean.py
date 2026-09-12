@@ -2,6 +2,7 @@
 
 import bot as B
 import telegram_panels
+import telegram_admin_partner_chat
 import telegram_service_notifications
 import telegram_ux_billing
 import telegram_gov_documents_flow
@@ -29,6 +30,7 @@ def build():
     app = B.build()
     telegram_ticket_reliability.install(app, B)
     telegram_panels.install(app, B)
+    telegram_admin_partner_chat.install(app, B)
     telegram_service_notifications.install(app, B)
     partner_pricing.install_telegram(app, B)
     telegram_partner_price_adjustment.install(app, B)
