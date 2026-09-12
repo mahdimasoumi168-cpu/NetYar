@@ -16,38 +16,24 @@ def _inline_kb(rows):
     for row in rows or []:
         buttons = []
         for item in row or []:
-            if isinstance(item, (tuple, list)) and len(item) >= 2:
-                original = str(item[1])
-            else:
-                original = str(item)
+            original = str(item[1]) if isinstance(item, (tuple, list)) and len(item) >= 2 else str(item)
             label = original
-            # Telegram does not expose custom button colors; use clear emoji cues.
-            if "پنل همکاران" in label and "🔵" not in label:
-                label = "🔵 " + label
-            elif "خدمات چاپ" in label and "🟢" not in label:
-                label = "🟢 " + label
-            elif "دولت من" in label and "🟠" not in label:
-                label = "🟠 " + label
-            elif "پیگیری" in label and "🟡" not in label:
-                label = "🟡 " + label
-            elif "کیف پول" in label and "💰" not in label:
-                label = "💰 " + label
+            if "پنل همکاران" in label and "🔵" not in label: label = "🔵 " + label
+            elif "خدمات چاپ" in label and "🟢" not in label: label = "🟢 " + label
+            elif "دولت من" in label and "🟠" not in label: label = "🟠 " + label
+            elif "پیگیری" in label and "🟡" not in label: label = "🟡 " + label
+            elif "کیف پول" in label and "💰" not in label: label = "💰 " + label
             buttons.append(InlineKeyboardButton(label, callback_data="ui:" + original[:180]))
-        if buttons:
-            out.append(buttons)
+        if buttons: out.append(buttons)
     return InlineKeyboardMarkup(out)
 
 
-def _ui_markup(rows):
-    return _inline_kb(rows)
+def _ui_markup(rows): return _inline_kb(rows)
 
 
 class _MessageProxy:
-    def __init__(self, original, text):
-        self._original = original
-        self.text = text
-    def __getattr__(self, name):
-        return getattr(self._original, name)
+    def __init__(self, original, text): self._original, self.text = original, text
+    def __getattr__(self, name): return getattr(self._original, name)
 
 
 class _UpdateProxy:
@@ -56,33 +42,28 @@ class _UpdateProxy:
         self.message = _MessageProxy(update.callback_query.message, text)
         self.effective_user = update.effective_user
         self.effective_chat = update.effective_chat
-    def __getattr__(self, name):
-        return getattr(self._update, name)
+    def __getattr__(self, name): return getattr(self._update, name)
 
 
 async def _ui_callback(update, context):
     q = update.callback_query
-    if not q or not (q.data or "").startswith("ui:"):
-        return
+    if not q or not (q.data or "").startswith("ui:"): return
     label = q.data[3:]
     await q.answer()
     proxy = _UpdateProxy(update, label)
     try:
         result = await telegram_panels._panel_text(proxy, context, B)
-        if result is not None:
-            raise ApplicationHandlerStop
+        if result is not None: raise ApplicationHandlerStop
     except ApplicationHandlerStop:
         raise
     except Exception:
         pass
     result = await B.router(proxy, context)
-    if result is not None:
-        raise ApplicationHandlerStop
+    if result is not None: raise ApplicationHandlerStop
 
 
 async def _restart(update, context):
-    if (update.message.text or "").strip() != "🔄 شروع مجدد":
-        return
+    if (update.message.text or "").strip() != "🔄 شروع مجدد": return
     uid = update.effective_user.id
     B.S[uid] = {}
     return await B.start(update, context)
@@ -91,9 +72,24 @@ async def _restart(update, context):
 async def _gov_postal(update, context):
     uid = update.effective_user.id
     st = B.S.setdefault(uid, {})
-    if st.get("mode") != "gov_postal":
-        return
+    mode = st.get("mode")
     text = (update.message.text or "").strip()
+    if mode == "gov_special":
+        if len(text) < 3:
+            return await update.message.reply_text("❌ شناسه اختصاصی را صحیح وارد کنید.", reply_markup=B.cancel_kb(st.get("lang", "fa")))
+        st["gov_special"] = text
+        if st.get("gov_doc_type") == "passport":
+            st["mode"] = "gov_passport"
+            return await update.message.reply_text("🛂 شماره گذرنامه/پاسپورت مشترک را وارد کنید.", reply_markup=B.cancel_kb(st.get("lang", "fa")))
+        st["mode"] = "gov_postal"
+        return await update.message.reply_text("📮 در آخر، کد پستی ۱۰ رقمی منزل مشترک را وارد کنید.", reply_markup=B.cancel_kb(st.get("lang", "fa")))
+    if mode == "gov_passport":
+        if len(text) < 3:
+            return await update.message.reply_text("❌ شماره گذرنامه را صحیح وارد کنید.", reply_markup=B.cancel_kb(st.get("lang", "fa")))
+        st["gov_passport"] = text
+        st["mode"] = "gov_postal"
+        return await update.message.reply_text("📮 در آخر، کد پستی ۱۰ رقمی منزل مشترک را وارد کنید.", reply_markup=B.cancel_kb(st.get("lang", "fa")))
+    if mode != "gov_postal": return
     digits = text.translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789"))
     if not re.fullmatch(r"\d{10}", digits):
         return await update.message.reply_text("❌ کد پستی منزل باید دقیقاً ۱۰ رقم باشد. دوباره وارد کنید.", reply_markup=B.cancel_kb(st.get("lang", "fa")))
@@ -105,8 +101,7 @@ async def _gov_postal(update, context):
 async def _gov_media(update, context):
     uid = update.effective_user.id
     st = B.S.setdefault(uid, {})
-    if st.get("mode") != "gov_photo":
-        return
+    if st.get("mode") != "gov_photo": return
     fid = update.message.photo[-1].file_id if update.message.photo else (update.message.document.file_id if update.message.document else "")
     if not fid:
         return await update.message.reply_text("❌ عکس یا فایل معتبر ارسال کنید.", reply_markup=B.cancel_kb(st.get("lang", "fa")))
@@ -118,32 +113,23 @@ async def _gov_media(update, context):
     owner = pid or B.db.user("telegram", uid, update.effective_user.username, update.effective_user.full_name)
     rid, code = B.db.create_request(owner, "government", "telegram", amount)
     fields = [("doc_type", st.get("gov_doc_type", "")), ("phone", st.get("gov_phone", st.get("phone", ""))), ("dob", st.get("dob", "")), ("unique_id", st.get("gov_unique", st.get("unique_id", ""))), ("special_id", st.get("gov_special", st.get("special_id", ""))), ("postal_code", st.get("postal_code", ""))]
-    if st.get("gov_doc_type") == "passport":
-        fields.append(("passport", st.get("gov_passport", "")))
+    if st.get("gov_doc_type") == "passport": fields.append(("passport", st.get("gov_passport", "")))
     for key, value in fields:
-        if value:
-            B.db.answer(rid, key, answer=value)
+        if value: B.db.answer(rid, key, answer=value)
     B.db.answer(rid, "document", file_id=fid)
     if pid:
         B.db.conn.execute("UPDATE requests SET status='submitted',payment_status='paid',payment_method='partner_balance',updated_at=? WHERE id=?", (B.now(), rid))
         B.db.conn.execute("UPDATE partners SET balance=balance-?,updated_at=? WHERE id=?", (amount, B.now(), pid))
-        B.db.conn.commit()
-        left = int(p["balance"]) - amount
+        B.db.conn.commit(); left = int(p["balance"]) - amount
     else:
-        B.db.conn.execute("UPDATE requests SET status='submitted',updated_at=? WHERE id=?", (B.now(), rid))
-        B.db.conn.commit()
-        left = None
-    title = "👔 مدیر — اعلان خدمات جدید"
-    text = (f"{title}\n\n🆕 حل مشکل سامانه دولت من\n🎫 کد پیگیری: {code}\n🪪 نوع مدرک: {st.get('gov_doc_type','-')}\n📱 موبایل مشترک: {st.get('gov_phone',st.get('phone','-'))}\n🎂 تاریخ تولد: {st.get('dob','-')}\n🆔 شناسه یکتا: {st.get('gov_unique',st.get('unique_id','-'))}\n🔖 شناسه اختصاصی: {st.get('gov_special',st.get('special_id','-'))}\n📮 کد پستی منزل: {st.get('postal_code','-')}\n💰 مبلغ خدمت: {amount:,} تومان\n" + (f"💳 کسر از اعتبار همکار: {amount:,} تومان\n💵 اعتبار باقی‌مانده: {left:,} تومان\n" if pid else "") + "📎 مدرک در همین اعلان پیوست شده است.")
+        B.db.conn.execute("UPDATE requests SET status='submitted',updated_at=? WHERE id=?", (B.now(), rid)); B.db.conn.commit(); left = None
+    text = (f"👔 مدیر — اعلان خدمات جدید\n\n🆕 حل مشکل سامانه دولت من\n🎫 کد پیگیری: {code}\n🪪 نوع مدرک: {st.get('gov_doc_type','-')}\n📱 موبایل مشترک: {st.get('gov_phone',st.get('phone','-'))}\n🎂 تاریخ تولد: {st.get('dob','-')}\n🆔 شناسه یکتا: {st.get('gov_unique',st.get('unique_id','-'))}\n🔖 شناسه اختصاصی: {st.get('gov_special',st.get('special_id','-'))}\n📮 کد پستی منزل: {st.get('postal_code','-')}\n💰 مبلغ خدمت: {amount:,} تومان\n" + (f"💳 کسر از اعتبار همکار: {amount:,} تومان\n💵 اعتبار باقی‌مانده: {left:,} تومان\n" if pid else "") + "📎 مدرک در همین اعلان پیوست شده است.")
     markup = InlineKeyboardMarkup([[InlineKeyboardButton("📨 درخواست کد از همکار", callback_data=f"panel:askcode:{rid}")], [InlineKeyboardButton("🔎 مشاهده درخواست", callback_data=f"panel:req:{rid}")], [InlineKeyboardButton("⏳ در حال بررسی", callback_data=f"panel:review:{rid}"), InlineKeyboardButton("✅ انجام شد", callback_data=f"panel:approve:{rid}")], [InlineKeyboardButton("❌ رد درخواست", callback_data=f"panel:reject:{rid}"), InlineKeyboardButton("✉️ پاسخ به مشترک", callback_data=f"req:r:{rid}")]])
     for aid in B.ADM:
         try:
-            if update.message.photo:
-                await context.bot.send_photo(chat_id=int(aid), photo=fid, caption=text, reply_markup=markup)
-            else:
-                await context.bot.send_document(chat_id=int(aid), document=fid, caption=text, reply_markup=markup)
-        except Exception:
-            pass
+            if update.message.photo: await context.bot.send_photo(chat_id=int(aid), photo=fid, caption=text, reply_markup=markup)
+            else: await context.bot.send_document(chat_id=int(aid), document=fid, caption=text, reply_markup=markup)
+        except Exception: pass
     st["mode"] = None
     if pid:
         return await update.message.reply_text(f"✅ درخواست با موفقیت ثبت شد.\n🎫 کد پیگیری: {code}\n💰 مبلغ کسرشده: {amount:,} تومان\n💳 اعتبار باقی‌مانده: {left:,} تومان", reply_markup=B.partner_kb(st.get("lang", "fa")))
@@ -151,44 +137,32 @@ async def _gov_media(update, context):
 
 
 async def _ask_code_callback(update, context):
-    q = update.callback_query
-    data = q.data or ""
-    if not data.startswith("panel:askcode:"):
-        return
+    q = update.callback_query; data = q.data or ""
+    if not data.startswith("panel:askcode:"): return
     await q.answer("درخواست کد برای همکار ارسال شد")
     rid = int(data.split(":")[-1])
     r = B.db.conn.execute("SELECT user_id,tracking_code,service_key FROM requests WHERE id=?", (rid,)).fetchone()
-    if not r:
-        return await q.message.reply_text("❌ درخواست پیدا نشد.")
+    if not r: return await q.message.reply_text("❌ درخواست پیدا نشد.")
     p = B.db.conn.execute("SELECT phone,name FROM partners WHERE id=?", (r["user_id"],)).fetchone()
-    if not p:
-        return await q.message.reply_text("❌ این درخواست به همکار متصل نیست.")
+    if not p: return await q.message.reply_text("❌ این درخواست به همکار متصل نیست.")
     rows = B.db.conn.execute("SELECT external_id FROM users WHERE id=? AND platform='telegram'", (r["user_id"],)).fetchone()
-    if not rows:
-        return await q.message.reply_text("❌ شناسه تلگرام همکار پیدا نشد.")
+    if not rows: return await q.message.reply_text("❌ شناسه تلگرام همکار پیدا نشد.")
     partner_uid = rows["external_id"]
     B.S.setdefault(int(partner_uid), {})["mode"] = "partner_send_code"
-    try:
-        await context.bot.send_message(chat_id=int(partner_uid), text=f"👔 مدیریت\n\n📨 برای درخواست {r['tracking_code']} کد خدمت/کد انجام کار را برای مدیریت ارسال کنید:")
-    except Exception:
-        return await q.message.reply_text("❌ ارسال درخواست کد به همکار انجام نشد.")
+    try: await context.bot.send_message(chat_id=int(partner_uid), text=f"👔 مدیریت\n\n📨 برای درخواست {r['tracking_code']} کد خدمت/کد انجام کار را برای مدیریت ارسال کنید:")
+    except Exception: return await q.message.reply_text("❌ ارسال درخواست کد به همکار انجام نشد.")
     return await q.message.reply_text(f"✅ درخواست کد برای همکار «{p['name']}» ارسال شد.")
 
 
 async def _partner_code_text(update, context):
-    uid = update.effective_user.id
-    st = B.S.setdefault(uid, {})
-    if st.get("mode") != "partner_send_code" or not st.get("partner_id"):
-        return
+    uid = update.effective_user.id; st = B.S.setdefault(uid, {})
+    if st.get("mode") != "partner_send_code" or not st.get("partner_id"): return
     text = (update.message.text or "").strip()
-    if not text:
-        return await update.message.reply_text("❌ کد خالی است؛ کد خدمت را ارسال کنید.")
+    if not text: return await update.message.reply_text("❌ کد خالی است؛ کد خدمت را ارسال کنید.")
     p = B.db.conn.execute("SELECT name,phone FROM partners WHERE id=?", (st["partner_id"],)).fetchone()
     for aid in B.ADM:
-        try:
-            await context.bot.send_message(chat_id=int(aid), text=f"👔 مدیر — کد از همکار دریافت شد\n\n👤 همکار: {p['name'] if p else '-'}\n📱 شماره: {p['phone'] if p else '-'}\n🆔 شناسه تلگرام: {uid}\n🎫 کد خدمت: {text}")
-        except Exception:
-            pass
+        try: await context.bot.send_message(chat_id=int(aid), text=f"👔 مدیر — کد از همکار دریافت شد\n\n👤 همکار: {p['name'] if p else '-'}\n📱 شماره: {p['phone'] if p else '-'}\n🆔 شناسه تلگرام: {uid}\n🎫 کد خدمت: {text}")
+        except Exception: pass
     st["mode"] = None
     return await update.message.reply_text("✅ کد خدمت برای مدیریت ارسال شد.", reply_markup=B.partner_kb(st.get("lang", "fa")))
 
@@ -203,10 +177,8 @@ def install(app, bot_module):
     old_start = B.start
     async def start_with_restart(update, context):
         result = await old_start(update, context)
-        try:
-            await update.message.reply_text("دسترسی سریع:", reply_markup=_restart_keyboard())
-        except Exception:
-            pass
+        try: await update.message.reply_text("دسترسی سریع:", reply_markup=_restart_keyboard())
+        except Exception: pass
         return result
     B.start = start_with_restart
     app.add_handler(MessageHandler(filters.Regex(r"^🔄 شروع مجدد$"), _restart), group=-5)
