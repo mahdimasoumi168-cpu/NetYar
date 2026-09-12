@@ -1,8 +1,8 @@
 """Rubika client/runtime stability fixes.
 
-Handles first contact from users who do not emit StartedBot, normalizes the
-several Rubika sender/chat shapes, and prevents stale per-user state from
-blocking language/menu navigation.
+Keeps Rubika identity extraction consistent and makes the first language step
+independent of client-specific button payload shapes. This prevents one client
+from getting stuck on the language screen while another client works.
 """
 import logging
 
@@ -51,6 +51,58 @@ def _user(u):
     return ""
 
 
+def _button_value(update):
+    """Return a Rubika button's logical id/text across client payload variants."""
+    m = _message(update)
+    aux = m.get("aux_data")
+    if isinstance(aux, str):
+        try:
+            import json
+            aux = json.loads(aux)
+        except Exception:
+            aux = None
+    if isinstance(aux, dict):
+        for key in ("button_id", "button_text", "text"):
+            value = aux.get(key)
+            if value is not None and str(value).strip():
+                return str(value).strip()
+    for key in ("button_id", "button_text", "text"):
+        value = m.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return ""
+
+
+def _language_selection(rb, uid, chat, update):
+    """Handle language selection before any legacy/compatibility router."""
+    raw = _button_value(update)
+    languages = {
+        "1": "fa", "🇮🇷 فارسی": "fa", "فارسی": "fa",
+        "2": "en", "🇬🇧 English": "en", "English": "en",
+        "3": "ar", "🇸🇦 العربية": "ar", "العربية": "ar",
+    }
+    selected = languages.get(raw)
+    if not selected:
+        return False
+
+    st = rb.STATE.setdefault(str(uid), {})
+    # Only consume these values while the user is actually on language step.
+    if st.get("step") != "language":
+        return False
+
+    st["lang"] = selected
+    st["step"] = "citizenship"
+    if selected == "fa":
+        rows = [[("1", "🪪 اتباع هستم"), ("2", "🇮🇷 ایرانی هستم")]]
+    elif selected == "en":
+        rows = [[("1", "🪪 Foreign national"), ("2", "🇮🇷 Iranian")]]
+    else:
+        rows = [[("1", "🪪 أجنبي"), ("2", "🇮🇷 إيراني")]]
+    rb.send(chat, rb.T(uid, "cit"), rows)
+    log.info("Rubika language selected: user=%s chat=%s lang=%s", uid, chat, selected)
+    return True
+
+
 def install():
     import server
     import rubika_v2 as rb
@@ -58,7 +110,6 @@ def install():
     if getattr(rb, "_netyar_stability_fix_installed", False):
         return
 
-    # Make identity extraction identical everywhere in the Rubika runtime.
     rb.chat_of = _chat
     rb.user_of = _user
     server._rubika_chat = _chat
@@ -79,15 +130,18 @@ def install():
         if not st.get("step"):
             st["step"] = "language"
 
-        # Some Rubika clients do not emit StartedBot on the first message.
-        # Treat /start or a normal greeting as a fresh start for that chat.
         text = rb.text_of(update).strip()
         if text.lower() in {"/start", "start", "شروع", "سلام", "hi", "hello"}:
             rb.restart(str(uid), chat)
+            return
+
+        # Handle language selection before the legacy router. Rubika clients
+        # differ in whether they send button_id, button_text or plain text.
+        if _language_selection(rb, str(uid), chat, update):
             return
 
         return old_process(update)
 
     rb.process = process
     rb._netyar_stability_fix_installed = True
-    log.warning("Rubika identity/first-contact stability fix installed")
+    log.info("Rubika identity/first-contact/language stability fix installed")
