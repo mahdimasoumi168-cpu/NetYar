@@ -11,6 +11,7 @@ import telegram_no_reply_keyboard
 import telegram_iranian_complaints
 import admin_editable_texts
 import partner_pricing
+import telegram_partner_price_adjustment
 
 
 def build():
@@ -19,6 +20,7 @@ def build():
     telegram_panels.install(app, B)
     telegram_service_notifications.install(app, B)
     partner_pricing.install_telegram(app, B)
+    telegram_partner_price_adjustment.install(app, B)
     telegram_ux_billing.install(app, B)
     telegram_admin_plus.install(app, B)
     telegram_admin_entry.install(app, B)
