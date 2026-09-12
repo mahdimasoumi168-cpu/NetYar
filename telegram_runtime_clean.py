@@ -19,11 +19,13 @@ import partner_balance_reset
 import telegram_notification_guard
 import telegram_partner_code_reliable
 import telegram_request_details_fix
+import telegram_ticket_media
 
 
 def build():
     """Build Telegram and install the focused production extensions."""
     app = B.build()
+    telegram_ticket_media.install(app, B)
     telegram_panels.install(app, B)
     telegram_service_notifications.install(app, B)
     partner_pricing.install_telegram(app, B)
