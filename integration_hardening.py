@@ -72,11 +72,10 @@ def install():
                 updater = getattr(server.telegram_app, "updater", None)
                 if updater is None:
                     raise RuntimeError("python-telegram-bot updater is unavailable")
-                await updater.start_polling(
-                    allowed_updates=None,
-                    drop_pending_updates=False,
-                    close_loop=False,
-                )
+               await updater.start_polling(
+    allowed_updates=allowed_updates,
+    close_loop=False
+)
                 server.telegram_ready = True
                 server.log.info("Telegram long polling started successfully")
         except Exception:
