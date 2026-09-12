@@ -42,8 +42,9 @@ def install():
         B.build = guarded_build
         B._netyar_polling_guard_build = True
 
-    async def polling_error_callback(exc):
-        # PTB invokes this for errors raised by the polling updater.
+    # python-telegram-bot requires error_callback to be a regular callable,
+    # not a coroutine function. PTB schedules/handles the callback itself.
+    def polling_error_callback(exc):
         log.error("Telegram polling error: %s", exc, exc_info=exc)
 
     async def polling_only_watchdog():
@@ -54,7 +55,9 @@ def install():
                 if server.telegram_app is None:
                     continue
                 await server.telegram_app.bot.delete_webhook(drop_pending_updates=False)
-                server.telegram_ready = True
+                # Do not manufacture readiness here. start_polling() is the
+                # only place that is allowed to mark Telegram ready.
+                log.info("Telegram polling watchdog: webhook remains disabled")
             except asyncio.CancelledError:
                 return
             except Exception:
