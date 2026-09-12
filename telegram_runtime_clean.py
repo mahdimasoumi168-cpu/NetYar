@@ -27,16 +27,17 @@ import telegram_ticket_reliability
 import final_requirements_patch
 import final_ux_hardening
 import final_navigation_language_stability
+import cross_platform_stability_final
 
 
 def build():
     """Build Telegram and install the focused production extensions."""
-    # These three layers define the canonical navigation/state functions.
-    # They must be installed before B.build() registers its handlers; otherwise
-    # the application would keep references to older language/router functions.
+    # Canonical navigation must be installed before B.build() registers
+    # Telegram handlers that capture these functions.
     final_requirements_patch.install()
     final_ux_hardening.install()
     final_navigation_language_stability.install()
+    cross_platform_stability_final.install()
 
     app = B.build()
     telegram_ticket_reliability.install(app, B)
@@ -62,11 +63,11 @@ def build():
     telegram_request_details_fix.install(app, B)
     telegram_request_resend_fa.install(app, B)
 
-    # Keep the residence-booklet handler above the generic government media
-    # handler so its document photo is not consumed by the generic flow.
+    # Residence-booklet media must beat the generic government media handler.
     telegram_residence_booklet_guard.install(app, B)
 
-    # Re-apply admin/partner communication LAST because legacy modules can
-    # replace B.amenu after installation and make the button appear/disappear.
+    # These are deliberately LAST: legacy modules can replace the admin menu
+    # after installation and make buttons appear/disappear between clicks.
     telegram_admin_partner_chat.install(app, B)
+    cross_platform_stability_final.install()
     return app
