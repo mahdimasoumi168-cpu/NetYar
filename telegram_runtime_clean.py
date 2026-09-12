@@ -8,6 +8,7 @@ import telegram_ux_billing
 import telegram_gov_documents_flow
 import telegram_admin_plus
 import telegram_admin_entry
+import telegram_admin_button_guard
 import telegram_residence_booklet
 import telegram_residence_booklet_guard
 import telegram_no_reply_keyboard
@@ -70,4 +71,8 @@ def build():
     # after installation and make buttons appear/disappear between clicks.
     telegram_admin_partner_chat.install(app, B)
     cross_platform_stability_final.install()
+
+    # Terminal guard: the visible Telegram reply-keyboard admin button is
+    # handled before every legacy text router, so it cannot be swallowed.
+    telegram_admin_button_guard.install(app, B)
     return app
