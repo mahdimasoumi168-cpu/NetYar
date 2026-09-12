@@ -36,6 +36,12 @@ rubika_ticket_chat.install()
 import rubika_webhook_guard
 rubika_webhook_guard.install()
 
+# Final cross-platform layer MUST run after all legacy Rubika wrappers so a
+# handled ticket message cannot fall through into older routers and duplicate
+# or garble the response.
+import cross_platform_stability_final
+cross_platform_stability_final.install()
+
 
 def main():
     uvicorn.run(
