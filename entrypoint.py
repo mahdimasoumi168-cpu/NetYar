@@ -8,21 +8,12 @@ sys.modules["telegram_runtime"] = telegram_runtime_clean
 import uvicorn
 import server
 
-# Telegram lifecycle: keep ONE authoritative recovery mechanism.
-# The older telegram_reliability_fix wrapped _initialize_integrations a second
-# time and created a competing recovery path. The single-poller guard below is
-# now the only Telegram recovery owner.
+# Telegram UI/data stability only. Polling itself is owned exclusively by
+# server._initialize_integrations so there is exactly one Application/updater.
 import production_stability
 production_stability.install()
 
-import telegram_single_poller_guard
-telegram_single_poller_guard.install()
-
-# server.startup still directly schedules the legacy 90-second watchdog.
-# Cancel that task after startup so it cannot interfere with Telegram polling.
-import telegram_startup_watchdog_cleanup
-telegram_startup_watchdog_cleanup.install()
-
+# Rubika layers are kept isolated from Telegram's polling lifecycle.
 import rubika_stability_fix
 rubika_stability_fix.install()
 
