@@ -21,14 +21,12 @@ import telegram_notification_guard
 import telegram_partner_code_reliable
 import telegram_request_details_fix
 import telegram_request_resend_fa
-import telegram_ticket_media
 import telegram_ticket_reliability
 
 
 def build():
     """Build Telegram and install the focused production extensions."""
     app = B.build()
-    telegram_ticket_media.install(app, B)
     telegram_ticket_reliability.install(app, B)
     telegram_panels.install(app, B)
     telegram_service_notifications.install(app, B)
