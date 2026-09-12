@@ -42,6 +42,11 @@ rubika_webhook_guard.install()
 import cross_platform_stability_final
 cross_platform_stability_final.install()
 
+# Last-mile navigation is deliberately loaded last. This fixes the main-menu
+# restart button and preserves the complete admin/partner handlers above.
+import rubika_navigation_stability
+rubika_navigation_stability.install()
+
 
 def main():
     uvicorn.run(
