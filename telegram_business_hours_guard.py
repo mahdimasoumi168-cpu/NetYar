@@ -1,8 +1,7 @@
 """Telegram business-hours gate for NetYar.
 
-Public operating hours are 07:00 through 19:00 Tehran time. Outside that
-window every incoming user update is stopped before any menu/service handler
-can process it.
+Public operating hours are 07:00 through 19:00 Tehran time. Administrators
+and the designated permanent partner are never blocked by this gate.
 """
 from datetime import datetime, time
 from zoneinfo import ZoneInfo
@@ -11,11 +10,40 @@ from telegram.ext import CallbackQueryHandler, MessageHandler, ApplicationHandle
 TEHRAN = ZoneInfo("Asia/Tehran")
 OPEN = time(7, 0)
 CLOSE = time(19, 0)
+PERMANENT_PARTNER_PHONE = "09999527639"
 
 
 def is_open(now=None):
     current = (now or datetime.now(TEHRAN)).astimezone(TEHRAN).time()
     return OPEN <= current < CLOSE
+
+
+def _uid(update):
+    user = getattr(update, "effective_user", None)
+    return getattr(user, "id", None)
+
+
+def _is_exempt(update, B):
+    uid = _uid(update)
+    if uid is not None and B is not None:
+        try:
+            if B.admin(uid):
+                return True
+        except Exception:
+            pass
+        try:
+            st = B.S.get(uid, {})
+            phone = str(st.get("phone") or "").strip()
+            if phone == PERMANENT_PARTNER_PHONE:
+                return True
+            pid = st.get("partner_id")
+            if pid:
+                row = B.db.conn.execute("SELECT phone FROM partners WHERE id=?", (pid,)).fetchone()
+                if row and str(row["phone"]).strip() == PERMANENT_PARTNER_PHONE:
+                    return True
+        except Exception:
+            pass
+    return False
 
 
 def closed_text():
@@ -32,7 +60,7 @@ def install(app, B=None):
         return
 
     async def block_message(update, context):
-        if is_open():
+        if is_open() or _is_exempt(update, B):
             return
         message = getattr(update, "effective_message", None)
         if message:
@@ -43,7 +71,7 @@ def install(app, B=None):
         raise ApplicationHandlerStop
 
     async def block_callback(update, context):
-        if is_open():
+        if is_open() or _is_exempt(update, B):
             return
         q = getattr(update, "callback_query", None)
         if q:
@@ -57,7 +85,6 @@ def install(app, B=None):
                 raise ApplicationHandlerStop
         raise ApplicationHandlerStop
 
-    # Must run before /start, menu, service and callback handlers.
     app.add_handler(CallbackQueryHandler(block_callback), group=-100000)
     app.add_handler(MessageHandler(filters.ALL, block_message), group=-100001)
     app._netyar_business_hours_guard = True
