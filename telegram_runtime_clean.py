@@ -4,7 +4,6 @@ from telegram import InlineKeyboardButton,InlineKeyboardMarkup,Update
 from telegram.ext import Application,CallbackQueryHandler,CommandHandler,MessageHandler,TypeHandler,filters
 import bot as B
 log=logging.getLogger("netyar.telegram_runtime")
-
 def _diagnostic(update,context):
     try:
         if update.message is not None:log.info("Telegram update id=%s user=%s text=%r",update.update_id,getattr(update.effective_user,"id",None),update.message.text)
@@ -23,8 +22,7 @@ def _install_features(app):
     import telegram_business_features as F;F.install(app,B)
     import telegram_ui_policy_v2 as UI;UI.install(app,B)
     import telegram_admin_plus as A
-    app.add_handler(CallbackQueryHandler(lambda u,c:A._callback(u,c,B),pattern=r'^adm:'),group=-20)
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,lambda u,c:A._text(u,c,B)),group=-19)
+    app.add_handler(CallbackQueryHandler(lambda u,c:A._callback(u,c,B),pattern=r'^adm:'),group=-20);app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,lambda u,c:A._text(u,c,B)),group=-19)
     try:
         import telegram_admin_entry as AE;AE.install(app,B)
     except Exception:log.exception("admin entry unavailable")
@@ -32,6 +30,7 @@ def _install_features(app):
     import partner_pricing as P;P.install_telegram(app,B)
     import telegram_service_pricing as SP;SP.install(app,B)
     import telegram_night_shift_v2 as N;N.install(app,B)
+    import telegram_admin_menu_v2 as AM;AM.install(B)
     import telegram_request_control_v2 as RC;RC.install(app,B)
     log.info("Telegram feature layers installed")
 def build():
