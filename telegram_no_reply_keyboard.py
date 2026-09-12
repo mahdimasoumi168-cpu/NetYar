@@ -52,9 +52,15 @@ def _button_label_from_message(q):
 def _message_update_from_callback(update,q):return SimpleNamespace(update_id=getattr(update,"update_id",None),message=q.message,effective_message=q.message,effective_user=q.from_user,effective_chat=getattr(q.message,"chat",None),callback_query=q)
 async def _inline_callback(update,context,B):
     q=update.callback_query; label=_ACTIONS.get(str(q.data or "")) or _button_label_from_message(q)
-    if not label:await q.answer("این گزینه دیگر معتبر نیست؛ لطفاً از منوی فعلی استفاده کنید.");return
+    if not label:
+        await q.answer("این گزینه دیگر معتبر نیست؛ لطفاً از منوی فعلی استفاده کنید.")
+        raise ApplicationHandlerStop
     label=_clean_label(label);await q.answer();original=getattr(q.message,"text",None);proxy=_message_update_from_callback(update,q)
-    try:object.__setattr__(q.message,"text",label);await B.router(proxy,context)
+    try:
+        object.__setattr__(q.message,"text",label)
+        await B.router(proxy,context)
+    except ApplicationHandlerStop:
+        raise
     except Exception:
         log.exception("Inline button routing failed: %s",label)
         try:await q.message.reply_text("❌ اجرای این گزینه با خطا مواجه شد. لطفاً دوباره همین گزینه را بزنید.")
@@ -62,6 +68,10 @@ async def _inline_callback(update,context,B):
     finally:
         try:object.__setattr__(q.message,"text",original)
         except Exception:pass
+    # A callback is already consumed by this handler. Prevent a later
+    # handler from interpreting the same button a second time.
+    raise ApplicationHandlerStop
+
 def reassert(B):
     B.kb=_inline_kb;B.ReplyKeyboardMarkup=_InlineOnlyReplyKeyboard;B.restart_keyboard=restart_keyboard
     log.info("Telegram inline keyboard constructors reasserted")
