@@ -1,11 +1,8 @@
-"""Last-resort Telegram callback router.
+"""Last-resort Telegram inline callback router.
 
-The project contains several historical router wrappers. This handler is
-installed before them and treats ApplicationHandlerStop as successful control
-flow, preventing the old generic 'execution failed' message from appearing.
-It also gives the special partner and administrators a permanent bypass of
-business-hours restrictions at the application level when the main gate is
-reached later.
+This layer handles only the canonical ``ik:`` callbacks created by the inline
+keyboard layer. Ticket reply callbacks remain owned by the dedicated ticket
+router so their partner/admin state machine is not bypassed.
 """
 import logging
 from types import SimpleNamespace
@@ -57,7 +54,6 @@ def _label(q):
 
 
 def _proxy(update, q, text):
-    # Preserve Telegram's real reply methods but replace only the text field.
     real = q.message
     message = SimpleNamespace()
     for name in ("chat", "from_user", "date", "message_id", "photo", "video", "voice", "audio", "document", "animation", "caption", "entities", "reply_markup"):
@@ -112,8 +108,7 @@ async def callback(update, context, B):
             await q.message.reply_text("❌ شروع مجدد ناموفق بود. لطفاً دوباره تلاش کنید.")
         raise ApplicationHandlerStop
     try:
-        proxy = _proxy(update, q, text)
-        await B.router(proxy, context)
+        await B.router(_proxy(update, q, text), context)
     except ApplicationHandlerStop:
         raise
     except Exception:
@@ -126,7 +121,7 @@ def install(app, B):
     if getattr(B, "_telegram_callback_hardfix", False):
         return
     app.add_handler(
-        CallbackQueryHandler(lambda u, c: callback(u, c, B), pattern=r"^(ik:|ticket:reply:)"),
+        CallbackQueryHandler(lambda u, c: callback(u, c, B), pattern=r"^ik:"),
         group=-102,
     )
     B._telegram_callback_hardfix = True
