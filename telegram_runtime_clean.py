@@ -1,13 +1,16 @@
 """Canonical Telegram runtime.
 
-This module intentionally contains no monkey-patches.  Telegram uses the
-handlers defined in bot.py directly so partner-panel buttons and service
-routing have one authoritative implementation.
+Telegram uses bot.py as the single customer/service implementation and the
+separate telegram_panels module for the richer partner/admin UI. Legacy
+monkey-patch modules are intentionally not imported.
 """
 
 import bot as B
+import telegram_panels
 
 
 def build():
-    """Build the canonical python-telegram-bot application."""
-    return B.build()
+    """Build the canonical Telegram application and install panel handlers."""
+    app = B.build()
+    telegram_panels.install(app, B)
+    return app
