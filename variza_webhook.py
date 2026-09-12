@@ -1,10 +1,4 @@
-"""Variza signed payment webhook for NetYar.
-
-The handler is registered against the existing FastAPI app. It verifies the
-raw-body HMAC signature, de-duplicates deliveries, matches the payment slug
-to exactly one request, checks the exact requested amount, and only then
-marks the request paid.
-"""
+"""Signed, idempotent Variza payment webhook for NetYar."""
 import os, hmac, hashlib, json, logging
 from fastapi import Request
 from fastapi.responses import JSONResponse
@@ -42,29 +36,24 @@ def _register():
         import bot as B
         delivery = request.headers.get("X-Delivery-Id", "").strip()
         B.db.conn.execute("CREATE TABLE IF NOT EXISTS variza_deliveries(delivery_id TEXT PRIMARY KEY,created_at TEXT NOT NULL)")
-        if delivery:
-            exists = B.db.conn.execute("SELECT 1 FROM variza_deliveries WHERE delivery_id=?", (delivery,)).fetchone()
-            if exists:
-                return JSONResponse({"ok": True, "duplicate": True})
+        if delivery and B.db.conn.execute("SELECT 1 FROM variza_deliveries WHERE delivery_id=?", (delivery,)).fetchone():
+            return JSONResponse({"ok": True, "duplicate": True})
 
         slug = str(payload.get("slug") or "").strip()
-        amount = int(payload.get("amount") or 0)
+        try:
+            amount = int(payload.get("amount") or 0)
+        except Exception:
+            amount = 0
         if not slug or amount <= 0:
             return JSONResponse({"ok": False, "error": "invalid_payment"}, status_code=400)
 
-        row = B.db.conn.execute("""
-            SELECT r.* FROM requests r
-            JOIN request_answers a ON a.request_id=r.id
-            WHERE a.field_key='variza_slug' AND a.answer=?
-            ORDER BY r.id DESC LIMIT 1
-        """, (slug,)).fetchone()
+        row = B.db.conn.execute("SELECT r.* FROM requests r JOIN request_answers a ON a.request_id=r.id WHERE a.field_key='variza_slug' AND a.answer=? ORDER BY r.id DESC LIMIT 1", (slug,)).fetchone()
         if not row:
             return JSONResponse({"ok": False, "error": "request_not_found"}, status_code=404)
-
         rid = int(row["id"])
         expected_amount = int(row["amount"] or 0)
         if amount != expected_amount:
-            log.warning("Variza amount mismatch: request=%s expected=%s got=%s", rid, expected_amount, amount)
+            log.warning("Variza amount mismatch request=%s expected=%s got=%s", rid, expected_amount, amount)
             return JSONResponse({"ok": False, "error": "amount_mismatch"}, status_code=400)
 
         if str(row["payment_status"] or "").lower() == "paid":
@@ -79,23 +68,23 @@ def _register():
         B.db.conn.commit()
 
         tracking = str(row["tracking_code"] or "-")
-        for aid in B.ADM:
-            try:
-                await B._telegram_app.bot.send_message(int(aid), f"✅ پرداخت واریزا تأیید شد\n🎫 کد پیگیری: {tracking}\n💰 مبلغ: {amount:,} تومان\n💳 روش: واریزا\n\nاکنون درخواست قابل انجام است.")
-            except Exception:
-                try:
-                    import server
-                    if server.telegram_app:
-                        await server.telegram_app.bot.send_message(int(aid), f"✅ پرداخت واریزا تأیید شد\n🎫 {tracking}\n💰 {amount:,} تومان\nاکنون درخواست قابل انجام است.")
-                except Exception:
-                    pass
+        message = f"✅ پرداخت واریزا تأیید شد\n🎫 کد پیگیری: {tracking}\n💰 مبلغ: {amount:,} تومان\n💳 روش: واریزا\n\nاکنون درخواست قابل انجام است."
         try:
             import server
-            user = B.db.conn.execute("SELECT platform,external_id FROM users WHERE id=?", (int(row["user_id"]),)).fetchone()
-            if user and user["platform"] == "telegram" and server.telegram_app:
-                await server.telegram_app.bot.send_message(int(user["external_id"]), f"✅ پرداخت شما با موفقیت تأیید شد.\n🎫 کد پیگیری: {tracking}\n💰 مبلغ: {amount:,} تومان\n\nدرخواست شما اکنون در حال انجام است.")
+            if server.telegram_app:
+                for aid in B.ADM:
+                    try:
+                        await server.telegram_app.bot.send_message(int(aid), message)
+                    except Exception:
+                        pass
+                user = B.db.conn.execute("SELECT platform,external_id FROM users WHERE id=?", (int(row["user_id"]),)).fetchone()
+                if user and user["platform"] == "telegram":
+                    try:
+                        await server.telegram_app.bot.send_message(int(user["external_id"]), f"✅ پرداخت شما با موفقیت تأیید شد.\n🎫 کد پیگیری: {tracking}\n💰 مبلغ: {amount:,} تومان\n\nدرخواست شما اکنون در حال انجام است.")
+                    except Exception:
+                        pass
         except Exception:
-            pass
+            log.exception("Variza payment notification failed")
         return JSONResponse({"ok": True, "paid": True, "request_id": rid})
 
     _REGISTERED = True
