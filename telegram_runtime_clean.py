@@ -34,6 +34,7 @@ import admin_control_v4
 import telegram_global_stability
 import final_terminal_navigation_guard
 import telegram_start_flow_fix
+import canonical_button_router
 
 
 def build():
@@ -75,7 +76,9 @@ def build():
     telegram_global_stability.install(B)
     final_terminal_navigation_guard.install(app, B)
 
-    # Final UI assertion: legacy compatibility layers must not replace the
-    # canonical inline keyboard implementation after it has been installed.
+    # Final routing owner. Legacy layers may wrap B.router, but the canonical
+    # router must be installed after all of them so inline foreign-menu clicks
+    # are translated into the exact existing service flow.
+    canonical_button_router.install()
     telegram_no_reply_keyboard.reassert(B)
     return app
