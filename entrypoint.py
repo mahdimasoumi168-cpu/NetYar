@@ -1,14 +1,19 @@
 """Production entrypoint shared by Railway and local execution.
 
-Use the canonical FastAPI server directly. The previous entrypoint loaded a
-large legacy monkey-patch chain before startup; that chain could overwrite
-Telegram handlers and button routing multiple times.
+Use the canonical FastAPI server directly and bind its Telegram runtime to
+telegram_runtime_clean, which avoids the legacy monkey-patch chain.
 """
 
 import os
+import sys
+
+import telegram_runtime_clean
+
+# server.py imports the runtime by the historical module name.  Point that
+# import at the clean canonical runtime before server is loaded.
+sys.modules["telegram_runtime"] = telegram_runtime_clean
 
 import uvicorn
-
 import server
 
 
