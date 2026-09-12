@@ -49,7 +49,7 @@ def restart_keyboard():
 
 
 def _resolve_partner(B, uid):
-    """Resolve a partner from persistent Telegram-ID linkage, not volatile state."""
+    """Resolve an already-linked partner from persistent Telegram-ID linkage."""
     st=B.S.setdefault(uid,{})
     try:
         if st.get("partner_id"):
@@ -57,12 +57,7 @@ def _resolve_partner(B, uid):
             if row:
                 st["partner_active"]=True
                 return True
-        row=B.db.conn.execute(
-            "SELECT p.id FROM partners p "
-            "JOIN partner_telegram_links l ON l.partner_id=p.id "
-            "WHERE l.telegram_user_id=? AND p.active=1 LIMIT 1",
-            (str(uid),),
-        ).fetchone()
+        row=B.db.conn.execute("SELECT p.id FROM partners p JOIN partner_telegram_links l ON l.partner_id=p.id WHERE l.telegram_user_id=? AND p.active=1 LIMIT 1",(str(uid),)).fetchone()
         if row:
             st["partner_id"]=row["id"]
             st["partner_active"]=True
@@ -85,9 +80,9 @@ def _main_rows(B,uid):
         rows=[["🎫 پیگیری","💰 کیف پول من"],["📞 تماس با ما","📝 ثبت شکایت مشتریان"]]
     else:
         rows=[["🪪 فیدای غیر حضوری","🖨 خدمات چاپ"],["🪪 حل مشکل ورود اتباع دولت من","🎫 کد رهگیری تمدید کارت‌ها"],["📱 خدمات سیم کارت","📝 آزمون غربالگری"],["🎫 پیگیری","💰 کیف پول من"],["📞 تماس با ما","📝 ثبت شکایت مشتریان"]]
-    # Every active, persistently linked partner gets the partner panel.
-    # Management is also shown its own admin panel, independently.
-    if _resolve_partner(B,uid): rows.append(["👥 پنل همکاران"])
+    # This is a login entry point, so it must be visible on every device/account.
+    # B.partner performs the actual phone/password authentication before access.
+    rows.append(["👥 پنل همکاران"])
     if B.admin(uid): rows.append(["🛠 پنل مدیریت بات"])
     return rows
 
