@@ -68,12 +68,29 @@ async def _remove_on_message(update, context):
     await _remove_legacy_keyboard(getattr(update, "effective_message", None))
 
 
+def _button_label_from_message(q):
+    try:
+        markup = getattr(q.message, "reply_markup", None)
+        for row in getattr(markup, "inline_keyboard", []) or []:
+            for button in row:
+                if getattr(button, "callback_data", None) == str(q.data or ""):
+                    return str(getattr(button, "text", "") or "").strip()
+    except Exception:
+        log.exception("inline button label recovery failed")
+    return ""
+
+
 async def _inline_callback(update, context, B):
     q = update.callback_query
     key = str(q.data or "")
     label = _ACTIONS.get(key)
+    # The action registry is intentionally in-memory, so it can disappear on
+    # restart/deploy. The actual button text travels with the Telegram message;
+    # recover it and route it instead of telling the user the button expired.
     if label is None:
-        await q.answer("این گزینه منقضی شده؛ لطفاً منوی جدید را باز کنید.")
+        label = _button_label_from_message(q)
+    if not label:
+        await q.answer("این گزینه دیگر قابل اجرا نیست؛ لطفاً از منوی فعلی استفاده کنید.")
         return
     await q.answer()
     await _remove_legacy_keyboard(q.message)
