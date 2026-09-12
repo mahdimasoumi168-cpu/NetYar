@@ -1,7 +1,8 @@
 """Reliable Telegram partner-code requests.
 
 Keeps partner chat IDs stable by resolving them from both partner-id and
-phone settings, and allows up to three code-request attempts per request.
+phone settings, and resolves legacy requests whose requests.user_id points
+to a Telegram user row instead of the partner row.
 """
 import asyncio
 import logging
@@ -14,6 +15,73 @@ log = logging.getLogger("netyar.telegram_partner_code_reliable")
 def install(app, B):
     if getattr(B, "_partner_code_reliable_installed", False):
         return
+
+    async def resolve_partner(r):
+        """Resolve the partner assigned to a request across old/new schemas."""
+        rid = int(r["id"])
+        raw_uid = str(r["user_id"] or "").strip()
+
+        # 1) Current schema: service requests created from the partner panel
+        # store the partner primary key directly in requests.user_id.
+        try:
+            p = B.db.conn.execute(
+                "SELECT id,phone,name,active FROM partners WHERE id=?",
+                (r["user_id"],),
+            ).fetchone()
+            if p and int(p["active"] or 0) == 1:
+                return p
+        except Exception:
+            pass
+
+        # 2) Older flows sometimes stored the Telegram users.id instead.
+        # Resolve that row to its Telegram external_id, then match it against
+        # the persisted partner-chat mapping created at partner login.
+        external_id = ""
+        try:
+            u = B.db.conn.execute(
+                "SELECT external_id FROM users WHERE id=? AND platform='telegram'",
+                (r["user_id"],),
+            ).fetchone()
+            if u:
+                external_id = str(u["external_id"] or "").strip()
+        except Exception:
+            pass
+
+        if external_id:
+            try:
+                partners = B.db.conn.execute(
+                    "SELECT id,phone,name,active FROM partners WHERE active=1 ORDER BY id DESC"
+                ).fetchall()
+                for p in partners:
+                    pid = str(p["id"])
+                    phone = str(p["phone"] or "")
+                    by_id = B.db.setting(f"partner_chat_{pid}", "")
+                    by_phone = B.db.setting(f"partner_chat_{phone}", "")
+                    if external_id in {str(by_id).strip(), str(by_phone).strip()}:
+                        # Repair the request linkage for future clicks.
+                        try:
+                            B.db.set_setting(f"request_partner_{rid}", str(p["id"]))
+                        except Exception:
+                            pass
+                        return p
+            except Exception:
+                log.exception("legacy partner mapping lookup failed")
+
+        # 3) Newer requests may have an explicit mapping setting. This is
+        # checked last so a stale mapping cannot override a direct partner id.
+        try:
+            mapped = B.db.setting(f"request_partner_{rid}", "").strip()
+            if mapped.isdigit():
+                p = B.db.conn.execute(
+                    "SELECT id,phone,name,active FROM partners WHERE id=? AND active=1",
+                    (int(mapped),),
+                ).fetchone()
+                if p:
+                    return p
+        except Exception:
+            pass
+
+        return None
 
     async def resolve_partner_chat(pid, phone=None):
         candidates = []
@@ -55,11 +123,9 @@ def install(app, B):
             if not r:
                 await q.answer("درخواست پیدا نشد", show_alert=True)
                 raise ApplicationHandlerStop
-            p = B.db.conn.execute(
-                "SELECT id,phone,name,active FROM partners WHERE id=?",
-                (r["user_id"],),
-            ).fetchone()
-            if not p or not p["active"]:
+
+            p = await resolve_partner(r)
+            if not p:
                 await q.answer("همکار فعال برای این درخواست پیدا نشد", show_alert=True)
                 raise ApplicationHandlerStop
 
@@ -80,6 +146,7 @@ def install(app, B):
             B.db.set_setting(f"partner_code_request_{p['id']}", f"{rid}|{r['tracking_code']}")
             B.db.set_setting(f"partner_chat_{p['id']}", str(chat_id))
             B.db.set_setting(f"partner_chat_{p['phone']}", str(chat_id))
+            B.db.set_setting(f"request_partner_{rid}", str(p["id"]))
             B.db.conn.execute(
                 "UPDATE requests SET status='awaiting_partner_code',updated_at=? WHERE id=?",
                 (B.now(), rid),
