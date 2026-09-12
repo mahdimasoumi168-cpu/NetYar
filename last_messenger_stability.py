@@ -6,6 +6,38 @@ import time
 
 log = logging.getLogger("netyar.last_messenger_stability")
 
+ADMIN_LABELS = {
+    "🛠 پنل مدیریت بات", "🛠 پنل مدیریت",
+    "👤 کاربران", "👤 پنل کاربران", "👥 همکاران", "🤝 همکاران",
+    "➕ افزودن همکار", "💰 شارژها", "💰 پرداخت‌های مشتری",
+    "📋 درخواست‌ها", "⚙️ قیمت‌ها", "🟢 خدمات", "📊 گزارش کامل", "📊 گزارش",
+    "📣 اعلان همگانی", "🤖 بات‌های متصل", "➕ افزودن بات", "🧾 لاگ مدیریت",
+    "⚙️ تنظیمات سیستم", "⚙️ تنظیمات پایه", "🎫 تیکت‌ها",
+    "🟢/🔴 خدمات ایرانی", "🟢/🔴 خدمات اتباع", "💰 قیمت خدمات", "📝 تغییر متن‌ها",
+    "📎 مدارک و فایل‌ها", "👤 مدیران", "🤖 پیام‌رسان‌ها", "📊 گزارش‌ها",
+    "📞 پشتیبانی", "⬅️ منوی اصلی", "⬅️ بازگشت",
+}
+
+
+def _callback_update(q):
+    class Msg:
+        def __init__(self, original):
+            self._original = original
+            self.chat = getattr(original, "chat", None)
+            self.from_user = q.from_user
+            self.text = getattr(original, "text", "")
+
+        async def reply_text(self, *args, **kwargs):
+            return await q.message.reply_text(*args, **kwargs)
+
+    class U:
+        effective_user = q.from_user
+        message = Msg(q.message)
+        effective_message = q.message
+        callback_query = q
+
+    return U()
+
 
 def install():
     # Telegram: final_platform_fix uses ik:* callbacks, while the later
@@ -22,34 +54,31 @@ def install():
                 q = update.callback_query
                 label = str(actions.get(str(q.data or ""), "")).strip()
                 await q.answer()
+                if not label:
+                    return
+
+                # Admin callbacks must never fall through to the generic
+                # customer router. That was the source of «گزینه مدیریت
+                # شناخته نشد» after opening the admin panel.
+                if B.admin(q.from_user.id) and label in ADMIN_LABELS:
+                    try:
+                        await P._remove_old_telegram_keyboard(q.message)
+                    except Exception:
+                        pass
+                    handler = getattr(B, "admin_text", None)
+                    if handler is not None:
+                        return await handler(_callback_update(q), context)
+
                 if label in {"👥 پنل همکاران", "🔵 👥 پنل همکاران", "🔵 👥 Partner panel", "🔵 👥 لوحة الشركاء"}:
-                    # Build a minimal update compatible with the bot's
-                    # partner handler without relying on stale message text.
-                    class Msg:
-                        def __init__(self, original):
-                            self._original = original
-                            self.chat = getattr(original, "chat", None)
-                            self.from_user = q.from_user
-                        async def reply_text(self, *args, **kwargs):
-                            return await q.message.reply_text(*args, **kwargs)
-                    class U:
-                        effective_user = q.from_user
-                        message = Msg(q.message)
-                        effective_message = q.message
-                    return await B.partner(U(), context)
+                    try:
+                        await P._remove_old_telegram_keyboard(q.message)
+                    except Exception:
+                        pass
+                    return await B.partner(_callback_update(q), context)
+
                 if label in {B.CANCEL, "❌ لغو", "Cancel", "إلغاء"}:
-                    class Msg:
-                        def __init__(self, original):
-                            self.chat = getattr(original, "chat", None)
-                            self.from_user = q.from_user
-                        async def reply_text(self, *args, **kwargs):
-                            return await q.message.reply_text(*args, **kwargs)
-                    class U:
-                        effective_user = q.from_user
-                        message = Msg(q.message)
-                        effective_message = q.message
-                    return await B.cancel(U(), context)
-                # Other ik:* actions remain handled by the existing bridge.
+                    return await B.cancel(_callback_update(q), context)
+
                 return await P._inline_text_callback(update, context)
 
             old_build = B.build
@@ -59,14 +88,13 @@ def install():
                 return app
             B.build = build_with_last_guard
             B._last_messenger_telegram_guard = True
-            log.info("Last Telegram ik callback guard installed")
+            log.info("Last Telegram ik callback/admin/navigation guard installed")
     except Exception:
         log.exception("Telegram last guard failed")
 
-    # Rubika: the previous final transport switched from the native
-    # chat_keypad format to inline_keypad and also performed repeated endpoint
-    # registrations. Use the native transport and keep endpoint registration
-    # as a no-op; the existing webhook is already delivering NewMessage events.
+    # Rubika: use the native chat_keypad format and do not repeatedly register
+    # the endpoint. The deployed service already receives NewMessage updates;
+    # repeated endpoint registration was the source of InvalidUrl startup noise.
     try:
         import rubika_v2 as RB
         if not getattr(RB, "_last_messenger_rubika_guard", False):
