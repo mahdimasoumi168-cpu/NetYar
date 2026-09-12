@@ -137,6 +137,11 @@ def install():
             rb.normalize_phone=normalize_phone;server._patch_rubika(rb);_patch_rubika_inline_ui(rb)
             partner_pricing.install_rubika(rb)
             try:
+                import rubika_iranian_complaints
+                rubika_iranian_complaints.install(rb)
+                log.info("Rubika Iranian subscriber UX installed")
+            except Exception:log.exception("Rubika Iranian subscriber UX could not be installed")
+            try:
                 import rubika_admin_control_v5
                 rubika_admin_control_v5.install();log.info("Rubika full admin control installed")
             except Exception:log.exception("Rubika full admin control could not be installed")
