@@ -1,8 +1,4 @@
-"""Clean Telegram panel enhancements.
-
-Keeps the original customer flow while adding a richer partner/admin panel
-without monkey-patching the legacy runtime modules.
-"""
+"""Clean Telegram panel enhancements."""
 import logging
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import MessageHandler, CallbackQueryHandler, filters
@@ -36,6 +32,20 @@ def _partner_id(B, uid):
     return B.S.get(uid, {}).get("partner_id")
 
 
+def _ticket_button(partner_id):
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("↩️ پاسخ پیام", callback_data=f"ticket:reply:{partner_id}")]
+    ])
+
+
+def _partner_chat(B, pid):
+    try:
+        value = B.db.setting(f"partner_chat_{pid}", "")
+        return int(value) if value else None
+    except Exception:
+        return None
+
+
 async def _partner_requests(update, context, B):
     uid = update.effective_user.id
     pid = _partner_id(B, uid)
@@ -46,10 +56,7 @@ async def _partner_requests(update, context, B):
         "FROM requests WHERE user_id=? ORDER BY id DESC LIMIT 30", (pid,)
     ).fetchall()
     if not rows:
-        return await update.message.reply_text(
-            "🎫 درخواست‌های من\n\nهنوز درخواستی ثبت نشده است.",
-            reply_markup=partner_keyboard(B),
-        )
+        return await update.message.reply_text("🎫 درخواست‌های من\n\nهنوز درخواستی ثبت نشده است.", reply_markup=partner_keyboard(B))
     text = "🎫 درخواست‌های من\n\n" + "\n".join(
         f"#{r['id']} | {r['tracking_code']} | {r['service_key']} | {r['status']} | {int(r['amount'] or 0):,} تومان"
         for r in rows
@@ -79,7 +86,7 @@ async def _partner_message(update, context, B):
         return
     B.S[uid]["mode"] = "partner_message"
     return await update.message.reply_text(
-        "📨 پیام خود را برای مدیریت ارسال کنید.\n\nپیام شما برای مدیریت ارسال می‌شود.",
+        "📨 پیام خود را برای مدیریت ارسال کنید.\n\nمشکل یا درخواست خود را کامل بنویسید.",
         reply_markup=B.cancel_kb(),
     )
 
@@ -88,18 +95,57 @@ async def _panel_text(update, context, B):
     t = (update.message.text or "").strip()
     uid = update.effective_user.id
     st = B.S.setdefault(uid, {})
+
     if st.get("mode") == "partner_message":
         pid = st.get("partner_id")
         p = B.db.conn.execute("SELECT name,phone FROM partners WHERE id=?", (pid,)).fetchone()
-        if p:
-            text = f"📨 پیام جدید همکار\n👤 {p['name']}\n📱 {p['phone']}\n🆔 کاربر تلگرام: {uid}\n\n{t}"
+        if p and t:
+            text = f"📨 پیام جدید همکار\n👤 {p['name']}\n📱 {p['phone']}\n🆔 شناسه همکار: {pid}\n\n📝 {t}"
+            B.db.set_setting(f"ticket_admin_{pid}", str(next(iter(B.ADM), "")))
             for aid in B.ADM:
                 try:
-                    await context.bot.send_message(chat_id=int(aid), text=text)
+                    await context.bot.send_message(chat_id=int(aid), text=text, reply_markup=_ticket_button(pid))
                 except Exception:
-                    log.exception("forward partner text")
+                    log.exception("forward partner ticket")
             st["mode"] = None
-            return await update.message.reply_text("✅ پیام شما برای مدیریت ارسال شد.", reply_markup=partner_keyboard(B))
+            return await update.message.reply_text("✅ پیام شما برای مدیریت ارسال شد.\nمدیریت می‌تواند از گزینه «پاسخ پیام» با شما گفتگو کند.", reply_markup=partner_keyboard(B))
+
+    if st.get("mode") == "ticket_admin_reply" and B.admin(uid):
+        pid = st.get("ticket_partner_id")
+        chat_id = _partner_chat(B, pid)
+        if not chat_id or not t:
+            return await update.message.reply_text("❌ ارتباط با همکار پیدا نشد.", reply_markup=admin_keyboard(B))
+        try:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=f"👔 پاسخ مدیریت\n\n{t}",
+                reply_markup=_ticket_button(pid),
+            )
+            B.db.set_setting(f"ticket_admin_{pid}", str(uid))
+            st["mode"] = None
+            st.pop("ticket_partner_id", None)
+            return await update.message.reply_text("✅ پاسخ برای همکار ارسال شد.", reply_markup=admin_keyboard(B))
+        except Exception:
+            log.exception("send admin ticket reply")
+            return await update.message.reply_text("❌ ارسال پاسخ انجام نشد.", reply_markup=admin_keyboard(B))
+
+    if st.get("mode") == "ticket_partner_reply" and st.get("partner_id"):
+        pid = st.get("partner_id")
+        admin_id = B.db.setting(f"ticket_admin_{pid}", "").strip()
+        if not admin_id:
+            admin_id = str(next(iter(B.ADM), ""))
+        if not admin_id or not t:
+            return await update.message.reply_text("❌ مدیریت برای پاسخ در دسترس نیست.", reply_markup=partner_keyboard(B))
+        p = B.db.conn.execute("SELECT name,phone FROM partners WHERE id=?", (pid,)).fetchone()
+        text = f"📨 پاسخ همکار\n👤 {p['name'] if p else '-'}\n📱 {p['phone'] if p else '-'}\n\n📝 {t}"
+        try:
+            await context.bot.send_message(chat_id=int(admin_id), text=text, reply_markup=_ticket_button(pid))
+            st["mode"] = None
+            return await update.message.reply_text("✅ پاسخ شما برای مدیریت ارسال شد.", reply_markup=partner_keyboard(B))
+        except Exception:
+            log.exception("send partner ticket reply")
+            return await update.message.reply_text("❌ ارسال پاسخ انجام نشد.", reply_markup=partner_keyboard(B))
+
     if t == "🎫 درخواست‌های من":
         return await _partner_requests(update, context, B)
     if t == "💰 موجودی":
@@ -107,10 +153,7 @@ async def _panel_text(update, context, B):
     if t == "📨 ارسال پیام به مدیریت":
         return await _partner_message(update, context, B)
     if t == "📨 پیام‌های مدیریت" and B.admin(uid):
-        return await update.message.reply_text(
-            "📨 پیام‌های مدیریت\n\nبرای پاسخ به درخواست‌ها از بخش «📋 درخواست‌ها» استفاده کنید.",
-            reply_markup=admin_keyboard(B),
-        )
+        return await update.message.reply_text("📨 پیام‌های مدیریت\n\nبرای پاسخ به پیام‌های همکاران، روی «↩️ پاسخ پیام» بزنید.", reply_markup=admin_keyboard(B))
     return None
 
 
@@ -123,17 +166,45 @@ async def _panel_media(update, context, B):
     if not p:
         return None
     caption = update.message.caption or ""
-    text = f"📨 پیام جدید همکار\n👤 {p['name']}\n📱 {p['phone']}\n🆔 کاربر تلگرام: {uid}\n\n{caption or 'پیام رسانه‌ای'}"
+    text = f"📨 پیام جدید همکار\n👤 {p['name']}\n📱 {p['phone']}\n🆔 شناسه همکار: {st['partner_id']}\n\n{caption or 'پیام رسانه‌ای'}"
     for aid in B.ADM:
         try:
+            markup = _ticket_button(st["partner_id"])
             if update.message.photo:
-                await context.bot.send_photo(chat_id=int(aid), photo=update.message.photo[-1].file_id, caption=text)
+                await context.bot.send_photo(chat_id=int(aid), photo=update.message.photo[-1].file_id, caption=text, reply_markup=markup)
             elif update.message.document:
-                await context.bot.send_document(chat_id=int(aid), document=update.message.document.file_id, caption=text)
+                await context.bot.send_document(chat_id=int(aid), document=update.message.document.file_id, caption=text, reply_markup=markup)
         except Exception:
             log.exception("forward partner media")
     st["mode"] = None
     return await update.message.reply_text("✅ پیام شما برای مدیریت ارسال شد.", reply_markup=partner_keyboard(B))
+
+
+async def _ticket_callback(update, context, B):
+    q = update.callback_query
+    data = str(q.data or "")
+    if not data.startswith("ticket:reply:"):
+        return
+    await q.answer()
+    try:
+        pid = int(data.rsplit(":", 1)[1])
+    except Exception:
+        return await q.message.reply_text("❌ شناسه همکار نامعتبر است.")
+    uid = q.from_user.id
+    st = B.S.setdefault(uid, {})
+
+    if B.admin(uid):
+        if not _partner_chat(B, pid):
+            return await q.message.reply_text("❌ چت همکار ثبت نشده است. همکار باید یک‌بار وارد پنل شود.")
+        st["mode"] = "ticket_admin_reply"
+        st["ticket_partner_id"] = pid
+        B.db.set_setting(f"ticket_admin_{pid}", str(uid))
+        return await q.message.reply_text("✍️ پاسخ خود را برای این همکار بنویسید:", reply_markup=B.cancel_kb())
+
+    if st.get("partner_id") != pid:
+        return await q.message.reply_text("❌ این پیام مربوط به حساب شما نیست.")
+    st["mode"] = "ticket_partner_reply"
+    return await q.message.reply_text("✍️ پاسخ خود را برای مدیریت بنویسید:", reply_markup=B.cancel_kb())
 
 
 async def _panel_callback(update, context, B):
@@ -148,9 +219,8 @@ async def _panel_callback(update, context, B):
         r = B.db.conn.execute("SELECT * FROM requests WHERE id=?", (rid,)).fetchone()
         if not r:
             return await q.message.reply_text("❌ درخواست پیدا نشد.")
-        if not B.admin(q.from_user.id):
-            if B.S.get(q.from_user.id, {}).get("partner_id") != r["user_id"]:
-                return
+        if not B.admin(q.from_user.id) and B.S.get(q.from_user.id, {}).get("partner_id") != r["user_id"]:
+            return
         answers = B.db.conn.execute("SELECT field_key,answer,file_id FROM request_answers WHERE request_id=? ORDER BY id", (rid,)).fetchall()
         lines = [f"🎫 {r['tracking_code']}", f"🧾 {r['service_key']}", f"📌 وضعیت: {r['status']}", f"💰 مبلغ: {int(r['amount'] or 0):,} تومان", f"💳 پرداخت: {r['payment_status']}", "", "📋 اطلاعات درخواست:"]
         for a in answers:
@@ -201,4 +271,5 @@ def install(app, B):
     B.amenu = lambda: admin_keyboard(B)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, lambda u,c: _panel_text(u,c,B)), group=-1)
     app.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL, lambda u,c: _panel_media(u,c,B)), group=-1)
+    app.add_handler(CallbackQueryHandler(lambda u,c: _ticket_callback(u,c,B), pattern=r"^ticket:reply:"), group=-1)
     app.add_handler(CallbackQueryHandler(lambda u,c: _panel_callback(u,c,B), pattern=r"^panel:"), group=-1)
