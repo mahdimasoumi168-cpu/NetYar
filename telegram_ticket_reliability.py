@@ -1,13 +1,17 @@
 """Reliable free-form partner/admin ticket messaging for Telegram."""
 import logging
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationHandlerStop, MessageHandler, filters
 
 log = logging.getLogger("netyar.telegram.ticket_reliability")
 
 
 def _button(pid):
-    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
     return InlineKeyboardMarkup([[InlineKeyboardButton("↩️ پاسخ پیام", callback_data=f"ticket:reply:{pid}")]])
+
+
+def _update_button():
+    return InlineKeyboardMarkup([[InlineKeyboardButton("🔄 شروع مجدد با به‌روزرسانی", callback_data="ik:update-restart")]])
 
 
 def _chat(B, pid):
@@ -28,7 +32,7 @@ async def _send(bot, chat_id, message, caption, markup):
     elif message.video:
         await bot.send_video(chat_id, message.video.file_id, caption=caption, reply_markup=markup)
     elif message.voice:
-        await bot.send_voice(chat_id, message.voice.file_id, caption=caption, reply_markup=markup)
+        await bot.send_voice(chat_id, message.voice.file_id, reply_markup=markup)
     elif message.audio:
         await bot.send_audio(chat_id, message.audio.file_id, caption=caption, reply_markup=markup)
     elif message.document:
@@ -62,9 +66,6 @@ async def _media_or_text(update, context, B):
             p = B.db.conn.execute("SELECT name,phone FROM partners WHERE id=?", (pid,)).fetchone()
             if not p:
                 return
-            # Register the partner's real Telegram chat immediately. This is
-            # what lets an administrator later start a conversation from
-            # «💬 ارتباط با همکار» without requiring a previous reply button.
             B.db.set_setting(f"partner_chat_{pid}", str(user.id))
             if p["phone"]:
                 B.db.set_setting(f"partner_chat_{p['phone']}", str(user.id))
@@ -72,7 +73,7 @@ async def _media_or_text(update, context, B):
             B.db.set_setting(f"ticket_admin_{pid}", str(next(iter(B.ADM), "")))
             for aid in B.ADM:
                 await _send(context.bot, int(aid), message, text, _button(pid))
-            await message.reply_text("✅ پیام شما برای مدیریت ارسال شد.\nهر تعداد پیام، متن، عکس، ویدیو یا ویس خواستید می‌توانید ارسال کنید.")
+            await message.reply_text("✅ پیام شما برای مدیریت ارسال شد.\nهر تعداد پیام، متن، عکس، ویدیو یا ویس خواستید ارسال کنید.")
             raise ApplicationHandlerStop
 
         if mode == "ticket_admin_reply" and B.admin(user.id):
@@ -84,6 +85,11 @@ async def _media_or_text(update, context, B):
             text = f"👔 پیام مدیریت\n\n{caption or 'پیام بدون متن'}"
             await _send(context.bot, chat_id, message, text, _button(pid))
             B.db.set_setting(f"ticket_admin_{pid}", str(user.id))
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="🔄 ربات به‌روزرسانی شد\n\nبرای دریافت منوی به‌روز و شروع دوباره، دکمه زیر را بزنید.",
+                reply_markup=_update_button(),
+            )
             await message.reply_text("✅ پیام برای همکار ارسال شد.\nمی‌توانید پیام بعدی را هم بفرستید.")
             raise ApplicationHandlerStop
 
