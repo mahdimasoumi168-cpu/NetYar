@@ -61,6 +61,18 @@ def restart_keyboard():
     return ReplyKeyboardMarkup([["🔄 شروع مجدد"]], resize_keyboard=True, is_persistent=True)
 
 
+def reassert(B):
+    """Re-apply canonical keyboard hooks after all legacy compatibility layers."""
+    B.kb = _inline_kb
+    B.ReplyKeyboardMarkup = _InlineOnlyReplyKeyboard
+    B.restart_keyboard = restart_keyboard
+    # bot.kb() resolves ReplyKeyboardMarkup from bot module globals at call time.
+    try:
+        B.__dict__["ReplyKeyboardMarkup"] = _InlineOnlyReplyKeyboard
+    except Exception:
+        pass
+
+
 async def _remove_legacy_keyboard(message):
     if not message:
         return
@@ -86,13 +98,7 @@ async def _remove_on_message(update, context):
 
 
 class _CallbackMessageProxy:
-    """Message proxy that keeps Telegram's real reply methods but overrides text.
-
-    Several legacy routers only inspect update.message.text. Passing a plain
-    SimpleNamespace there loses Telegram Message methods; mutating q.message is
-    also unsafe. This proxy gives the router the selected button text while all
-    reply/edit/file operations continue to target the real Telegram message.
-    """
+    """Message proxy that preserves real Telegram message methods while overriding text."""
     def __init__(self, message, text):
         self._message = message
         self.text = text
@@ -131,13 +137,10 @@ async def _inline_callback(update, context, B):
     if not label:
         await q.answer("این گزینه دیگر معتبر نیست؛ لطفاً از منوی فعلی استفاده کنید.")
         return
-
     label = _clean_label(label)
     await q.answer()
     proxy = _CallbackUpdateProxy(update, q, label)
     try:
-        # Route through the FINAL B.router so every existing service, partner,
-        # admin and cancellation flow keeps its current behavior.
         await B.router(proxy, context)
     except Exception:
         log.exception("Inline button routing failed: %s", label)
@@ -149,12 +152,10 @@ async def _inline_callback(update, context, B):
 
 def install(app, B):
     if getattr(B, "_netyar_no_reply_keyboard", False):
+        reassert(B)
         return
 
-    B.kb = _inline_kb
-    B.ReplyKeyboardMarkup = _InlineOnlyReplyKeyboard
-    B.restart_keyboard = restart_keyboard
-
+    reassert(B)
     for module_name in (
         "telegram_admin_plus",
         "telegram_ux_billing",
@@ -184,8 +185,7 @@ def install(app, B):
     app.add_handler(CommandHandler("start", _restart), group=-301)
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex(r"^🔄 شروع مجدد$"), _restart), group=-300)
     app.add_handler(MessageHandler(filters.ALL, _remove_on_message), group=-200)
-    # Must run before every legacy CallbackQueryHandler. Otherwise an older
-    # callback handler can consume the update before the canonical label router.
     app.add_handler(CallbackQueryHandler(lambda u, c: _inline_callback(u, c, B), pattern=r"^ik:"), group=-10000)
 
     B._netyar_no_reply_keyboard = True
+    reassert(B)
