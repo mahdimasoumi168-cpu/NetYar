@@ -1,19 +1,13 @@
-"""Robust Telegram partner phone lookup.
-
-Partner phone numbers may have been stored in different but equivalent forms
-(+98..., 0098..., Persian digits, spaces/dashes). The Telegram login flow
-previously normalized only the input and then required an exact DB match.
-This layer normalizes both sides and falls back to scanning active partners.
-"""
+"""Reliable Telegram partner-panel login flow and phone normalization."""
 import re
 import logging
+from telegram.ext import MessageHandler, ApplicationHandlerStop, filters
 
 log = logging.getLogger("netyar.telegram_partner_login_fix")
 
 
 def normalize_phone(value):
-    s = str(value or "").strip()
-    s = s.translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789"))
+    s = str(value or "").strip().translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789"))
     s = re.sub(r"[\s\-()]+", "", s)
     if s.startswith("+98"):
         s = "0" + s[3:]
@@ -22,11 +16,15 @@ def normalize_phone(value):
     return s
 
 
-def install():
-    import bot as B
+def install(app=None, B=None):
+    if B is None:
+        import bot as B
     if getattr(B, "_telegram_partner_login_fix_installed", False):
         return
+    if app is None:
+        return
 
+    from core import check_password
     original_partner = B.db.partner
 
     def partner_fixed(phone):
@@ -37,29 +35,79 @@ def install():
         if not re.fullmatch(r"09\d{9}", normalized):
             return None
         try:
-            rows = B.db.conn.execute(
-                "SELECT * FROM partners WHERE active=1 ORDER BY id DESC"
-            ).fetchall()
+            rows = B.db.conn.execute("SELECT * FROM partners WHERE active=1 ORDER BY id DESC").fetchall()
             for candidate in rows:
                 if normalize_phone(candidate["phone"]) == normalized:
                     return candidate
         except Exception:
-            log.exception("Telegram partner fallback lookup failed")
+            log.exception("partner fallback lookup failed")
         return None
 
     B.db.partner = partner_fixed
     B.db.get_partner = partner_fixed
 
-    # Normalize newly-created partner records too, so future logins are stored
-    # consistently without changing existing account credentials.
-    original_add_partner = B.db.add_partner
+    async def partner_login(update, context):
+        if not update.effective_user or not update.message:
+            return
+        uid = update.effective_user.id
+        st = B.S.setdefault(uid, {})
+        mode = st.get("mode")
+        step = st.get("step")
+        text = (update.message.text or "").strip()
+        if not text:
+            return
 
-    def add_partner_fixed(phone, password, name):
-        normalized = normalize_phone(phone)
-        if not normalized:
-            raise ValueError("شماره همراه همکار معتبر نیست")
-        return original_add_partner(normalized, password, name)
+        if mode == "p_phone" or step == "partner_phone":
+            phone = normalize_phone(text)
+            if not re.fullmatch(r"09\d{9}", phone):
+                await update.message.reply_text("❌ شماره همراه را صحیح وارد کنید.")
+                raise ApplicationHandlerStop
+            partner = partner_fixed(phone)
+            if not partner:
+                await update.message.reply_text("❌ همکار پیدا نشد. شماره همراه را دوباره وارد کنید.")
+                st["mode"] = "p_phone"; st["step"] = "partner_phone"
+                raise ApplicationHandlerStop
+            st["partner_phone"] = phone
+            st["mode"] = "p_pass"; st["step"] = "partner_pass"
+            await update.message.reply_text("🔐 رمز عبور همکار را وارد کنید:")
+            raise ApplicationHandlerStop
 
-    B.db.add_partner = add_partner_fixed
+        if mode == "p_pass" or step == "partner_pass":
+            phone = normalize_phone(st.get("partner_phone"))
+            partner = partner_fixed(phone) if phone else None
+            ok = False
+            try:
+                ok = bool(partner and check_password(text, partner["password_hash"]))
+            except Exception:
+                log.exception("partner password verification failed")
+            if not ok:
+                st["mode"] = "p_pass"; st["step"] = "partner_pass"
+                await update.message.reply_text("❌ شماره همراه یا رمز عبور نادرست است.\n\n🔐 رمز عبور را دوباره وارد کنید:")
+                raise ApplicationHandlerStop
+
+            st["partner"] = phone
+            st["partner_id"] = partner["id"] if "id" in partner.keys() else None
+            st["mode"] = "partner"; st["step"] = "partner"
+            try: B.db.set_setting(f"partner_chat_{phone}", str(uid))
+            except Exception: pass
+            balance = int(partner["balance"] or 0)
+            markup = B.kb([
+                ["➕ شارژ حساب", "🔎 پیگیری کد"],
+                ["📋 سوابق", "💰 موجودی"],
+                ["🏛 حل مشکل سامانه دولت من"],
+                ["✉️ تیکت به مدیریت"],
+                ["🚪 خروج از پنل"],
+            ])
+            await update.message.reply_text(f"👥 پنل همکار\n📱 {phone}\n💰 موجودی اعتبار: {balance:,} تومان\n\nگزینه موردنظر را انتخاب کنید:", reply_markup=markup)
+            raise ApplicationHandlerStop
+
+        if mode == "partner" and text == "🚪 خروج از پنل":
+            for key in ("partner", "partner_id", "partner_phone"):
+                st.pop(key, None)
+            st["mode"] = None; st["step"] = None
+            await update.message.reply_text("✅ از پنل همکاران خارج شدید.", reply_markup=B.main(uid))
+            raise ApplicationHandlerStop
+
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, partner_login), group=-90)
     B._telegram_partner_login_fix_installed = True
-    log.info("Telegram partner phone lookup fix installed")
+    log.info("Telegram partner login fix installed")
