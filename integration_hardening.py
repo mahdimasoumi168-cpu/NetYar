@@ -1,8 +1,8 @@
-"""Startup hardening for Telegram/Rubika webhook registration.
+"""Startup hardening for Telegram/Rubika integration registration.
 
-The Railway public proxy needs a short warm-up after a fresh deployment.
-Rubika's ReceiveUpdate endpoint is registered on the conventional
-/rubika/receiveUpdate path, which is also exposed by server.py.
+Telegram is run with long polling by default. This avoids Railway edge-proxy
+502 responses when Telegram cannot reach the public webhook reliably. Set
+TELEGRAM_USE_WEBHOOK=true only when a stable public webhook endpoint is known.
 """
 import asyncio
 
@@ -24,54 +24,70 @@ def install():
 
     async def initialize_with_retries():
         global_error = False
+        await asyncio.sleep(3)
 
-        # Let Railway's public HTTPS proxy become reachable before providers
-        # validate the webhook URL. This also reduces transient Telegram 502s.
-        await asyncio.sleep(8)
-
+        # Telegram: long polling is the reliable Railway mode. Webhook mode is
+        # opt-in because Telegram's provider currently reports 502 against the
+        # deployed public proxy even though the internal FastAPI health check is OK.
         try:
             import telegram_runtime as tg
             server.telegram_app = tg.build()
             await server.telegram_app.initialize()
             await server.telegram_app.start()
-            tg_url = server.public_url("/telegram/update")
-            secret = server.os.getenv("TELEGRAM_WEBHOOK_SECRET", "").strip() or None
-            last_error = None
-            for attempt in range(8):
-                try:
-                    await server.telegram_app.bot.set_webhook(
-                        url=tg_url, allowed_updates=None, secret_token=secret
-                    )
-                    info = await server.telegram_app.bot.get_webhook_info()
-                    actual = (info.url or "").rstrip("/")
-                    if actual == tg_url.rstrip("/"):
-                        server.telegram_ready = True
-                        server.log.info(
-                            "Telegram webhook registered: url_set=%s pending=%s last_error=%s attempt=%s",
-                            bool(info.url), info.pending_update_count,
-                            info.last_error_message or "none", attempt + 1,
+
+            use_webhook = server.os.getenv("TELEGRAM_USE_WEBHOOK", "false").strip().lower() in {
+                "1", "true", "yes", "on"
+            }
+            if use_webhook:
+                tg_url = server.public_url("/telegram/update")
+                secret = server.os.getenv("TELEGRAM_WEBHOOK_SECRET", "").strip() or None
+                last_error = None
+                for attempt in range(8):
+                    try:
+                        await server.telegram_app.bot.set_webhook(
+                            url=tg_url, allowed_updates=None, secret_token=secret
                         )
-                        break
-                    last_error = f"webhook URL mismatch: {info.url!r}"
-                except Exception as exc:
-                    last_error = str(exc)
-                if attempt < 7:
-                    await asyncio.sleep(5)
+                        info = await server.telegram_app.bot.get_webhook_info()
+                        actual = (info.url or "").rstrip("/")
+                        if actual == tg_url.rstrip("/"):
+                            server.telegram_ready = True
+                            server.log.info(
+                                "Telegram webhook registered: url_set=%s pending=%s last_error=%s attempt=%s",
+                                bool(info.url), info.pending_update_count,
+                                info.last_error_message or "none", attempt + 1,
+                            )
+                            break
+                        last_error = f"webhook URL mismatch: {info.url!r}"
+                    except Exception as exc:
+                        last_error = str(exc)
+                    if attempt < 7:
+                        await asyncio.sleep(5)
+                else:
+                    server.telegram_ready = False
+                    raise RuntimeError(f"Telegram webhook registration failed: {last_error}")
             else:
-                server.telegram_ready = False
-                server.log.error(
-                    "Telegram webhook registration failed after retries: %s", last_error
+                # Remove any stale webhook before polling. Do not drop pending
+                # updates so messages sent during deployment are preserved.
+                await server.telegram_app.bot.delete_webhook(drop_pending_updates=False)
+                updater = getattr(server.telegram_app, "updater", None)
+                if updater is None:
+                    raise RuntimeError("python-telegram-bot updater is unavailable")
+                await updater.start_polling(
+                    allowed_updates=None,
+                    drop_pending_updates=False,
+                    close_loop=False,
                 )
+                server.telegram_ready = True
+                server.log.info("Telegram long polling started successfully")
         except Exception:
-            server.log.exception("Telegram webhook startup failed")
+            server.log.exception("Telegram startup failed")
             server.telegram_ready = False
             global_error = True
 
+        # Rubika remains webhook-first; its existing polling fallback is kept.
         try:
             import rubika_v2 as rb
             server._patch_rubika(rb)
-            # Rubika's ReceiveUpdate webhook uses the conventional path. Keep
-            # /rubika/update as an internal compatibility alias only.
             endpoint = server.public_url("/rubika/receiveUpdate")
             last_error = None
             for attempt in range(10):
@@ -80,8 +96,6 @@ def install():
                         "updateBotEndpoints",
                         {"url": endpoint, "type": "ReceiveUpdate"},
                     )
-                    # rubika_v2.call normally unwraps data, but accept both
-                    # response shapes so an API status is never misread.
                     status = ""
                     if isinstance(result, dict):
                         status = str(result.get("status", "") or "").strip().lower()
