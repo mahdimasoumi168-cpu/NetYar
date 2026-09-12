@@ -37,6 +37,7 @@ import telegram_start_flow_fix
 import telegram_ultimate_hardening
 import telegram_final_control
 import telegram_sim_service
+import telegram_sim_service_v2
 import telegram_absolute_fix
 
 
@@ -79,6 +80,9 @@ def build():
     telegram_ultimate_hardening.install(app, B)
     telegram_final_control.install(app, B)
     telegram_sim_service.install(app, B)
+    # New canonical SIM flow is installed last among SIM handlers and uses a
+    # separate callback namespace, so the legacy flow cannot consume sim2:*.
+    telegram_sim_service_v2.install(app, B)
     # Absolute last: canonical ownership of ik:* Telegram callbacks.
     telegram_absolute_fix.install(app, B)
     return app
