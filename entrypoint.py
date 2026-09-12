@@ -8,11 +8,12 @@ sys.modules["telegram_runtime"] = telegram_runtime_clean
 import uvicorn
 import server
 
+# Telegram lifecycle: keep ONE authoritative recovery mechanism.
+# The older telegram_reliability_fix wrapped _initialize_integrations a second
+# time and created a competing recovery path. The single-poller guard below is
+# now the only Telegram recovery owner.
 import production_stability
 production_stability.install()
-
-import telegram_reliability_fix
-telegram_reliability_fix.install()
 
 import telegram_single_poller_guard
 telegram_single_poller_guard.install()
@@ -43,8 +44,6 @@ import rubika_navigation_stability
 rubika_navigation_stability.install()
 
 # Must be last: server._patch_rubika runs again when a webhook arrives.
-# This guard prevents that runtime patch from translating numeric button IDs
-# into labels and accidentally disabling partner/admin/foreign menu routing.
 import rubika_final_button_router
 rubika_final_button_router.install()
 
