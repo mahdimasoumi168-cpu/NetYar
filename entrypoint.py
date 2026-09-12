@@ -1,24 +1,12 @@
-"""Production entrypoint shared by Railway and local execution.
+"""Production entrypoint for Railway and local execution.
 
-Telegram is the primary runtime.  Keep the process startup path free of
-Rubika monkey-patches so a Rubika failure can never prevent Telegram from
-starting.
+The FastAPI server owns application startup/shutdown. Telegram polling is
+started exactly once by server.py after the canonical Application is built.
 """
 import os
-import sys
-
-# Use the single canonical Telegram runtime.  It builds one Application;
-# server.py owns the only polling lifecycle.
-import telegram_runtime_clean
-sys.modules["telegram_runtime"] = telegram_runtime_clean
 
 import uvicorn
 import server
-
-# Telegram-only stability guards.  These serialize updates/callbacks but do
-# not create or start another polling loop.
-import production_stability
-production_stability.install()
 
 
 def main():
