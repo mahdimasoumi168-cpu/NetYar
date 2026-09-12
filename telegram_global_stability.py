@@ -1,10 +1,8 @@
 """Stable Telegram UI layer.
 
-Telegram does not expose a public API for arbitrary ReplyKeyboard button
-background colors. We therefore use colored-square emoji prefixes for a clear,
-consistent visual language while keeping the underlying command labels stable.
+Normal navigation is rendered with inline buttons. The persistent reply keyboard
+is owned by telegram_no_reply_keyboard and contains only «🔄 شروع مجدد».
 """
-from telegram import ReplyKeyboardMarkup
 
 
 def _lang(B, uid):
@@ -20,8 +18,8 @@ def _main(B, uid):
                 ["🟦 Tracking", "🟩 My wallet"],
                 ["🟨 Contact us", "🟦 Customer complaint"]]
         if B.admin(uid): rows.append(["🟦 Admin panel"])
-        rows += [["❌ Cancel"], ["🟩 Partner panel"]]
-        return ReplyKeyboardMarkup(rows, resize_keyboard=True)
+        rows += [["❌ Cancel"], ["🟦 Partner panel"]]
+        return B.kb(rows)
     if lang == "ar":
         rows = [["🟦 خدمة فيدا", "🟩 خدمات الطباعة"],
                 ["🟨 خدمات الحكومة", "🟦 متابعة تجديد البطاقة"],
@@ -29,32 +27,33 @@ def _main(B, uid):
                 ["🟦 المتابعة", "🟩 محفظتي"],
                 ["🟨 اتصل بنا", "🟦 شكوى العميل"]]
         if B.admin(uid): rows.append(["🟦 لوحة الإدارة"])
-        rows += [["❌ إلغاء"], ["🟩 لوحة الشركاء"]]
-        return ReplyKeyboardMarkup(rows, resize_keyboard=True)
+        rows += [["❌ إلغاء"], ["🟦 لوحة الشركاء"]]
+        return B.kb(rows)
     rows = [["🟦 فیدای غیر حضوری", "🟩 خدمات چاپ"],
             ["🟨 حل مشکل ورود اتباع دولت من", "🟦 کد رهگیری تمدید کارت‌ها"],
             ["🟩 خدمات سیم کارت", "🟨 آزمون غربالگری"],
             ["🟦 پیگیری", "🟩 کیف پول من"],
             ["🟨 تماس با ما", "🟦 ثبت شکایت مشتریان"]]
     if B.admin(uid): rows.append(["🟦 پنل مدیریت بات"])
-    rows += [[B.CANCEL], ["🟩 پنل همکاران"]]
-    return ReplyKeyboardMarkup(rows, resize_keyboard=True)
+    rows += [[B.CANCEL], ["🟦 پنل همکاران"]]
+    return B.kb(rows)
 
 
 def _partner(B, lang="fa"):
+    # Partner panel uses the blue visual identity. Cancel remains clearly red.
     if lang == "en":
-        rows = [["🟦 Top up account", "🟩 Government access issue"],
-                ["🟨 Track code", "🟦 History"], ["🟩 Balance"],
-                ["✉️ Ticket to management"], ["🚪 Exit panel"], ["❌ Cancel"]]
+        rows = [["🟦 Top up account", "🟦 Government access issue"],
+                ["🟦 Track code", "🟦 History"], ["🟦 Balance"],
+                ["🟦 Ticket to management"], ["🟦 Exit panel"], ["❌ Cancel"]]
     elif lang == "ar":
-        rows = [["🟦 شحن الحساب", "🟩 حل مشكلة خدمات الحكومة"],
-                ["🟨 رمز المتابعة", "🟦 السجل"], ["🟩 الرصيد"],
-                ["✉️ إرسال تذكرة إلى الإدارة"], ["🚪 خروج من اللوحة"], ["❌ إلغاء"]]
+        rows = [["🟦 شحن الحساب", "🟦 حل مشكلة خدمات الحكومة"],
+                ["🟦 رمز المتابعة", "🟦 السجل"], ["🟦 الرصيد"],
+                ["🟦 إرسال تذكرة إلى الإدارة"], ["🟦 خروج من اللوحة"], ["❌ إلغاء"]]
     else:
-        rows = [["🟦 شارژ حساب", "🟩 حل مشکل سامانه دولت من"],
-                ["🟨 پیگیری کد", "🟦 سوابق"], ["🟩 موجودی"],
-                ["✉️ تیکت به مدیریت"], ["🚪 خروج از پنل"], [B.CANCEL]]
-    return ReplyKeyboardMarkup(rows, resize_keyboard=True)
+        rows = [["🟦 شارژ حساب", "🟦 حل مشکل سامانه دولت من"],
+                ["🟦 پیگیری کد", "🟦 سوابق"], ["🟦 موجودی"],
+                ["🟦 تیکت به مدیریت"], ["🟦 خروج از پنل"], [B.CANCEL]]
+    return B.kb(rows)
 
 
 def install(B):
@@ -76,10 +75,10 @@ def install(B):
         if mode in {"partner_exit_choice", "p_phone", "p_pass"}:
             return await original_cancel(update, context)
         st["mode"] = None
-        kb = _main(B, uid) if status != "iranian" else ReplyKeyboardMarkup(
-            [["🟦 Tracking", "🟩 Partner panel"], ["❌ Cancel"]] if lang == "en" else
-            [["🟦 المتابعة", "🟩 لوحة الشركاء"], ["❌ إلغاء"]] if lang == "ar" else
-            [["🟦 پیگیری", "🟩 پنل همکاران"], [B.CANCEL]], resize_keyboard=True)
+        kb = _main(B, uid) if status != "iranian" else B.kb(
+            [["🟦 Tracking", "🟦 Partner panel"], ["❌ Cancel"]] if lang == "en" else
+            [["🟦 المتابعة", "🟦 لوحة الشركاء"], ["❌ إلغاء"]] if lang == "ar" else
+            [["🟦 پیگیری", "🟦 پنل همکاران"], [B.CANCEL]])
         msg = "❌ Cancelled." if lang == "en" else "❌ تم الإلغاء." if lang == "ar" else "❌ عملیات لغو شد."
         await update.message.reply_text(msg, reply_markup=kb)
 
