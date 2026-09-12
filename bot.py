@@ -3,6 +3,7 @@ import os, re, logging
 from telegram import ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters
 from core import db, now, check_password
+from app.config import BOT_TOKEN
 logging.basicConfig(level=logging.INFO)
 S={}; CANCEL="❌ انصراف"; OK="✅ تأیید"
 ADM={x.strip() for x in os.getenv("ADMIN_IDS","").replace(";",",").split(",") if x.strip()}
@@ -225,7 +226,7 @@ async def router(u,c):
  if admin(uid):return await admin_text(u,c)
 async def admin_command(u,c):S.setdefault(u.effective_user.id,{})["admin"]=True;await u.message.reply_text("🛠 پنل مدیریت",reply_markup=amenu())
 def build():
- token=os.getenv("BOT_TOKEN")
- if not token:raise RuntimeError("BOT_TOKEN is missing")
+ token=BOT_TOKEN.strip()
+ if not token:raise RuntimeError("Telegram bot token is missing (BOT_TOKEN/TELEGRAM_BOT_TOKEN/TELEGRAM_TOKEN)")
  app=Application.builder().token(token).build();app.add_handler(CommandHandler("start",start));app.add_handler(CommandHandler("addpartner",addpartner));app.add_handler(MessageHandler(filters.Regex(r"^/Admin2025$"),admin_command));app.add_handler(CallbackQueryHandler(langcb,pattern=r"^lang:"));app.add_handler(CallbackQueryHandler(statuscb,pattern=r"^st:"));app.add_handler(CallbackQueryHandler(admin_cb,pattern=r"^(tu|pay|req|admin):"));app.add_handler(MessageHandler(filters.PHOTO|filters.Document.ALL,media));app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,router));return app
 import asyncio
