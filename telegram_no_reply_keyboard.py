@@ -1,8 +1,8 @@
 """Canonical Telegram inline-only UI.
 
 All navigation buttons are attached to messages. Legacy ReplyKeyboard UI is
-removed and B.kb/cancel_kb/partner_kb continue to work by rendering inline
-buttons through the existing text router.
+removed and legacy modules that still construct ReplyKeyboardMarkup are bridged
+to inline buttons without changing their business logic.
 """
 from collections import OrderedDict
 import threading
@@ -39,6 +39,12 @@ def _inline_kb(rows):
         if buttons:
             out.append(buttons)
     return InlineKeyboardMarkup(out)
+
+
+class _InlineOnlyReplyKeyboard:
+    """Compatibility adapter for old modules calling ReplyKeyboardMarkup."""
+    def __new__(cls, keyboard, *args, **kwargs):
+        return _inline_kb(keyboard)
 
 
 async def _remove_legacy_keyboard(message):
@@ -87,8 +93,26 @@ async def _inline_callback(update, context, B):
 def install(app, B):
     if getattr(B, "_netyar_no_reply_keyboard", False):
         return
+
+    # B.kb is used throughout the canonical and legacy flows.
     B.kb = _inline_kb
-    B._inline_only_kb = _inline_kb
+    B.ReplyKeyboardMarkup = _InlineOnlyReplyKeyboard
+
+    # Some already-imported extension modules instantiate ReplyKeyboardMarkup
+    # directly instead of going through B.kb. Bridge those constructors too.
+    for module_name in (
+        "telegram_admin_plus",
+        "telegram_ux_billing",
+        "telegram_button_fix",
+        "sitecustomize",
+    ):
+        try:
+            module = __import__(module_name)
+            if hasattr(module, "ReplyKeyboardMarkup"):
+                module.ReplyKeyboardMarkup = _InlineOnlyReplyKeyboard
+        except Exception:
+            pass
+
     app.add_handler(CallbackQueryHandler(lambda u, c: _inline_callback(u, c, B), pattern=r"^ik:"), group=-98)
 
     old_start = B.start
