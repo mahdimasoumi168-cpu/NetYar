@@ -10,7 +10,7 @@ from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import CallbackQueryHandler, MessageHandler, ApplicationHandlerStop, filters
 
 log = logging.getLogger("netyar.telegram_partner_code_reliable")
-MAX_CODE_REQUESTS = 6
+MAX_CODE_REQUESTS = 10
 
 
 def install(app, B):
@@ -20,7 +20,6 @@ def install(app, B):
     async def resolve_partner(r):
         """Resolve the partner assigned to a request across old/new schemas."""
         rid = int(r["id"])
-        raw_uid = str(r["user_id"] or "").strip()
         try:
             p = B.db.conn.execute(
                 "SELECT id,phone,name,active FROM partners WHERE id=?",
@@ -53,10 +52,7 @@ def install(app, B):
                     by_id = B.db.setting(f"partner_chat_{pid}", "")
                     by_phone = B.db.setting(f"partner_chat_{phone}", "")
                     if external_id in {str(by_id).strip(), str(by_phone).strip()}:
-                        try:
-                            B.db.set_setting(f"request_partner_{rid}", str(p["id"]))
-                        except Exception:
-                            pass
+                        B.db.set_setting(f"request_partner_{rid}", str(p["id"]))
                         return p
             except Exception:
                 log.exception("legacy partner mapping lookup failed")
@@ -72,7 +68,6 @@ def install(app, B):
                     return p
         except Exception:
             pass
-
         return None
 
     async def resolve_partner_chat(pid, phone=None):
@@ -82,15 +77,6 @@ def install(app, B):
                 value = B.db.setting(key, "")
                 if value:
                     candidates.append(value)
-        try:
-            row = B.db.conn.execute(
-                "SELECT external_id FROM users WHERE platform='telegram' AND id=?",
-                (pid,),
-            ).fetchone()
-            if row and row["external_id"]:
-                candidates.append(row["external_id"])
-        except Exception:
-            pass
         for value in candidates:
             try:
                 return int(value)
