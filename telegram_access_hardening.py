@@ -1,11 +1,7 @@
-"""Central access/UI hardening for Telegram.
+"""Central Telegram access/UI hardening.
 
-Rules:
-- Only registered active partners see the partner-panel entry in message buttons.
-- Admins are never blocked by business hours.
-- Selected night-shift partners are allowed outside normal hours.
-- The only persistent ReplyKeyboard button below chat is Restart.
-- Admin panel keeps its existing full menu and ticket entry.
+The canonical UI layer owns the single persistent restart keyboard. This layer
+only enforces access rules and keeps the management ticket entry visible.
 """
 from telegram import ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 
@@ -60,33 +56,16 @@ def _restart_only_keyboard():
 def install(app, B):
     if getattr(B, "_access_hardening", False):
         return
-
     B.db.conn.execute(
         "CREATE TABLE IF NOT EXISTS night_workers(partner_id INTEGER PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL)"
     )
     B.db.conn.commit()
 
-    # B.main is an inline/message-button menu. Do not put service or partner
-    # options into the ReplyKeyboard below the chat.
+    # Do not wrap B.start here. telegram_ui_policy_v2 owns the single restart
+    # keyboard and wrapping start in multiple layers caused duplicate messages.
     old_main = B.main
-    def main(uid):
-        return old_main(uid)
-    B.main = main
+    B.main = lambda uid: old_main(uid)
 
-    old_start = B.start
-    async def start(update, context):
-        result = await old_start(update, context)
-        try:
-            await update.effective_message.reply_text(
-                "دسترسی سریع:",
-                reply_markup=_restart_only_keyboard(),
-            )
-        except Exception:
-            pass
-        return result
-    B.start = start
-
-    # Keep a visible admin ticket/chat entry in the full management menu.
     try:
         import telegram_admin_plus as A
         old_admin_menu = A._admin_menu
@@ -99,5 +78,4 @@ def install(app, B):
         A._admin_menu = admin_menu
     except Exception:
         pass
-
     B._access_hardening = True
