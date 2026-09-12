@@ -33,6 +33,7 @@ import cross_platform_stability_final
 import admin_control_v4
 import telegram_global_stability
 import final_terminal_navigation_guard
+import telegram_start_flow_fix
 
 
 def build():
@@ -53,6 +54,9 @@ def build():
     telegram_partner_price_adjustment.install(app, B)
     telegram_gov_documents_flow.install(app, B)
     telegram_ux_billing.install(app, B)
+    # Remove the legacy second startup message before the canonical restart
+    # keyboard layer wraps B.start.
+    telegram_start_flow_fix.install(B)
     telegram_admin_plus.install(app, B)
     telegram_admin_entry.install(app, B)
     telegram_residence_booklet.install(app, B)
