@@ -11,7 +11,6 @@ def _variza_enabled():
 
 
 def _public_return_url():
-    """Buyer return URL. Variza webhook URL is configured in the Variza profile."""
     explicit = os.getenv("VARIZA_RETURN_URL", "").strip().rstrip("/")
     if explicit:
         return explicit
@@ -32,14 +31,18 @@ def _existing_variza(B, tracking_code):
             return None
         a = B.db.conn.execute("SELECT field_key,answer FROM request_answers WHERE request_id=? AND field_key IN ('variza_pay_url','variza_slug','variza_amount') ORDER BY id DESC", (int(r["id"]),)).fetchall()
         values = {str(x["field_key"]): str(x["answer"] or "").strip() for x in a}
-        return values if values.get("variza_pay_url") and values.get("variza_slug") else None
+        return values if values.get("variza_pay_url") else None
     except Exception:
         log.exception("failed to read existing Variza payment")
         return None
 
 
+def _fallback_url():
+    return os.getenv("SERVICE_PAYMENT_URL", "").strip() or DEFAULT_PAYMENT_URL
+
+
 def create_variza_payment(B, tracking_code, amount, title):
-    if not _variza_enabled() or not B or not tracking_code:
+    if not B or not tracking_code:
         return ""
     try:
         amount = int(amount)
@@ -53,10 +56,17 @@ def create_variza_payment(B, tracking_code, amount, title):
     if old:
         return old["variza_pay_url"]
 
+    # If API credentials are not configured, keep the payment flow usable
+    # with the configured Variza payment page instead of showing a dead invoice.
+    if not _variza_enabled():
+        url = _fallback_url()
+        log.warning("VARIZA_API_KEY is not configured; using fallback payment URL for %s", tracking_code)
+        return url
+
     return_url = _public_return_url()
     if not return_url.startswith("https://"):
         log.error("Variza return URL is missing or not HTTPS")
-        return ""
+        return _fallback_url()
 
     payload = {
         "amount": amount,
@@ -86,12 +96,12 @@ def create_variza_payment(B, tracking_code, amount, title):
         returned_amount = int(data.get("amount") or amount)
         if not url or not slug or returned_amount != amount:
             log.error("Invalid Variza response for %s: %s", tracking_code, data)
-            return ""
+            return _fallback_url()
 
         row = B.db.conn.execute("SELECT id FROM requests WHERE tracking_code=?", (tracking_code,)).fetchone()
         if not row:
             log.error("Request not found while saving Variza payment: %s", tracking_code)
-            return ""
+            return _fallback_url()
         rid = int(row["id"])
         B.db.answer(rid, "variza_slug", answer=slug)
         B.db.answer(rid, "variza_pay_url", answer=url)
@@ -104,10 +114,10 @@ def create_variza_payment(B, tracking_code, amount, title):
         except Exception:
             body = ""
         log.error("Variza API HTTP %s: %s", e.code, body[:1000])
-        return ""
+        return _fallback_url()
     except Exception:
         log.exception("Variza payment creation failed")
-        return ""
+        return _fallback_url()
 
 
 def payment_url(B=None, tracking_code=None, amount=None, title=None):
@@ -119,9 +129,6 @@ def payment_url(B=None, tracking_code=None, amount=None, title=None):
             value = B.db.setting("service_payment_url", "").strip()
         except Exception:
             value = ""
-    # Never leak a previous customer's payment URL into another invoice.
-    if _variza_enabled():
-        return ""
     return value or DEFAULT_PAYMENT_URL
 
 
@@ -137,10 +144,8 @@ def invoice_text(title, amount, tracking_code=None, B=None):
     lines.append("━━━━━━━━━━━━━━━━━━")
     if url:
         lines += ["💳 لینک پرداخت:", url, "", "📌 برای پرداخت روی لینک بالا یا دکمه زیر بزنید."]
-    elif _variza_enabled():
-        lines += ["⚠️ لینک پرداخت ایجاد نشد.", "لطفاً دوباره تلاش کنید یا با مدیریت تماس بگیرید."]
     else:
-        lines += ["💳 لینک پرداخت:", payment_url(B), "", "📌 برای پرداخت روی لینک بالا یا دکمه زیر بزنید."]
+        lines += ["⚠️ لینک پرداخت ایجاد نشد.", "لطفاً دوباره تلاش کنید یا با مدیریت تماس بگیرید."]
     lines.append("⏳ پس از تأیید واقعی پرداخت، وضعیت درخواست به‌صورت خودکار تغییر می‌کند.")
     return "\n".join(lines)
 
@@ -154,6 +159,6 @@ def invoice_markup(B=None, tracking_code=None, amount=None, title=None):
     return InlineKeyboardMarkup(rows)
 
 try:
-    import variza_webhook  # registers /variza/webhook when server is loaded
+    import variza_webhook
 except Exception:
     pass
