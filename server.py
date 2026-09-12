@@ -209,16 +209,17 @@ async def _integration_watchdog():
     while True:
         try:
             await asyncio.sleep(90)
+            # Telegram is permanently polling in production. The watchdog
+            # must never recreate a webhook, even if an old environment
+            # variable still exists.
             if telegram_app is not None:
-                use_webhook = os.getenv("TELEGRAM_USE_WEBHOOK", "false").strip().lower() in {"1", "true", "yes", "on"}
-                if use_webhook:
-                    try:
-                        info=await telegram_app.bot.get_webhook_info(); expected=public_url("/telegram/update"); actual=(info.url or "").rstrip("/")
-                        if actual != expected.rstrip("/"):
-                            log.warning("Telegram webhook mismatch; restoring endpoint")
-                            secret=os.getenv("TELEGRAM_WEBHOOK_SECRET","").strip() or None
-                            await telegram_app.bot.set_webhook(url=expected,allowed_updates=None,secret_token=secret)
-                    except Exception: log.exception("Telegram webhook watchdog failed")
+                try:
+                    info=await telegram_app.bot.get_webhook_info()
+                    if (info.url or "").strip():
+                        log.warning("Stale Telegram webhook detected; removing it")
+                        await telegram_app.bot.delete_webhook(drop_pending_updates=False)
+                except Exception:
+                    log.exception("Telegram polling watchdog failed")
         except asyncio.CancelledError: return
         except Exception: log.exception("Integration watchdog failed")
 
@@ -226,24 +227,41 @@ async def _initialize_integrations():
     global telegram_app,telegram_ready,rubika_ready
     try:
         import telegram_runtime as tg
-        telegram_app=tg.build(); await telegram_app.initialize(); await telegram_app.start()
-        tg_url=public_url("/telegram/update"); secret=os.getenv("TELEGRAM_WEBHOOK_SECRET","").strip() or None
-        await telegram_app.bot.set_webhook(url=tg_url,allowed_updates=None,secret_token=secret)
-        info=await telegram_app.bot.get_webhook_info(); telegram_ready=True
-        log.info("Telegram webhook registered: url_set=%s pending=%s last_error=%s",bool(info.url),info.pending_update_count,info.last_error_message or "none")
-    except Exception: log.exception("Telegram webhook startup failed"); telegram_ready=False
+        telegram_app=tg.build()
+        await telegram_app.initialize()
+        await telegram_app.start()
+        await telegram_app.bot.delete_webhook(drop_pending_updates=False)
+        updater=getattr(telegram_app,"updater",None)
+        if updater is None: raise RuntimeError("python-telegram-bot updater is unavailable")
+        await updater.start_polling(allowed_updates=None)
+        telegram_ready=True
+        log.info("Telegram long polling started successfully")
+    except Exception:
+        log.exception("Telegram startup failed")
+        telegram_ready=False
     try:
         import rubika_v2 as rb
-        _patch_rubika(rb); endpoint=public_url("/rubika/update")
+        endpoint=public_url("/rubika/receiveUpdate")
         result=rb.call("updateBotEndpoints",{"url":endpoint,"type":"ReceiveUpdate"})
-        log.info("Rubika ReceiveUpdate endpoint registered: %s | %s",endpoint,result)
-        rb_info=rb.call("getMe")
-        log.info("Rubika getMe: bot_id=%s",((rb_info.get("bot") or {}).get("bot_id") if isinstance(rb_info,dict) else "unknown"))
+        log.info("Rubika endpoint registration: %s",result)
         rubika_ready=True
-    except Exception: log.exception("Rubika webhook registration failed"); rubika_ready=False
+    except Exception:
+        log.exception("Rubika startup failed; Telegram remains active")
+        rubika_ready=False
 
 @api.on_event("startup")
 async def startup():
+    global _telegram_workers
     init_db()
-    for n in range(8): _telegram_workers.append(asyncio.create_task(_telegram_worker(n)))
-    asyncio.create_task(_initialize_integrations()); asyncio.create_task(_integration_watchdog())
+    for i in range(2):
+        task=asyncio.create_task(_telegram_worker(i)); _telegram_workers.append(task)
+    asyncio.create_task(_integration_watchdog())
+    await _initialize_integrations()
+
+@api.on_event("shutdown")
+async def shutdown():
+    global telegram_app
+    for t in _telegram_workers: t.cancel()
+    if telegram_app is not None:
+        try: await telegram_app.stop()
+        except Exception: pass
