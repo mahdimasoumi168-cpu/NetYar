@@ -1,8 +1,7 @@
-"""Startup hardening for Telegram/Rubika integration registration.
+"""Stable startup for Telegram and Rubika integrations.
 
-Telegram is run with long polling by default. This avoids Railway edge-proxy
-502 responses when Telegram cannot reach the public webhook reliably. Set
-TELEGRAM_USE_WEBHOOK=true only when a stable public webhook endpoint is known.
+Telegram intentionally uses long polling in production. This avoids Railway
+proxy/webhook failures and keeps Telegram independent from Rubika startup.
 """
 import asyncio
 
@@ -24,71 +23,36 @@ def install():
 
     async def initialize_with_retries():
         global_error = False
-        await asyncio.sleep(3)
+        await asyncio.sleep(1)
 
-        # Telegram: long polling is the reliable Railway mode. Webhook mode is
-        # opt-in because Telegram's provider currently reports 502 against the
-        # deployed public proxy even though the internal FastAPI health check is OK.
+        # Telegram: force long polling. Do not register a webhook here.
+        # This also removes any stale webhook left by an older deployment.
         try:
             import telegram_runtime as tg
             server.telegram_app = tg.build()
             await server.telegram_app.initialize()
             await server.telegram_app.start()
 
-            use_webhook = server.os.getenv("TELEGRAM_USE_WEBHOOK", "false").strip().lower() in {
-                "1", "true", "yes", "on"
-            }
-            if use_webhook:
-                tg_url = server.public_url("/telegram/update")
-                secret = server.os.getenv("TELEGRAM_WEBHOOK_SECRET", "").strip() or None
-                last_error = None
-                for attempt in range(8):
-                    try:
-                        await server.telegram_app.bot.set_webhook(
-                            url=tg_url, allowed_updates=None, secret_token=secret
-                        )
-                        info = await server.telegram_app.bot.get_webhook_info()
-                        actual = (info.url or "").rstrip("/")
-                        if actual == tg_url.rstrip("/"):
-                            server.telegram_ready = True
-                            server.log.info(
-                                "Telegram webhook registered: url_set=%s pending=%s last_error=%s attempt=%s",
-                                bool(info.url), info.pending_update_count,
-                                info.last_error_message or "none", attempt + 1,
-                            )
-                            break
-                        last_error = f"webhook URL mismatch: {info.url!r}"
-                    except Exception as exc:
-                        last_error = str(exc)
-                    if attempt < 7:
-                        await asyncio.sleep(5)
-                else:
-                    server.telegram_ready = False
-                    raise RuntimeError(f"Telegram webhook registration failed: {last_error}")
-            else:
-                # Remove any stale webhook before polling. Do not drop pending
-                # updates so messages sent during deployment are preserved.
-                await server.telegram_app.bot.delete_webhook(drop_pending_updates=False)
-                updater = getattr(server.telegram_app, "updater", None)
-                if updater is None:
-                    raise RuntimeError("python-telegram-bot updater is unavailable")
-   await updater.start_polling(
-    allowed_updates=allowed_updates
-)
-                server.telegram_ready = True
-                server.log.info("Telegram long polling started successfully")
+            await server.telegram_app.bot.delete_webhook(drop_pending_updates=False)
+            updater = getattr(server.telegram_app, "updater", None)
+            if updater is None:
+                raise RuntimeError("python-telegram-bot updater is unavailable")
+
+            await updater.start_polling(allowed_updates=None)
+            server.telegram_ready = True
+            server.log.info("Telegram long polling started successfully")
         except Exception:
             server.log.exception("Telegram startup failed")
             server.telegram_ready = False
             global_error = True
 
-        # Rubika remains webhook-first; its existing polling fallback is kept.
+        # Rubika is optional. Its webhook failure must never prevent Telegram.
         try:
             import rubika_v2 as rb
             server._patch_rubika(rb)
             endpoint = server.public_url("/rubika/receiveUpdate")
             last_error = None
-            for attempt in range(10):
+            for attempt in range(3):
                 try:
                     result = rb.call(
                         "updateBotEndpoints",
@@ -112,13 +76,15 @@ def install():
                 except Exception as exc:
                     last_error = str(exc)
                     server.log.warning(
-                        "Rubika webhook registration attempt %s/10 failed: %s",
+                        "Rubika webhook registration attempt %s/3 failed: %s",
                         attempt + 1, last_error,
                     )
-                    if attempt < 9:
-                        await asyncio.sleep(5)
+                    if attempt < 2:
+                        await asyncio.sleep(2)
+
             if last_error:
                 raise RuntimeError(last_error)
+
             rb_info = rb.call("getMe")
             server.log.info(
                 "Rubika getMe: bot_id=%s",
@@ -126,7 +92,8 @@ def install():
             )
             server.rubika_ready = True
         except Exception:
-            server.log.exception("Rubika webhook registration failed")
+            # Rubika is deliberately isolated from Telegram startup.
+            server.log.exception("Rubika startup failed; Telegram remains active")
             server.rubika_ready = False
             global_error = True
 
