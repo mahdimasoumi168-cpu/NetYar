@@ -12,6 +12,7 @@ import telegram_iranian_complaints
 import admin_editable_texts
 import partner_pricing
 import telegram_partner_price_adjustment
+import telegram_iranian_admin
 
 
 def build():
@@ -28,4 +29,5 @@ def build():
     telegram_no_reply_keyboard.install(app, B)
     telegram_iranian_complaints.install(app, B)
     admin_editable_texts.install(app, B)
+    telegram_iranian_admin.install(app, B)
     return app
