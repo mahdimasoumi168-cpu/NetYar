@@ -25,6 +25,8 @@ import telegram_request_details_fix
 import telegram_request_resend_fa
 import telegram_ticket_reliability
 import final_requirements_patch
+import final_ux_hardening
+import final_navigation_language_stability
 
 
 def build():
@@ -56,9 +58,14 @@ def build():
     # Final UX layer runs after legacy modules so the stable government
     # document menu, including residence booklet, is not overwritten.
     final_requirements_patch.install()
+    final_ux_hardening.install()
     telegram_residence_booklet_guard.install(app, B)
 
-    # Re-apply admin/partner communication LAST because legacy modules can
-    # replace B.amenu after installation and make buttons appear/disappear.
+    # Navigation/language/ticket layer is intentionally last: older modules
+    # are allowed to provide compatibility handlers, but cannot overwrite the
+    # user's selected citizenship/language or consume a ticket message twice.
+    final_navigation_language_stability.install()
+
+    # Re-apply admin/partner communication after all menu patches.
     telegram_admin_partner_chat.install(app, B)
     return app
