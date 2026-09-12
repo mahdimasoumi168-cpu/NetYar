@@ -8,7 +8,7 @@ from collections import OrderedDict
 import threading
 import logging
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove
-from telegram.ext import CallbackQueryHandler
+from telegram.ext import CallbackQueryHandler, MessageHandler, filters
 
 log = logging.getLogger("netyar.telegram.inline_only")
 _ACTIONS = OrderedDict()
@@ -64,6 +64,10 @@ async def _remove_legacy_keyboard(message):
         pass
 
 
+async def _remove_on_message(update, context):
+    await _remove_legacy_keyboard(getattr(update, "effective_message", None))
+
+
 async def _inline_callback(update, context, B):
     q = update.callback_query
     key = str(q.data or "")
@@ -94,12 +98,9 @@ def install(app, B):
     if getattr(B, "_netyar_no_reply_keyboard", False):
         return
 
-    # B.kb is used throughout the canonical and legacy flows.
     B.kb = _inline_kb
     B.ReplyKeyboardMarkup = _InlineOnlyReplyKeyboard
 
-    # Some already-imported extension modules instantiate ReplyKeyboardMarkup
-    # directly instead of going through B.kb. Bridge those constructors too.
     for module_name in (
         "telegram_admin_plus",
         "telegram_ux_billing",
@@ -113,6 +114,7 @@ def install(app, B):
         except Exception:
             pass
 
+    app.add_handler(MessageHandler(filters.ALL, _remove_on_message), group=-200)
     app.add_handler(CallbackQueryHandler(lambda u, c: _inline_callback(u, c, B), pattern=r"^ik:"), group=-98)
 
     old_start = B.start
