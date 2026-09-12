@@ -34,11 +34,7 @@ import admin_control_v4
 import telegram_global_stability
 import final_terminal_navigation_guard
 import telegram_start_flow_fix
-import canonical_button_router
-import telegram_universal_button_guard
-import telegram_partner_ticket_fix
-import telegram_business_hours_guard
-import telegram_callback_hardfix
+import telegram_ultimate_hardening
 
 
 def build():
@@ -59,6 +55,8 @@ def build():
     telegram_partner_price_adjustment.install(app, B)
     telegram_gov_documents_flow.install(app, B)
     telegram_ux_billing.install(app, B)
+    # Remove the legacy second startup message before the canonical restart
+    # keyboard layer wraps B.start.
     telegram_start_flow_fix.install(B)
     telegram_admin_plus.install(app, B)
     telegram_admin_entry.install(app, B)
@@ -79,18 +77,5 @@ def build():
     telegram_admin_partner_chat.install(app, B)
     telegram_global_stability.install(B)
     final_terminal_navigation_guard.install(app, B)
-
-    # Final routing/UI owners are installed after every legacy patch.
-    canonical_button_router.install()
-    telegram_no_reply_keyboard.reassert(B)
-    telegram_universal_button_guard.install(app, B)
-    telegram_partner_ticket_fix.install(B)
-
-    # Hard callback safety layer. It runs before the older inline dispatcher so
-    # ApplicationHandlerStop from successful handlers is never shown as an error.
-    telegram_callback_hardfix.install(app, B)
-
-    # Public hours are 07:00-19:00 Tehran; administrators and the permanent
-    # partner are exempt inside telegram_business_hours_guard itself.
-    telegram_business_hours_guard.install(app, B)
+    telegram_ultimate_hardening.install(app, B)
     return app
