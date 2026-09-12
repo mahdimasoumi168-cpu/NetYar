@@ -126,11 +126,25 @@ async def click(update, context, B):
             if not B.admin(uid):
                 await query.message.reply_text("⛔ این بخش فقط برای مدیریت فعال است.")
             else:
-                fn = getattr(B, "admin_text", None)
-                if fn:
-                    await fn(_proxy(update, query, text), context)
-                else:
-                    await query.message.reply_text("🛠 پنل مدیریت", reply_markup=B.amenu())
+                # The full admin-plus panel owns adm:* callbacks. Enter it
+                # directly so the legacy B.admin_text menu cannot replace the
+                # full option set with the smaller compatibility menu.
+                try:
+                    import telegram_admin_plus as admin_plus
+                    state["admin"] = True
+                    state["mode"] = None
+                    state["admin_plus_mode"] = None
+                    await query.message.reply_text(
+                        "🛠 پنل مدیریت کامل\n\nاز منوی زیر بخش موردنظر را انتخاب کنید:",
+                        reply_markup=admin_plus._admin_menu(),
+                    )
+                except Exception:
+                    log.exception("full admin-plus entry failed")
+                    fn = getattr(B, "admin_text", None)
+                    if fn:
+                        await fn(_proxy(update, query, text), context)
+                    else:
+                        await query.message.reply_text("🛠 پنل مدیریت", reply_markup=B.amenu())
             raise ApplicationHandlerStop
 
         if text == "📱 خدمات سیم کارت":
@@ -198,10 +212,6 @@ async def click(update, context, B):
                 )
             raise ApplicationHandlerStop
 
-        # Keep the visible wording current, but let the existing business
-        # routers own the actual service flow. Do NOT pre-check the services
-        # table here: a missing row used to turn a valid button into a false
-        # "service closed" response.
         aliases = {
             "📝 آزمون غربالگری و پیگیری": "📝 آزمون غربالگری",
         }
