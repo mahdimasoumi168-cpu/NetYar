@@ -14,6 +14,9 @@ production_stability.install()
 import telegram_reliability_fix
 telegram_reliability_fix.install()
 
+import telegram_single_poller_guard
+telegram_single_poller_guard.install()
+
 import rubika_stability_fix
 rubika_stability_fix.install()
 
