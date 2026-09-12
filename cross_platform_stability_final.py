@@ -9,17 +9,11 @@ def install():
         def modern_amenu(*_args, **_kwargs):
             return B.kb([["👥 کاربران", "🤝 همکاران"],["📋 درخواست‌ها", "🎫 تیکت‌ها"],["🟢/🔴 خدمات ایرانی", "🟢/🔴 خدمات اتباع"],["💰 قیمت خدمات", "📝 تغییر متن‌ها"],["📎 مدارک و فایل‌ها", "👤 مدیران"],["🤖 پیام‌رسان‌ها", "📊 گزارش‌ها"],["⚙️ تنظیمات پایه", "📞 پشتیبانی"],["💬 ارتباط با همکار"],["⬅️ منوی اصلی"]])
         B.amenu = modern_amenu
-
-        # Canonical localized partner menu. Every language has the same
-        # functions, so changing language never drops the ticket/exit buttons.
         def localized_partner_kb(lang="fa"):
-            if lang == "en":
-                return B.kb([["➕ Top up account", "🏛 Government access issue"],["🎫 My requests", "🔎 Track code"],["📋 History", "💰 Balance"],["✉️ Ticket to management"],["🚪 Exit panel"],["❌ Cancel"]])
-            if lang == "ar":
-                return B.kb([["➕ شحن الحساب", "🏛 حل مشكلة خدمات الحكومة"],["🎫 طلباتي", "🔎 رمز المتابعة"],["📋 السجل", "💰 الرصيد"],["✉️ إرسال تذكرة إلى الإدارة"],["🚪 خروج من اللوحة"],["❌ إلغاء"]])
+            if lang == "en": return B.kb([["➕ Top up account", "🏛 Government access issue"],["🎫 My requests", "🔎 Track code"],["📋 History", "💰 Balance"],["✉️ Ticket to management"],["🚪 Exit panel"],["❌ Cancel"]])
+            if lang == "ar": return B.kb([["➕ شحن الحساب", "🏛 حل مشكلة خدمات الحكومة"],["🎫 طلباتي", "🔎 رمز المتابعة"],["📋 السجل", "💰 الرصيد"],["✉️ إرسال تذكرة إلى الإدارة"],["🚪 خروج من اللوحة"],["❌ إلغاء"]])
             return B.kb([["➕ شارژ حساب", "🏛 حل مشکل سامانه دولت من"],["🎫 درخواست‌های من", "🔎 پیگیری کد"],["📋 سوابق", "💰 موجودی"],["✉️ ارسال تیکت به مدیریت"],["🚪 خروج از پنل"],[B.CANCEL]])
         B.partner_kb = localized_partner_kb
-
         old_exit=getattr(B,"partner_exit_choice",None)
         if old_exit:
             async def stable_exit(update,context):
@@ -29,7 +23,7 @@ def install():
                     status=st.get("status","foreign"); B.S[uid]={"status":status,"lang":lang}
                     if status=="iranian":
                         kb=B.kb([["🎫 Tracking" if lang=="en" else "🎫 المتابعة" if lang=="ar" else "🎫 پیگیری"],["👥 Partner panel" if lang=="en" else "👥 لوحة الشركاء" if lang=="ar" else "👥 پنل همکاران"],["❌ Cancel" if lang=="en" else "❌ إلغاء" if lang=="ar" else B.CANCEL]])
-                        msg={"fa":"🔒 خروج دائمی انجام شد.\n🇮🇷 به منوی ایرانی برگشتید.","en":"🔒 Permanent exit completed.\n🇮🇷 You are back in the Iranian menu.","ar":"🔒 تم تسجيل الخروج الدائم.\n🇮🇷 عدت إلى قائمة المستخدم الإيراني."}[lang]
+                        msg={"fa":"🔒 خروج دائمی انجام شد.\n🇮🇷 به منوی ایرانی برگشتید.","en":"🔒 Permanent exit completed.\n🇮🇷 You are back in the Iranian user menu.","ar":"🔒 تم تسجيل الخروج الدائم.\n🇮🇷 عدت إلى قائمة المستخدم الإيراني."}[lang]
                     else:
                         kb=B.main(uid); msg={"fa":"🔒 خروج دائمی انجام شد.\n🪪 به منوی اتباع برگشتید.","en":"🔒 Permanent exit completed.\n🪪 You are back in the foreign-resident menu.","ar":"🔒 تم تسجيل الخروج الدائم.\n🪪 عدت إلى قائمة المقيمين الأجانب."}[lang]
                     return await update.message.reply_text(msg,reply_markup=kb)
@@ -41,17 +35,13 @@ def install():
         import rubika_v2 as R
         if getattr(R,"_cross_platform_stability_final_rubika",False): return
         old_handle=R.handle
-        def admin_rows(): return [[("1","👥 مدیریت همکاران"),("2","💰 مدیریت شارژها")],[("3","📋 مدیریت درخواست‌ها"),("4","💳 مدیریت پرداخت‌ها")],[("5","🛠 مدیریت خدمات"),("6","📝 مدیریت متن‌ها")],[("7","💵 مدیریت قیمت‌ها"),("8","🤖 مدیریت بات‌ها")],[("9","📊 گزارش‌ها"),("10","👤 مدیریت مدیران")],[("11","🎫 مدیریت تیکت‌ها"),("12","⚙️ تنظیمات")],[("99","🔄 شروع مجدد"),("0","❌ انصراف")]]
+        def admin_rows():
+            return [[("1","👥 مدیریت همکاران"),("2","💰 مدیریت شارژها")],[("3","📋 مدیریت درخواست‌ها"),("4","💳 مدیریت پرداخت‌ها")],[("5","🛠 مدیریت خدمات"),("6","📝 مدیریت متن‌ها")],[("7","💵 مدیریت قیمت‌ها"),("8","🤖 مدیریت بات‌ها")],[("9","📊 گزارش‌ها"),("10","👤 مدیریت مدیران")],[("11","⚙️ تنظیمات"),("12","🎫 مدیریت تیکت‌ها")],[("99","🔄 شروع مجدد"),("0","❌ انصراف")]]
         R.admin_rows=admin_rows
         def handle(uid,chat,x,update):
             uid=str(uid); st=R.STATE.setdefault(uid,{}); step=st.get("step"); x=str(x or "").strip()
-            if step in {"partner_ticket_chat","admin_ticket_chat","admin_ticket_reply","ticket_admin_reply"}:
-                if x in {"0","❌ انصراف","99","🔄 شروع مجدد","cancel","Cancel","إلغاء"}:
-                    st["step"]="admin" if R.is_admin(uid) else "partner"; R.send(chat,"✅ گفت‌وگو بسته شد.",R.admin_rows() if R.is_admin(uid) else R.partner_rows()); return
-                # Media has no text. Delegate it to the already-installed final
-                # Rubika ticket router so the actual file is forwarded once.
-                if not x:
-                    return old_handle(uid,chat,x,update)
+            if step in {"partner_ticket_chat","admin_ticket_chat","admin_ticket_reply","ticket_admin_reply"} and x in {"0","❌ انصراف","99","🔄 شروع مجدد","cancel","Cancel","إلغاء"}:
+                st["step"]="admin" if R.is_admin(uid) else "partner"; R.send(chat,"✅ گفت‌وگو بسته شد.",R.admin_rows() if R.is_admin(uid) else R.partner_rows()); return
             return old_handle(uid,chat,x,update)
         R.handle=handle; R._cross_platform_stability_final_rubika=True
     except Exception: log.exception("Rubika stability install failed")
