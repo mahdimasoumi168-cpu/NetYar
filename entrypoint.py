@@ -15,11 +15,13 @@ production_stability.install()
 import rubika_stability_fix
 rubika_stability_fix.install()
 
-# Keep a single Rubika polling implementation. The reliability layer also
-# reuses the fallback module's dedupe/notification helpers without installing
-# a second initialize wrapper or a second polling task.
+# Keep exactly one Rubika polling implementation.
 import rubika_reliability_fix
 rubika_reliability_fix.install()
+
+# Never let the webhook path and polling path process the same Rubika update.
+import rubika_webhook_guard
+rubika_webhook_guard.install()
 
 
 def main():
