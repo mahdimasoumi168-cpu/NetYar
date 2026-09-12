@@ -6,8 +6,20 @@ using the official getUpdates long-polling API instead of marking Rubika offline
 import asyncio
 import logging
 import os
+import re
 
 log = logging.getLogger("netyar.rubika_polling_fallback")
+
+
+def normalize_phone(value):
+    s = str(value or "").strip()
+    s = s.translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789"))
+    s = re.sub(r"[\s\-()]+", "", s)
+    if s.startswith("+98"):
+        s = "0" + s[3:]
+    elif s.startswith("0098"):
+        s = "0" + s[4:]
+    return s
 
 
 async def _poll(server, rb):
@@ -48,14 +60,12 @@ def install():
 
     async def initialize():
         await original()
-        # RUBIKA_FORCE_POLLING is used when the provider rejects the public
-        # Railway endpoint. It deliberately takes precedence over the
-        # webhook success flag from the older initializer.
         force_polling = os.getenv("RUBIKA_FORCE_POLLING", "0").strip().lower() in {"1", "true", "yes", "on"}
         if getattr(server, "rubika_ready", False) and not force_polling:
             return
         try:
             import rubika_v2 as rb
+            rb.normalize_phone = normalize_phone
             server._patch_rubika(rb)
             task = getattr(server, "_rubika_polling_task", None)
             if task is None or task.done():
