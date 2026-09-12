@@ -8,8 +8,6 @@ BUTTON = "💬 ارتباط با همکار"
 
 
 def _add_button(markup, B=None):
-    # B.kb() returns a Telegram ReplyKeyboardMarkup in this project, not an
-    # InlineKeyboardMarkup. Keep the admin entry compatible with the real UI.
     try:
         from telegram import ReplyKeyboardMarkup
         if isinstance(markup, ReplyKeyboardMarkup):
@@ -19,7 +17,6 @@ def _add_button(markup, B=None):
             return ReplyKeyboardMarkup(rows, resize_keyboard=True)
     except Exception:
         pass
-    # Fallback for panels that use inline keyboards.
     if isinstance(markup, InlineKeyboardMarkup):
         rows = [list(row) for row in markup.inline_keyboard]
         if not any(any(getattr(btn, "text", "") == BUTTON for btn in row) for row in rows):
@@ -29,9 +26,7 @@ def _add_button(markup, B=None):
 
 
 def _partners(B):
-    return B.db.conn.execute(
-        "SELECT id,name,phone,active FROM partners ORDER BY active DESC,id DESC LIMIT 100"
-    ).fetchall()
+    return B.db.conn.execute("SELECT id,name,phone,active FROM partners ORDER BY active DESC,id DESC LIMIT 100").fetchall()
 
 
 async def _show_partners(update, B):
@@ -44,15 +39,9 @@ async def _show_partners(update, B):
         name = (p["name"] or "بدون نام").strip()
         phone = (p["phone"] or "-").strip()
         status = "🟢" if p["active"] else "🔴"
-        buttons.append([InlineKeyboardButton(
-            f"{status} {name} | {phone}",
-            callback_data=f"adminpartner:select:{int(p['id'])}",
-        )])
+        buttons.append([InlineKeyboardButton(f"{status} {name} | {phone}", callback_data=f"adminpartner:select:{int(p['id'])}")])
     buttons.append([InlineKeyboardButton("❌ بستن", callback_data="adminpartner:close")])
-    return await q.message.reply_text(
-        "💬 ارتباط با همکار\n\nهمکار موردنظر را انتخاب کنید:",
-        reply_markup=InlineKeyboardMarkup(buttons),
-    )
+    return await q.message.reply_text("💬 ارتباط با همکار\n\nهمکار موردنظر را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(buttons))
 
 
 async def _select_partner(update, B, pid):
@@ -60,22 +49,16 @@ async def _select_partner(update, B, pid):
     uid = q.from_user.id
     if not B.admin(uid):
         return await q.message.reply_text("❌ دسترسی مدیریت ندارید.")
-    p = B.db.conn.execute(
-        "SELECT id,name,phone,active FROM partners WHERE id=?", (pid,)
-    ).fetchone()
+    p = B.db.conn.execute("SELECT id,name,phone,active FROM partners WHERE id=?", (pid,)).fetchone()
     if not p:
         return await q.message.reply_text("❌ همکار پیدا نشد.")
     chat_value = B.db.setting(f"partner_chat_{pid}", "").strip()
     if not chat_value:
-        # Older partner sessions may have stored the chat by phone.
         phone = str(p["phone"] or "").strip()
         if phone:
             chat_value = B.db.setting(f"partner_chat_{phone}", "").strip()
     if not chat_value:
-        return await q.message.reply_text(
-            "❌ چت تلگرام این همکار هنوز ثبت نشده است.\n\n"
-            "از همکار بخواهید یک‌بار وارد پنل همکاران ربات شود تا ارتباط او ثبت شود."
-        )
+        return await q.message.reply_text("❌ چت تلگرام این همکار هنوز ثبت نشده است.\n\nاز همکار بخواهید یک‌بار وارد پنل همکاران ربات شود تا ارتباط او ثبت شود.")
     try:
         int(chat_value)
     except Exception:
@@ -85,14 +68,7 @@ async def _select_partner(update, B, pid):
     st["ticket_partner_id"] = pid
     B.db.set_setting(f"partner_chat_{pid}", str(chat_value))
     B.db.set_setting(f"ticket_admin_{pid}", str(uid))
-    name = (p["name"] or "بدون نام").strip()
-    phone = (p["phone"] or "-").strip()
-    await q.message.reply_text(
-        f"💬 ارتباط با همکار فعال شد.\n\n👤 همکار: {name}\n📱 موبایل: {phone}\n\n"
-        "حالا پیام خود را بفرستید.\n"
-        "✍️ متن، 🖼 عکس، 🎥 ویدیو، 🎤 ویس یا 📎 فایل همگی قابل ارسال هستند.\n\n"
-        "برای هر پیام جدید لازم نیست دوباره همکار را انتخاب کنید."
-    )
+    await q.message.reply_text(f"💬 ارتباط با همکار فعال شد.\n\n👤 همکار: {(p['name'] or 'بدون نام').strip()}\n📱 موبایل: {(p['phone'] or '-').strip()}\n\nحالا پیام خود را بفرستید.\n✍️ متن، 🖼 عکس، 🎥 ویدیو، 🎤 ویس یا 📎 فایل همگی قابل ارسال هستند.")
 
 
 async def _callback(update, context, B):
@@ -124,10 +100,7 @@ async def _entry(update, context, B):
         return
     if (message.text or "").strip() != BUTTON:
         return
-    await message.reply_text(
-        "💬 برای شروع ارتباط، همکار موردنظر را انتخاب کنید:",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("👥 انتخاب همکار", callback_data="adminpartner:list")]]),
-    )
+    await message.reply_text("💬 برای شروع ارتباط، همکار موردنظر را انتخاب کنید:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("👥 انتخاب همکار", callback_data="adminpartner:list")]]))
     raise ApplicationHandlerStop
 
 
@@ -154,11 +127,18 @@ def install(app, B):
     except Exception:
         log.exception("could not patch v5 admin menu")
 
-    app.add_handler(
-        CallbackQueryHandler(lambda u, c: _callback(u, c, B), pattern=r"^adminpartner:"),
-        group=-110,
-    )
-    app.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, lambda u, c: _entry(u, c, B)),
-        group=-109,
-    )
+    # B.amenu is the function actually used by several later admin handlers.
+    # Patch it here too, otherwise a later legacy module can silently replace
+    # the visible menu and make the button appear/disappear between clicks.
+    try:
+        original_amenu = getattr(B, "amenu", None)
+        if original_amenu and not getattr(original_amenu, "_admin_partner_chat_patched", False):
+            def patched_amenu(*args, **kwargs):
+                return _add_button(original_amenu(*args, **kwargs), B)
+            patched_amenu._admin_partner_chat_patched = True
+            B.amenu = patched_amenu
+    except Exception:
+        log.exception("could not patch B.amenu")
+
+    app.add_handler(CallbackQueryHandler(lambda u, c: _callback(u, c, B), pattern=r"^adminpartner:"), group=-110)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, lambda u, c: _entry(u, c, B)), group=-109)
