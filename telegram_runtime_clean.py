@@ -56,6 +56,9 @@ def _install_features(app):
     import telegram_night_shift_v2 as N; N.install(app,B)
     import telegram_admin_menu_v2 as AM; AM.install(B)
     import telegram_request_control_v2 as RC; RC.install(app,B)
+    # Final access/UI layer is intentionally installed last so no legacy feature
+    # wrapper can reintroduce the partner-panel or business-hours bugs.
+    import telegram_access_hardening as AH; AH.install(app,B)
     log.info("Telegram feature layers installed")
 
 
