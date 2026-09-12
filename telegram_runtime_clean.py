@@ -1,71 +1,108 @@
 """Canonical Telegram runtime.
 
-Keep Telegram handler registration in one place. Feature modules are installed
-here, but the polling lifecycle belongs exclusively to server/telegram guards.
+There is exactly one Telegram Application builder in the project.
+Feature code lives in bot.py; this module only registers the authoritative
+handlers. It never starts polling and never patches the lifecycle.
 """
+import logging
+import os
+
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import (
+    Application,
+    CallbackQueryHandler,
+    CommandHandler,
+    MessageHandler,
+    TypeHandler,
+    filters,
+)
+
 import bot as B
 
-# Feature modules. Each module must only add/patch handlers and UI behaviour;
-# none of them owns the Telegram polling lifecycle.
-import telegram_panels,telegram_admin_partner_chat,telegram_service_notifications,telegram_ux_billing,telegram_gov_documents_flow,telegram_admin_plus,telegram_admin_entry,telegram_admin_button_guard
-import telegram_residence_booklet,telegram_residence_booklet_guard,telegram_no_reply_keyboard,telegram_iranian_complaints,admin_editable_texts,partner_pricing,partner_price_exact,telegram_partner_price_adjustment,telegram_iranian_admin,telegram_partner_login_fix
-import partner_balance_guard,partner_balance_reset,telegram_notification_guard,telegram_partner_code_reliable,telegram_request_details_fix,telegram_request_resend_fa,telegram_ticket_reliability
-import final_requirements_patch,final_ux_hardening,final_navigation_language_stability,cross_platform_stability_final,admin_control_v4,telegram_global_stability,final_terminal_navigation_guard,telegram_start_flow_fix
-import telegram_ultimate_hardening,telegram_final_control,telegram_sim_service,telegram_sim_service_v2,telegram_sim_partner_balance,telegram_public_tracking,telegram_tracking_router,telegram_partner_registration,telegram_absolute_fix,telegram_night_shift_access
+log = logging.getLogger("netyar.telegram_runtime")
+
+
+def _diagnostic(update, context):
+    try:
+        if update.message is not None:
+            log.info(
+                "Telegram update: id=%s user=%s text=%r",
+                update.update_id,
+                getattr(update.effective_user, "id", None),
+                update.message.text,
+            )
+        elif update.callback_query is not None:
+            log.info(
+                "Telegram callback: id=%s user=%s data=%r",
+                update.update_id,
+                getattr(update.callback_query.from_user, "id", None),
+                update.callback_query.data,
+            )
+    except Exception:
+        log.exception("Telegram diagnostic failed")
+
+
+async def _start(update, context):
+    """Authoritative /start: reset only the conversational state."""
+    user = update.effective_user
+    message = update.message
+    if message is None:
+        return
+    uid = user.id
+    try:
+        B.db.user("telegram", uid, user.username, user.full_name)
+    except Exception:
+        log.exception("Could not persist Telegram user")
+    B.S[uid] = {}
+    await message.reply_text(
+        "سلام و خوش آمدید 🌷\nلطفاً زبان را انتخاب کنید:",
+        reply_markup=InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("🇮🇷 فارسی", callback_data="lang:fa"),
+                InlineKeyboardButton("🇬🇧 English", callback_data="lang:en"),
+                InlineKeyboardButton("🇸🇦 العربية", callback_data="lang:ar"),
+            ]
+        ]),
+    )
 
 
 def build():
-    """Build the Telegram Application exactly once.
+    """Build exactly one Application; polling belongs to server.py."""
+    token = (
+        os.getenv("BOT_TOKEN", "").strip()
+        or os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+        or os.getenv("TELEGRAM_TOKEN", "").strip()
+    )
+    if not token:
+        raise RuntimeError("Telegram bot token is missing")
 
-    No module in this function starts polling, creates a second Application, or
-    installs another lifecycle/watchdog owner.
-    """
-    final_requirements_patch.install()
-    final_ux_hardening.install()
-    final_navigation_language_stability.install()
-    cross_platform_stability_final.install()
-    admin_control_v4.install()
+    app = Application.builder().token(token).build()
 
-    app = B.build()
+    # Diagnostics never stop or consume an update.
+    app.add_handler(TypeHandler(Update, _diagnostic), group=-100)
 
-    telegram_ticket_reliability.install(app, B)
-    telegram_panels.install(app, B)
-    telegram_admin_partner_chat.install(app, B)
-    telegram_service_notifications.install(app, B)
-    partner_pricing.install_telegram(app, B)
-    partner_price_exact.install_telegram(app, B)
-    telegram_partner_price_adjustment.install(app, B)
-    telegram_gov_documents_flow.install(app, B)
-    telegram_ux_billing.install(app, B)
-    telegram_start_flow_fix.install(B)
-    telegram_admin_plus.install(app, B)
-    telegram_admin_entry.install(app, B)
-    telegram_residence_booklet.install(app, B)
-    telegram_no_reply_keyboard.install(app, B)
-    telegram_iranian_complaints.install(app, B)
-    admin_editable_texts.install(app, B)
-    telegram_iranian_admin.install(app, B)
-    telegram_partner_login_fix.install(app, B)
-    partner_balance_guard.install(B)
-    partner_balance_reset.install(app, B)
-    telegram_notification_guard.install(app, B)
-    telegram_partner_code_reliable.install(app, B)
-    telegram_request_details_fix.install(app, B)
-    telegram_request_resend_fa.install(app, B)
-    telegram_residence_booklet_guard.install(app, B)
-    telegram_global_stability.install(B)
-    final_terminal_navigation_guard.install(app, B)
-    telegram_ultimate_hardening.install(app, B)
-    telegram_final_control.install(app, B)
-    telegram_sim_service.install(app, B)
-    telegram_sim_service_v2.install(app, B)
-    telegram_sim_partner_balance.install(app, B)
-    telegram_public_tracking.install(app, B)
-    telegram_tracking_router.install(B)
-    telegram_partner_registration.install(app, B)
-    telegram_absolute_fix.install(app, B)
-    telegram_night_shift_access.install(app, B)
+    # One authoritative startup handler.
+    app.add_handler(CommandHandler(["start", "srart"], _start), group=0)
+    app.add_handler(CommandHandler("addpartner", B.addpartner), group=0)
+    app.add_handler(MessageHandler(filters.Regex(r"^/Admin2025$"), B.admin_command), group=0)
 
-    # Reassert only the keyboard layer; this does not touch polling.
-    telegram_no_reply_keyboard.reassert(B)
+    # Entry screens and admin callbacks.
+    app.add_handler(CallbackQueryHandler(B.langcb, pattern=r"^lang:"), group=0)
+    app.add_handler(CallbackQueryHandler(B.statuscb, pattern=r"^st:"), group=0)
+    app.add_handler(CallbackQueryHandler(B.admin_cb, pattern=r"^(tu|pay|req|admin):"), group=0)
+
+    # UI callback layer is optional: if unavailable, the core bot still starts.
+    try:
+        from final_ui_flow_patch import _ui_callback
+        app.add_handler(CallbackQueryHandler(_ui_callback, pattern=r"^ui:"), group=0)
+        log.info("Telegram ui:* callback handler installed")
+    except Exception:
+        log.exception("ui:* callback handler unavailable; core Telegram remains active")
+
+    # Media must run before the generic text router, while both remain in one
+    # predictable handler group.
+    app.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL, B.media), group=1)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, B.router), group=1)
+
+    log.info("Canonical Telegram handlers installed")
     return app
