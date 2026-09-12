@@ -12,6 +12,20 @@ import time
 log = logging.getLogger("netyar.rubika.reliability")
 
 
+def _update_key(update):
+    """Compatibility export used by rubika_final_hardening.
+
+    The deduplication key has one canonical implementation in the fallback
+    module. Re-export it here so the final polling layer never crashes merely
+    because an older module expected this private helper on this module.
+    """
+    try:
+        import rubika_polling_fallback as pf
+        return pf._update_key(update)
+    except Exception:
+        return ""
+
+
 def _fast_call_factory(rb):
     def fast_call(method, payload=None):
         timeout = 8 if method == "getUpdates" else 10
