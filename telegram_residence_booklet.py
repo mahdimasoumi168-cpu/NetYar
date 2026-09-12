@@ -1,20 +1,28 @@
 """Residence booklet flow for the government-login service.
 
-The residence booklet follows the passport-style identity collection, but asks
-for the booklet number instead of a passport number. It is isolated so the
-existing card/passport flow remains unchanged.
+The entire Telegram UI is message-attached inline buttons. No persistent
+ReplyKeyboard is created by this module.
 """
 import re
-from telegram import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup
+from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import MessageHandler, CallbackQueryHandler, filters
 
 
 def _digits(v):
-    return str(v or "").translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "0123456789"))
+    return str(v or "").translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789"))
 
 
 def _cancel(B):
     return B.cancel_kb("fa")
+
+
+def _doc_type_markup():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🪪 کارت آمایش", callback_data="govtype:card"),
+         InlineKeyboardButton("🛂 گذرنامه", callback_data="govtype:passport")],
+        [InlineKeyboardButton("📗 دفترچه اقامت", callback_data="govtype:residence")],
+        [InlineKeyboardButton("❌ انصراف", callback_data="govtype:cancel")],
+    ])
 
 
 async def _start_from_ui(update, context, B):
@@ -36,10 +44,28 @@ async def _start_from_ui(update, context, B):
     }
     return await q.message.reply_text(
         "🪪 نوع مدرک مشترک را انتخاب کنید:",
-        reply_markup=ReplyKeyboardMarkup(
-            [["🪪 کارت آمایش", "🛂 گذرنامه"], ["📗 دفترچه اقامت"], ["❌ انصراف"]],
-            resize_keyboard=True,
-        ),
+        reply_markup=_doc_type_markup(),
+    )
+
+
+async def _doc_type_callback(update, context, B):
+    q = update.callback_query
+    data = str(q.data or "")
+    if data not in {"govtype:residence", "govtype:cancel"}:
+        return
+    await q.answer()
+    uid = q.from_user.id
+    st = B.S.setdefault(uid, {})
+    if data == "govtype:cancel":
+        st.clear()
+        st["lang"] = "fa"
+        return await B.start(update, context)
+    st["mode"] = "gov_phone"
+    st["gov_doc_type"] = "residence_booklet"
+    st["gov_files"] = {}
+    return await q.message.reply_text(
+        "📗 دفترچه اقامت انتخاب شد.\n\n📱 شماره موبایل مشترک را وارد کنید:",
+        reply_markup=_cancel(B),
     )
 
 
@@ -58,8 +84,6 @@ async def _residence_text(update, context, B):
     if st.get("gov_doc_type") != "residence_booklet":
         return
 
-    # The normal UX module collects phone, DOB, unique ID and special ID.
-    # We only take over at the two points that differ for the booklet.
     if mode == "gov_special":
         if not re.fullmatch(r"1\d{11}", digits):
             return await update.message.reply_text(
@@ -108,7 +132,7 @@ async def _residence_media(update, context, B):
     fields = [
         ("doc_type", "residence_booklet"),
         ("phone", st.get("gov_phone", st.get("phone", ""))),
-        ("dob", st.get("dob", "")),
+        ("dob", st.get("dob", ""))),
         ("unique_id", st.get("gov_unique", st.get("unique_id", ""))),
         ("special_id", st.get("gov_special", "")),
         ("family_code", st.get("gov_family_code", "")),
@@ -173,7 +197,7 @@ async def _residence_media(update, context, B):
 
 
 def install(app, B):
-    # Run before the generic UI/text/media handlers.
-    app.add_handler(CallbackQueryHandler(lambda u,c: _start_from_ui(u,c,B), pattern=r"^ui:"), group=-5)
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, lambda u,c: _residence_text(u,c,B)), group=-5)
-    app.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL, lambda u,c: _residence_media(u,c,B)), group=-5)
+    app.add_handler(CallbackQueryHandler(lambda u, c: _start_from_ui(u, c, B), pattern=r"^ui:"), group=-5)
+    app.add_handler(CallbackQueryHandler(lambda u, c: _doc_type_callback(u, c, B), pattern=r"^govtype:"), group=-6)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, lambda u, c: _residence_text(u, c, B)), group=-5)
+    app.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL, lambda u, c: _residence_media(u, c, B)), group=-5)
