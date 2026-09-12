@@ -14,6 +14,8 @@ import partner_pricing
 import telegram_partner_price_adjustment
 import telegram_iranian_admin
 import telegram_partner_login_fix
+import partner_balance_guard
+import partner_balance_reset
 
 
 def build():
@@ -32,4 +34,6 @@ def build():
     admin_editable_texts.install(app, B)
     telegram_iranian_admin.install(app, B)
     telegram_partner_login_fix.install(app, B)
+    partner_balance_guard.install(B)
+    partner_balance_reset.install(app, B)
     return app
