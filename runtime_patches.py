@@ -25,6 +25,7 @@ _PATCH_MODULES = (
     "rubika_admin_full", "rubika_final_stability", "rubika_final_stability_patch",
     "rubika_button_guard", "admin_control_v4", "admin_control_v5", "rubika_admin_control_v5",
     "admin_full_v6", "keyboard_rubika_stability", "production_hotfix_v3",
+    "telegram_reconnect_patch",
 )
 
 
@@ -41,9 +42,6 @@ def install():
                 installer()
                 log.info("runtime patch installed: %s", module_name)
         except Exception:
-            # One optional compatibility patch must never prevent the server
-            # from starting. The real integration modules are still allowed
-            # to fail loudly through their own startup checks/logging.
             log.exception("runtime patch failed: %s", module_name)
     if server is None:
         server = importlib.import_module("server")
