@@ -1,8 +1,4 @@
-"""Reliable free-form partner/admin ticket messaging for Telegram.
-
-Text and media are all optional: a ticket participant can send any supported
-message type without being forced to attach a photo or any other file.
-"""
+"""Reliable free-form partner/admin ticket messaging for Telegram."""
 import logging
 from telegram.ext import ApplicationHandlerStop, MessageHandler, filters
 
@@ -17,6 +13,10 @@ def _button(pid):
 def _chat(B, pid):
     try:
         value = B.db.setting(f"partner_chat_{pid}", "")
+        if not value:
+            p = B.db.conn.execute("SELECT phone FROM partners WHERE id=?", (pid,)).fetchone()
+            if p and p["phone"]:
+                value = B.db.setting(f"partner_chat_{p['phone']}", "")
         return int(value) if value else None
     except Exception:
         return None
@@ -62,7 +62,14 @@ async def _media_or_text(update, context, B):
             p = B.db.conn.execute("SELECT name,phone FROM partners WHERE id=?", (pid,)).fetchone()
             if not p:
                 return
+            # Register the partner's real Telegram chat immediately. This is
+            # what lets an administrator later start a conversation from
+            # «💬 ارتباط با همکار» without requiring a previous reply button.
+            B.db.set_setting(f"partner_chat_{pid}", str(user.id))
+            if p["phone"]:
+                B.db.set_setting(f"partner_chat_{p['phone']}", str(user.id))
             text = f"📨 پیام همکار\n👤 {p['name']}\n📱 {p['phone']}\n🆔 شناسه همکار: {pid}\n\n{caption or 'پیام بدون متن'}"
+            B.db.set_setting(f"ticket_admin_{pid}", str(next(iter(B.ADM), "")))
             for aid in B.ADM:
                 await _send(context.bot, int(aid), message, text, _button(pid))
             await message.reply_text("✅ پیام شما برای مدیریت ارسال شد.\nهر تعداد پیام، متن، عکس، ویدیو یا ویس خواستید می‌توانید ارسال کنید.")
@@ -103,9 +110,6 @@ async def _media_or_text(update, context, B):
 
 
 def install(app, B):
-    # This is the single canonical ticket message/media handler. Stopping
-    # propagation prevents legacy generic panel/media handlers from consuming
-    # the same message a second time.
     app.add_handler(
         MessageHandler(
             filters.ALL & ~filters.COMMAND,
