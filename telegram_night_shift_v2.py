@@ -1,9 +1,10 @@
-"""Tehran business-hours gate with Friday closure and admin/night-partner overrides."""
+"""Tehran business-hours gate with Friday closure, admin/night-partner overrides and opening broadcast."""
 from datetime import datetime,time
 from zoneinfo import ZoneInfo
 from telegram import ReplyKeyboardMarkup,InlineKeyboardButton,InlineKeyboardMarkup
 from telegram.ext import CallbackQueryHandler,MessageHandler,ApplicationHandlerStop,filters
 TZ=ZoneInfo("Asia/Tehran");OPEN=time(7,0);CLOSE=time(19,0);PREFIX="night_worker:";RESTART="🔄 شروع مجدد"
+
 
 def is_friday(): return datetime.now(TZ).weekday()==4
 def open_now():
@@ -24,7 +25,7 @@ def worker_phone(B,v):
     r=B.db.conn.execute("SELECT id FROM partners WHERE phone=? AND active=1",(p,)).fetchone();return bool(r and worker(B,r["id"]))
 
 def allowed(B,uid,update=None):
-    # Management always has access, including Friday and outside working hours.
+    # Management is an absolute override: day/night, Friday/holiday, always.
     if B.admin(uid): return True
     st=B.S.get(uid,{})
     if worker(B,st.get("partner_id")):return True
@@ -42,6 +43,34 @@ def closed():
     return "⏰ ربات در حال حاضر خارج از ساعت کاری است.\n\n🕖 ساعت کاری عادی: ۷ صبح تا ۷ شب به وقت تهران\n🌙 دسترسی شبانه: فقط مدیریت و همکاران شیفت شبِ تعریف‌شده\n\nلطفاً در ساعت کاری مراجعه کنید."
 
 def markup():return ReplyKeyboardMarkup([[RESTART]],resize_keyboard=True,one_time_keyboard=False,is_persistent=True)
+
+def _opening_markup(B,uid=None):
+    # Opening action is attached to the message; the persistent reply keyboard remains only Restart.
+    return InlineKeyboardMarkup([[InlineKeyboardButton(RESTART,callback_data="night2:restart")]])
+
+async def _broadcast_opening(context,B):
+    now=datetime.now(TZ)
+    if is_friday() or not (OPEN<=now.time()<time(7,2)):return
+    day=now.strftime("%Y-%m-%d")
+    if B.db.setting("opening_notice_date","")==day:return
+    rows=B.db.conn.execute("SELECT external_id FROM users WHERE platform='telegram' AND external_id IS NOT NULL").fetchall()
+    text=("🟢 ربات باز شد\n\n"
+          "ساعت کاری عادی شروع شد و خدمات قابل استفاده است.\n"
+          "برای ورود و نمایش منوی خدمات، دکمه «🔄 شروع مجدد» را بزنید.")
+    sent=0
+    for r in rows:
+        try:
+            cid=int(r["external_id"])
+            await context.bot.send_message(chat_id=cid,text=text,reply_markup=_opening_markup(B,cid))
+            sent+=1
+            # Keep the one fixed ReplyKeyboard available below the chat as well.
+            await context.bot.send_message(chat_id=cid,text="دسترسی سریع:",reply_markup=markup())
+        except Exception:
+            continue
+    B.db.set_setting("opening_notice_date",day)
+    try:
+        B.db.set_setting("opening_notice_count",str(sent))
+    except Exception:pass
 
 def install(app,B):
     if getattr(B,"_night_shift_v2",False):return
@@ -64,7 +93,8 @@ def install(app,B):
         if not q or not d or d[0]!="night2":return
         await q.answer()
         if len(d)<2:return
-        if d[1]=="restart":return await q.message.reply_text(closed(),reply_markup=markup())
+        if d[1]=="restart":
+            return await B.start(type("U",(),{"message":q.message,"effective_message":q.message,"effective_user":q.from_user})(),context)
         uid=q.from_user.id
         if not B.admin(uid):return await q.answer("دسترسی ندارید",show_alert=True)
         st=B.S.setdefault(uid,{})
@@ -88,11 +118,16 @@ def install(app,B):
         if open_now() or allowed(B,update.effective_user.id,update):return
         msg=getattr(update,"effective_message",None)
         if not msg:return
-        # Start/restart is always allowed so the user can see the closed-state UI.
         txt=(getattr(msg,"text","") or "").strip()
         if txt in {"/start","/restart","start","شروع مجدد","🔄 شروع مجدد"}:return
         await msg.reply_text(closed(),reply_markup=markup());raise ApplicationHandlerStop
     app.add_handler(CallbackQueryHandler(cb,pattern=r"^night2:"),group=-2200)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,text),group=-2199)
     app.add_handler(MessageHandler(filters.ALL,gate),group=-2198)
+    # At the opening of every normal workday, notify every registered Telegram user.
+    try:
+        if getattr(app,"job_queue",None):
+            app.job_queue.run_repeating(_broadcast_opening,interval=30,first=5,data=B,name="netyar-opening-broadcast")
+    except Exception:
+        import logging;logging.getLogger("netyar.night").exception("opening broadcast scheduler unavailable")
     B._night_shift_v2=True
