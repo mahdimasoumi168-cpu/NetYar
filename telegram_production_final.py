@@ -1,12 +1,63 @@
 """Final Telegram production bootstrap.
 
-Builds the PTB application directly from the stable bot handlers instead of
-using the long chain of legacy B.build monkey-patches. Telegram is polling-only.
+Telegram is polling-only and owns its authoritative handlers here. This
+module intentionally avoids the legacy build/handler monkey-patch chain.
 """
 import logging
 import os
 
 log = logging.getLogger("netyar.telegram_final")
+
+
+async def _authoritative_start(update, context):
+    """Minimal, independent /start entry point for production."""
+    import bot as B
+    try:
+        log.info(
+            "Telegram /start received: user=%s chat=%s",
+            getattr(getattr(update, "effective_user", None), "id", None),
+            getattr(getattr(update, "effective_chat", None), "id", None),
+        )
+        await B.start(update, context)
+    except Exception:
+        log.exception("Telegram /start handler failed")
+        msg = getattr(update, "message", None)
+        if msg is not None:
+            try:
+                from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+                await msg.reply_text(
+                    "سلام و خوش آمدید 🌷\nلطفاً زبان را انتخاب کنید:",
+                    reply_markup=InlineKeyboardMarkup([
+                        [
+                            InlineKeyboardButton("🇮🇷 فارسی", callback_data="lang:fa"),
+                            InlineKeyboardButton("🇬🇧 English", callback_data="lang:en"),
+                            InlineKeyboardButton("🇸🇦 العربية", callback_data="lang:ar"),
+                        ]
+                    ]),
+                )
+            except Exception:
+                log.exception("Telegram /start fallback reply failed")
+
+
+async def _telegram_update_diagnostic(update, context):
+    """Log incoming Telegram updates without changing their routing."""
+    try:
+        if getattr(update, "message", None) is not None:
+            log.info(
+                "Telegram update received: update_id=%s user=%s text=%r",
+                getattr(update, "update_id", None),
+                getattr(getattr(update, "effective_user", None), "id", None),
+                getattr(update.message, "text", None),
+            )
+        elif getattr(update, "callback_query", None) is not None:
+            log.info(
+                "Telegram callback received: update_id=%s user=%s data=%r",
+                getattr(update, "update_id", None),
+                getattr(getattr(update.callback_query, "from_user", None), "id", None),
+                getattr(update.callback_query, "data", None),
+            )
+    except Exception:
+        log.exception("Telegram update diagnostic failed")
 
 
 def build():
@@ -15,8 +66,10 @@ def build():
         CallbackQueryHandler,
         CommandHandler,
         MessageHandler,
+        TypeHandler,
         filters,
     )
+    from telegram import Update
     import bot as B
 
     token = os.getenv("BOT_TOKEN", "").strip()
@@ -25,8 +78,11 @@ def build():
 
     app = Application.builder().token(token).build()
 
-    # Register the canonical handlers exactly once, in deterministic order.
-    app.add_handler(CommandHandler("start", B.start), group=0)
+    # Diagnostics run in a separate earlier group and never consume updates.
+    app.add_handler(TypeHandler(Update, _telegram_update_diagnostic), group=-10)
+
+    # This is the single authoritative /start handler.
+    app.add_handler(CommandHandler("start", _authoritative_start), group=0)
     app.add_handler(CommandHandler("addpartner", B.addpartner), group=0)
     app.add_handler(MessageHandler(filters.Regex(r"^/Admin2025$"), B.admin_command), group=0)
     app.add_handler(CallbackQueryHandler(B.langcb, pattern=r"^lang:"), group=0)
