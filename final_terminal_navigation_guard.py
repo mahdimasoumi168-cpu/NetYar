@@ -1,7 +1,8 @@
-"""Terminal navigation guard for both Telegram and Rubika.
+"""Final terminal navigation guard for Telegram.
 
-Installed last. It owns only the ambiguous seams where legacy routers were
-swallowing partner/admin buttons or letting a handled message fall through.
+This layer is intentionally last and only owns navigation seams. Business
+service handlers remain untouched; common labels are normalized here so old
+routers cannot swallow valid buttons.
 """
 from __future__ import annotations
 import os
@@ -13,18 +14,44 @@ log = logging.getLogger("netyar.final_terminal_navigation_guard")
 
 ADMIN_LABELS = {
     "🛠 پنل مدیریت بات", "🔵 🛠 پنل مدیریت بات", "🛠 پنل مدیریت", "پنل مدیریت بات", "پنل مدیریت",
-    "🛠 Admin panel", "🛠 لوحة الإدارة",
+    "🟦 پنل مدیریت", "🟦 پنل مدیریت بات", "🔧 پنل مدیریت", "⚙️ پنل مدیریت",
+    "🛠 Admin panel", "🛠 لوحة الإدارة", "🟦 Admin panel", "🟦 لوحة الإدارة",
 }
 PARTNER_LABELS = {
-    "👥 پنل همکاران", "🔵 👥 پنل همکاران", "👥 Partner panel", "🔵 👥 Partner panel",
-    "👥 لوحة الشركاء", "🔵 👥 لوحة الشركاء",
+    "👥 پنل همکاران", "🔵 👥 پنل همکاران", "🟦 پنل همکاران",
+    "👥 Partner panel", "🔵 👥 Partner panel", "🟦 Partner panel",
+    "👥 لوحة الشركاء", "🔵 👥 لوحة الشركاء", "🟦 لوحة الشركاء",
 }
 TICKET_LABELS = {
     "✉️ تیکت به مدیریت", "✉️ ارسال تیکت به مدیریت", "📝 تیکت به مدیریت",
-    "✉️ Ticket to management", "📝 Ticket to management",
+    "🟦 تیکت به مدیریت", "💬 تیکت به مدیریت",
+    "✉️ Ticket to management", "📝 Ticket to management", "🟦 Ticket to management",
     "✉️ إرسال تذكرة إلى الإدارة",
 }
 CANCEL_LABELS = {"❌ انصراف", "❌ Cancel", "❌ إلغاء", "لغو", "cancel", "Cancel", "إلغاء"}
+
+# Common visual aliases are converted to the canonical labels used by the
+# existing service router. This prevents menu redesigns from breaking logic.
+ALIASES = {
+    "🟦 فیدای غیر حضوری": "🪪 فیدای غیر حضوری",
+    "🟩 خدمات چاپ": "🖨 خدمات چاپ",
+    "🟨 حل مشکل ورود اتباع دولت من": "🪪 حل مشکل ورود اتباع دولت من",
+    "🟦 کد رهگیری تمدید کارت‌ها": "🎫 کد رهگیری تمدید کارت‌ها",
+    "🟩 خدمات سیم کارت": "📱 خدمات سیم کارت",
+    "🟨 آزمون غربالگری": "📝 آزمون غربالگری",
+    "🟦 پیگیری": "🎫 پیگیری",
+    "🟩 کیف پول من": "💰 کیف پول من",
+    "🟦 تماس با ما": "📞 تماس با ما",
+    "🟩 ثبت شکایت مشتریان": "📝 ثبت شکایت مشتریان",
+    "🟦 پنل همکاران": "👥 پنل همکاران",
+    "🟦 شارژ حساب": "➕ شارژ حساب",
+    "🟩 حل مشکل سامانه دولت من": "🏛 حل مشکل سامانه دولت من",
+    "🟨 پیگیری کد": "🔎 پیگیری کد",
+    "🟦 سوابق": "📋 سوابق",
+    "🟩 موجودی": "💰 موجودی",
+    "🟦 تیکت به مدیریت": "✉️ تیکت به مدیریت",
+    "🟩 خروج از پنل": "🚪 خروج از پنل",
+}
 
 
 def _admin(B, uid):
@@ -43,18 +70,23 @@ def _admin(B, uid):
     return str(uid) in {x.strip() for x in re.split(r"[;,\s]+", raw) if x.strip()}
 
 
-def _lang_menu(B, uid):
-    lang = B.S.get(uid, {}).get("lang", "fa")
-    if lang == "en":
-        return B.kb([["🎫 Tracking"], ["👥 Partner panel"], ["❌ Cancel"]])
-    if lang == "ar":
-        return B.kb([["🎫 المتابعة"], ["👥 لوحة الشركاء"], ["❌ إلغاء"]])
-    return B.kb([["🎫 پیگیری"], ["👥 پنل همکاران"], [B.CANCEL]])
+def _proxy_update(update, text):
+    original = update.message
+    class _Proxy:
+        def __init__(self, original_message, value):
+            self._original = original_message
+            self.text = value
+        def __getattr__(self, name):
+            return getattr(self._original, name)
+    update.message = _Proxy(original, text)
+    return original
 
 
 def install(app, B):
     if getattr(B, "_final_terminal_navigation_guard", False):
         return
+
+    old_router = B.router
 
     async def handle(update, context):
         message = update.effective_message
@@ -65,7 +97,13 @@ def install(app, B):
         text = str(message.text or "").strip()
         st = B.S.setdefault(uid, {})
 
-        # 1) Admin panel is terminal and must win over every legacy router.
+        # Normalize redesigned/color-square labels before anything else.
+        canonical = ALIASES.get(text)
+        if canonical:
+            text = canonical
+
+        # Admin entry is always terminal. This bypasses every legacy service
+        # router and uses the current centralized admin menu.
         if text in ADMIN_LABELS and _admin(B, uid):
             st["admin"] = True
             st["mode"] = "admin"
@@ -76,10 +114,10 @@ def install(app, B):
             )
             raise ApplicationHandlerStop
 
-        # 2) Partner panel must be reachable even while status=iranian.
+        # Partner entry is also terminal so it can never be interpreted as an
+        # Iranian-menu option.
         if text in PARTNER_LABELS:
             if not st.get("partner_id") and st.get("mode") not in {"partner", "p_phone", "p_pass"}:
-                # Let the canonical partner-login handler ask for phone.
                 st["mode"] = "p_phone"
                 st["step"] = "partner_phone"
                 lang = st.get("lang", "fa")
@@ -87,13 +125,13 @@ def install(app, B):
                     "fa": "📱 شماره موبایل اختصاصی همکار را وارد کنید:",
                     "en": "📱 Enter the partner's registered mobile number:",
                     "ar": "📱 أدخل رقم هاتف الشريك المسجل:",
-                }.get(lang)
+                }.get(lang, "📱 شماره موبایل اختصاصی همکار را وارد کنید:")
                 await message.reply_text(prompt, reply_markup=B.kb([[B.CANCEL]]))
             else:
                 await B.partner(update, context)
             raise ApplicationHandlerStop
 
-        # 3) Partner ticket entry. Do not let the Iranian-menu guard reject it.
+        # Partner ticket entry must win over the Iranian-menu fallback.
         if text in TICKET_LABELS and st.get("partner_id"):
             st["mode"] = "partner_ticket_text"
             await message.reply_text(
@@ -102,18 +140,18 @@ def install(app, B):
             )
             raise ApplicationHandlerStop
 
-        # 4) While partner ticket is open, consume text here and never fall through.
+        # Active partner ticket consumes its own text and stops propagation.
         if st.get("partner_id") and st.get("mode") == "partner_ticket_text":
             if text in CANCEL_LABELS:
                 st["mode"] = "partner"
                 await message.reply_text("❌ عملیات لغو شد.", reply_markup=B.partner_kb(st.get("lang", "fa")))
                 raise ApplicationHandlerStop
             if not text:
-                return
+                raise ApplicationHandlerStop
             try:
                 payload = (
                     "✉️ تیکت جدید همکار\n\n"
-                    f"👤 شناسه همکار: {st.get('partner_id', '-') }\n"
+                    f"👤 شناسه همکار: {st.get('partner_id', '-')}\n"
                     f"📱 شماره: {st.get('partner_phone') or st.get('phone') or st.get('partner') or '-'}\n\n"
                     f"📝 متن:\n{text}"
                 )
@@ -124,6 +162,18 @@ def install(app, B):
                 log.exception("partner ticket forwarding failed")
                 await message.reply_text("❌ ارسال تیکت ناموفق بود. دوباره تلاش کنید.", reply_markup=B.kb([[B.CANCEL]]))
             raise ApplicationHandlerStop
+
+        # All other messages go through the canonical router. For aliases we
+        # use a proxy because PTB Message.text is read-only.
+        if canonical:
+            original = _proxy_update(update, canonical)
+            try:
+                result = await old_router(update, context)
+            finally:
+                update.message = original
+            if result is not None:
+                raise ApplicationHandlerStop
+            return
 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle), group=-300)
     B._final_terminal_navigation_guard = True
