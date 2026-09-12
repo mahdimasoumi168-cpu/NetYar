@@ -15,6 +15,7 @@ import telegram_no_reply_keyboard
 import telegram_iranian_complaints
 import admin_editable_texts
 import partner_pricing
+import partner_price_exact
 import telegram_partner_price_adjustment
 import telegram_iranian_admin
 import telegram_partner_login_fix
@@ -40,10 +41,6 @@ def build():
     final_ux_hardening.install()
     final_navigation_language_stability.install()
     cross_platform_stability_final.install()
-
-    # Long-term control center: service state, prices, texts, support and
-    # admin roles live in SQLite and can be changed from the admin panel.
-    # Install before B.build() so captured handlers see the final admin_text.
     admin_control_v4.install()
 
     app = B.build()
@@ -52,6 +49,7 @@ def build():
     telegram_admin_partner_chat.install(app, B)
     telegram_service_notifications.install(app, B)
     partner_pricing.install_telegram(app, B)
+    partner_price_exact.install_telegram(app, B)
     telegram_partner_price_adjustment.install(app, B)
     telegram_gov_documents_flow.install(app, B)
     telegram_ux_billing.install(app, B)
@@ -71,11 +69,7 @@ def build():
     telegram_request_resend_fa.install(app, B)
     telegram_residence_booklet_guard.install(app, B)
 
-    # Re-apply cross-cutting UI/ticket patches after legacy menu modules.
     telegram_admin_partner_chat.install(app, B)
     telegram_global_stability.install(B)
-
-    # Absolute terminal layer. It consumes admin/partner/ticket labels before
-    # any legacy router can misinterpret them.
     final_terminal_navigation_guard.install(app, B)
     return app
