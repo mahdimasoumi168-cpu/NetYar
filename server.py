@@ -229,23 +229,11 @@ async def rubika_receive_update_head(): return None
 async def rubika_receive_update(request:Request): return await rubika_update(request)
 
 
-async def _integration_watchdog():
-    # Legacy compatibility only. The entrypoint cleanup module cancels this
-    # task; it must never start/stop polling or create another Telegram owner.
-    while True:
-        try:
-            await asyncio.sleep(300)
-        except asyncio.CancelledError:
-            return
-        except Exception:
-            log.exception("Legacy integration watchdog failed")
-
-
 async def _initialize_integrations():
     global telegram_app,telegram_ready,rubika_ready
     telegram_ready=False
     try:
-        import telegram_runtime as tg
+        import telegram_runtime_clean as tg
         telegram_app=tg.build()
         await telegram_app.initialize()
         await telegram_app.start()
@@ -282,9 +270,6 @@ async def _initialize_integrations():
 async def startup():
     global _telegram_workers
     init_db()
-    # These workers are retained only for the explicit /telegram/update
-    # webhook endpoint. Normal Telegram operation is long polling and does not
-    # feed this queue, so they cannot create a second Telegram consumer.
     for i in range(2):
         task=asyncio.create_task(_telegram_worker(i)); _telegram_workers.append(task)
     await _initialize_integrations()
