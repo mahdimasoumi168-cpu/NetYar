@@ -10,10 +10,14 @@ def install():
     if getattr(B, "_production_hotfix_v3", False):
         return
 
-    # Accept the variable name documented by README/Railway as well as the
-    # legacy BOT_TOKEN name used by bot.py.
+    # Accept both token variable names used by the project history.
     if not os.getenv("BOT_TOKEN", "").strip() and os.getenv("TELEGRAM_BOT_TOKEN", "").strip():
         os.environ["BOT_TOKEN"] = os.environ["TELEGRAM_BOT_TOKEN"].strip()
+
+    # Remove source-code fallbacks for the payment card. The card is now read
+    # only from Railway variables / database settings.
+    os.environ.setdefault("PAYMENT_CARD", str(B.db.setting("card_number", "") or ""))
+    os.environ.setdefault("PAYMENT_CARD_OWNER", str(B.db.setting("card_owner", "") or ""))
 
     # Forward submitted photos/documents to admins. The old notification only
     # contained text, so admins could not see the customer's evidence.
@@ -66,7 +70,6 @@ def install():
                 B.db.audit("telegram", q.from_user.id, new_status, f"request:{rid}", r["tracking_code"])
                 B.db.conn.commit()
 
-                # Direct Telegram customer.
                 user = B.db.conn.execute(
                     "SELECT external_id FROM users WHERE id=? AND platform='telegram'", (r["user_id"],)
                 ).fetchone()
@@ -79,8 +82,6 @@ def install():
                     except Exception:
                         log.exception("customer status notification failed")
                 else:
-                    # Partner requests use partners.id in the legacy user_id
-                    # column; partner_chat_* stores the active Telegram chat.
                     chat = B.db.setting(f"partner_chat_{r['user_id']}", "")
                     if chat:
                         try:
