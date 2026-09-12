@@ -88,8 +88,12 @@ def install(app=None, B=None):
             st["partner"] = phone
             st["partner_id"] = partner["id"] if "id" in partner.keys() else None
             st["mode"] = "partner"; st["step"] = "partner"
-            try: B.db.set_setting(f"partner_chat_{phone}", str(uid))
-            except Exception: pass
+            try:
+                B.db.set_setting(f"partner_chat_{phone}", str(uid))
+                if st.get("partner_id"):
+                    B.db.set_setting(f"partner_chat_{st['partner_id']}", str(uid))
+            except Exception:
+                log.exception("partner chat mapping save failed")
             balance = int(partner["balance"] or 0)
             markup = B.kb([
                 ["➕ شارژ حساب", "🔎 پیگیری کد"],
