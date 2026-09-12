@@ -158,7 +158,11 @@ async def _panel_callback(update, context, B):
                 lines.append(f"• {a['field_key']}: {a['answer']}")
         buttons = []
         if B.admin(q.from_user.id):
-            buttons = [[InlineKeyboardButton("✅ تأیید انجام خدمت", callback_data=f"panel:approve:{rid}"), InlineKeyboardButton("❌ رد درخواست", callback_data=f"panel:reject:{rid}")], [InlineKeyboardButton("⏳ در حال بررسی", callback_data=f"panel:review:{rid}"), InlineKeyboardButton("✉️ پاسخ به مشترک", callback_data=f"req:r:{rid}")]]
+            buttons = [
+                [InlineKeyboardButton("📨 درخواست کد از همکار", callback_data=f"panel:askcode:{rid}")],
+                [InlineKeyboardButton("✅ تأیید انجام خدمت", callback_data=f"panel:approve:{rid}"), InlineKeyboardButton("❌ رد درخواست", callback_data=f"panel:reject:{rid}")],
+                [InlineKeyboardButton("⏳ در حال بررسی", callback_data=f"panel:review:{rid}"), InlineKeyboardButton("✉️ پاسخ به مشترک", callback_data=f"req:r:{rid}")],
+            ]
         await q.message.reply_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(buttons) if buttons else None)
         for a in answers:
             if not a["file_id"]:
