@@ -1,4 +1,10 @@
-"""Deterministic compatibility-layer loader for the production bot."""
+"""Deterministic compatibility-layer loader for the production bot.
+
+Legacy patch files are still loaded in their historical order for backwards
+compatibility. The final inline-only Telegram patch is intentionally excluded:
+it replaced normal reply keyboards and was the source of inconsistent Telegram
+UI/routing. A single production hotfix is loaded last for deterministic fixes.
+"""
 import importlib
 import logging
 
@@ -18,21 +24,27 @@ _PATCH_MODULES = (
     "final_requirements_patch", "production_final_v2", "rubika_final_router",
     "rubika_admin_full", "rubika_final_stability", "rubika_final_stability_patch",
     "rubika_button_guard", "admin_control_v4", "admin_control_v5", "rubika_admin_control_v5",
-    "admin_full_v6", "keyboard_rubika_stability", "final_platform_fix",
+    "admin_full_v6", "keyboard_rubika_stability", "production_hotfix_v3",
 )
 
 
 def install():
     server = None
     for module_name in _PATCH_MODULES:
-        module = importlib.import_module(module_name)
-        if module_name == "server":
-            server = module
-            continue
-        installer = getattr(module, "install", None)
-        if installer is not None:
-            installer()
-            log.info("runtime patch installed: %s", module_name)
+        try:
+            module = importlib.import_module(module_name)
+            if module_name == "server":
+                server = module
+                continue
+            installer = getattr(module, "install", None)
+            if installer is not None:
+                installer()
+                log.info("runtime patch installed: %s", module_name)
+        except Exception:
+            # One optional compatibility patch must never prevent the server
+            # from starting. The real integration modules are still allowed
+            # to fail loudly through their own startup checks/logging.
+            log.exception("runtime patch failed: %s", module_name)
     if server is None:
         server = importlib.import_module("server")
     return server
