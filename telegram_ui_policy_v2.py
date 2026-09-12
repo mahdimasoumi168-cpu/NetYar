@@ -48,22 +48,46 @@ def restart_keyboard():
     return ReplyKeyboardMarkup([[RESTART]],resize_keyboard=True,one_time_keyboard=False,is_persistent=True)
 
 
+def _resolve_partner(B, uid):
+    """Resolve a partner from persistent Telegram-ID linkage, not volatile state."""
+    st=B.S.setdefault(uid,{})
+    try:
+        if st.get("partner_id"):
+            row=B.db.conn.execute("SELECT id FROM partners WHERE id=? AND active=1 LIMIT 1",(st["partner_id"],)).fetchone()
+            if row:
+                st["partner_active"]=True
+                return True
+        row=B.db.conn.execute(
+            "SELECT p.id FROM partners p "
+            "JOIN partner_telegram_links l ON l.partner_id=p.id "
+            "WHERE l.telegram_user_id=? AND p.active=1 LIMIT 1",
+            (str(uid),),
+        ).fetchone()
+        if row:
+            st["partner_id"]=row["id"]
+            st["partner_active"]=True
+            return True
+        phone=str(st.get("phone") or "").strip()
+        if phone:
+            row=B.db.conn.execute("SELECT id FROM partners WHERE phone=? AND active=1 LIMIT 1",(phone,)).fetchone()
+            if row:
+                st["partner_id"]=row["id"]
+                st["partner_active"]=True
+                return True
+    except Exception:
+        log.exception("partner resolution failed")
+    return False
+
+
 def _main_rows(B,uid):
-    st=B.S.get(uid,{})
+    st=B.S.setdefault(uid,{})
     if st.get("status")=="iranian":
         rows=[["🎫 پیگیری","💰 کیف پول من"],["📞 تماس با ما","📝 ثبت شکایت مشتریان"]]
     else:
         rows=[["🪪 فیدای غیر حضوری","🖨 خدمات چاپ"],["🪪 حل مشکل ورود اتباع دولت من","🎫 کد رهگیری تمدید کارت‌ها"],["📱 خدمات سیم کارت","📝 آزمون غربالگری"],["🎫 پیگیری","💰 کیف پول من"],["📞 تماس با ما","📝 ثبت شکایت مشتریان"]]
-    partner_ok=bool(st.get("partner_id") and st.get("partner_active",True)) or bool(B.admin(uid))
-    if not partner_ok:
-        try:
-            phone=str(st.get("phone") or "").strip()
-            if phone:
-                row=B.db.conn.execute("SELECT id FROM partners WHERE phone=? AND active=1",(phone,)).fetchone()
-                partner_ok=bool(row)
-                if partner_ok: st["partner_id"]=row["id"]; st["partner_active"]=1
-        except Exception: log.exception("partner resolution failed")
-    if partner_ok: rows.append(["👥 پنل همکاران"])
+    # Every active, persistently linked partner gets the partner panel.
+    # Management is also shown its own admin panel, independently.
+    if _resolve_partner(B,uid): rows.append(["👥 پنل همکاران"])
     if B.admin(uid): rows.append(["🛠 پنل مدیریت بات"])
     return rows
 
@@ -103,7 +127,9 @@ async def _dispatch(update,context,B,label):
     q=update.callback_query; uid=q.from_user.id; st=B.S.setdefault(uid,{}); fake=_fake(update,label)
     if label==RESTART:return await B.start(fake,context)
     if label==CANCEL:return await B.cancel(fake,context)
-    if label=="👥 پنل همکاران":return await B.partner(fake,context)
+    if label=="👥 پنل همکاران":
+        _resolve_partner(B,uid)
+        return await B.partner(fake,context)
     if label=="🚪 خروج از پنل":return await B.partner_exit(fake,context)
     if label=="🛠 پنل مدیریت بات":
         if not B.admin(uid): return await q.message.reply_text("❌ دسترسی مدیریت ندارید.",reply_markup=B.main(uid))
@@ -164,8 +190,6 @@ def install(app,B):
     except Exception:pass
     old_start=B.start
     async def start(update,context):
-        # Preserve all existing state (especially partner/admin authorization) and
-        # always send exactly one persistent ReplyKeyboard with the restart action.
         result=await old_start(update,context)
         try: await update.effective_message.reply_text("دسترسی سریع:",reply_markup=restart_keyboard())
         except Exception: pass
@@ -176,9 +200,7 @@ def install(app,B):
         if not update.message:return
         text=(update.message.text or "").strip()
         if text not in {RESTART,"شروع مجدد"}:return
-        try:
-            # Route the ReplyKeyboard action through the real /start handler.
-            await B.start(update,context)
+        try: await B.start(update,context)
         except Exception:
             log.exception("persistent restart failed")
             try: await update.effective_message.reply_text("❌ شروع مجدد انجام نشد. لطفاً چند لحظه بعد دوباره تلاش کنید.",reply_markup=restart_keyboard())
