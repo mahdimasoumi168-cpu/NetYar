@@ -1,10 +1,4 @@
-"""Final production stability guards.
-
-This module is intentionally small and idempotent.  It does not replace the
-existing business logic; it protects the shared routing/runtime seams from
-common production failures while the older compatibility patches remain in
-place.
-"""
+"""Final production stability guards."""
 
 from __future__ import annotations
 
@@ -48,23 +42,15 @@ def _mark_telegram_seen(update_id: Any) -> bool:
 
 def _install_partner_callback_guard() -> None:
     import bot as B
-
     if getattr(B, "_netyar_partner_callback_guard", False):
         return
-
     old_router = B.router
-
     async def guarded_router(update, context):
         text = (getattr(getattr(update, "message", None), "text", "") or "").strip()
         result = await old_router(update, context)
-        # The persistent callback adapter uses a None return value to decide
-        # whether it should fall through to ptext/service_text.  The partner
-        # button changes the state to p_phone and must never be reinterpreted
-        # as the phone number itself.
         if text in {"👥 پنل همکاران", "پنل همکاران"}:
             return True
         return result
-
     B.router = guarded_router
     B._netyar_partner_callback_guard = True
     log.info("partner callback guard installed")
@@ -72,10 +58,8 @@ def _install_partner_callback_guard() -> None:
 
 def _install_telegram_serialization() -> None:
     import server
-
     if getattr(server, "_netyar_telegram_stability_guard", False):
         return
-
     old_process = server._process_telegram_update
 
     async def guarded_process(update):
@@ -93,6 +77,15 @@ def _install_telegram_serialization() -> None:
         if user_id is None:
             return await old_process(update)
 
+        # Inline callback buttons must not wait behind a long-running message
+        # handler (media upload, external API call, etc.). Telegram clients
+        # show a spinner until answerCallbackQuery is sent. Give callbacks a
+        # separate per-user lane while ordinary messages remain serialized.
+        if getattr(update, "callback_query", None) is not None:
+            cb_lock = _lock_for("telegram_callback", user_id)
+            async with cb_lock:
+                return await old_process(update)
+
         lock = _lock_for("telegram", user_id)
         async with lock:
             await old_process(update)
@@ -104,12 +97,9 @@ def _install_telegram_serialization() -> None:
 
 def _install_rubika_serialization() -> None:
     import server
-
     if getattr(server, "_netyar_rubika_stability_guard", False):
         return
-
     old_run = server._run_rubika
-
     async def guarded_run(update, rb):
         try:
             user_id = server._rubika_user(update)
@@ -118,17 +108,14 @@ def _install_rubika_serialization() -> None:
         lock = _lock_for("rubika", user_id)
         async with lock:
             await old_run(update, rb)
-
     server._run_rubika = guarded_run
     server._netyar_rubika_stability_guard = True
     log.info("Rubika per-user serialization guard installed")
 
 
 def install() -> None:
-    """Install every production guard exactly once."""
     if globals().get("_INSTALLED"):
         return
-
     _install_partner_callback_guard()
     _install_telegram_serialization()
     _install_rubika_serialization()
