@@ -7,6 +7,10 @@ import os
 
 import uvicorn
 import server
+import bale_bootstrap
+
+# Install the Bale webhook adapter before FastAPI startup handlers are run.
+bale_bootstrap.install(server)
 
 
 def main():
