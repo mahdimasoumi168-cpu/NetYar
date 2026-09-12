@@ -62,20 +62,16 @@ def _install_features(app):
     try:
         import telegram_legacy_callback_bridge as LCB; LCB.install(app,B)
     except Exception: log.exception("legacy callback bridge unavailable")
-
-    # Reliable admin actions: request a service code from the assigned partner
-    # (up to 10 rounds) and resend the complete request with attachments to the
-    # admin's current chat. These handlers run before the generic router.
     try:
         import telegram_partner_code_reliable as PCR; PCR.install(app,B)
     except Exception: log.exception("partner code handler unavailable")
     try:
         import telegram_request_resend_fa as RFA; RFA.install(app,B)
     except Exception: log.exception("request resend handler unavailable")
-
-    # Final access/UI layer is intentionally installed last so no legacy feature
-    # wrapper can reintroduce the partner-panel or business-hours bugs.
     import telegram_access_hardening as AH; AH.install(app,B)
+    try:
+        import telegram_partner_visibility_fix as PV; PV.install(app,B)
+    except Exception: log.exception("partner visibility fix unavailable")
     log.info("Telegram feature layers installed")
 
 
