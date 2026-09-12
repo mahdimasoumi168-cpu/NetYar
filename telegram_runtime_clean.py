@@ -24,10 +24,7 @@ async def _start(update, context):
     except Exception:log.exception("user persistence")
     old=B.S.get(uid,{})
     B.S[uid]={k:old[k] for k in ("partner_id","partner_active","admin","lang","status","phone") if k in old}
-    await update.message.reply_text(
-        "سلام و خوش آمدید 🌷\nلطفاً زبان را انتخاب کنید:",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🇮🇷 فارسی",callback_data="lang:fa"),InlineKeyboardButton("🇬🇧 English",callback_data="lang:en"),InlineKeyboardButton("🇸🇦 العربية",callback_data="lang:ar")]]),
-    )
+    await update.message.reply_text("سلام و خوش آمدید 🌷\nلطفاً زبان را انتخاب کنید:",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🇮🇷 فارسی",callback_data="lang:fa"),InlineKeyboardButton("🇬🇧 English",callback_data="lang:en"),InlineKeyboardButton("🇸🇦 العربية",callback_data="lang:ar")]]))
 
 
 def _install_features(app):
@@ -35,13 +32,17 @@ def _install_features(app):
     import telegram_business_features as F; F.install(app,B)
     import telegram_ui_policy_v2 as UI; UI.install(app,B)
     import telegram_status_ui as SU; SU.install(app,B)
-
     try:
         import telegram_public_tracking as PT; PT.install(app,B)
     except Exception: log.exception("public tracking unavailable")
     try:
         import telegram_sim_service_v2 as SIM; SIM.install(app,B)
     except Exception: log.exception("SIM service unavailable")
+    try:
+        import telegram_topup_invoice as TI
+        TI.install(B)
+        if getattr(B,"_topup_invoice_install_app",None): B._topup_invoice_install_app(app)
+    except Exception: log.exception("topup invoice unavailable")
 
     import telegram_admin_plus as A
     app.add_handler(CallbackQueryHandler(lambda u,c:A._callback(u,c,B),pattern=r'^adm:'),group=-20)
