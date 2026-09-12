@@ -56,6 +56,17 @@ def _install_features(app):
     import telegram_night_shift_v2 as N; N.install(app,B)
     import telegram_admin_menu_v2 as AM; AM.install(B)
     import telegram_request_control_v2 as RC; RC.install(app,B)
+
+    # Reliable admin actions: request a service code from the assigned partner
+    # (up to 10 rounds) and resend the complete request with attachments to the
+    # admin's current chat. These handlers run before the generic router.
+    try:
+        import telegram_partner_code_reliable as PCR; PCR.install(app,B)
+    except Exception: log.exception("partner code handler unavailable")
+    try:
+        import telegram_request_resend_fa as RFA; RFA.install(app,B)
+    except Exception: log.exception("request resend handler unavailable")
+
     # Final access/UI layer is intentionally installed last so no legacy feature
     # wrapper can reintroduce the partner-panel or business-hours bugs.
     import telegram_access_hardening as AH; AH.install(app,B)
