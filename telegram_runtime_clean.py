@@ -20,6 +20,7 @@ import partner_balance_reset
 import telegram_notification_guard
 import telegram_partner_code_reliable
 import telegram_request_details_fix
+import telegram_request_resend_fa
 import telegram_ticket_media
 
 
@@ -46,4 +47,5 @@ def build():
     telegram_notification_guard.install(app, B)
     telegram_partner_code_reliable.install(app, B)
     telegram_request_details_fix.install(app, B)
+    telegram_request_resend_fa.install(app, B)
     return app
