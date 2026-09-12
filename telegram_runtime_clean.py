@@ -39,6 +39,7 @@ import telegram_final_control
 import telegram_sim_service
 import telegram_sim_service_v2
 import telegram_public_tracking
+import telegram_tracking_router
 import telegram_absolute_fix
 
 
@@ -82,5 +83,6 @@ def build():
     telegram_sim_service.install(app, B)
     telegram_sim_service_v2.install(app, B)
     telegram_public_tracking.install(app, B)
+    telegram_tracking_router.install(B)
     telegram_absolute_fix.install(app, B)
     return app
