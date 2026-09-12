@@ -1,13 +1,13 @@
-"""Canonical Telegram inline-only UI.
+"""Canonical Telegram UI: inline menus + one persistent restart button.
 
-Legacy reply keyboards are removed. Inline buttons are routed through the same
-text router used by normal messages, including after a restart/deploy.
+All normal menus use inline buttons. The only persistent reply-keyboard button
+is «🔄 شروع مجدد», which executes the same flow as /start.
 """
 from collections import OrderedDict
 import threading
 import logging
 from types import SimpleNamespace
-from telegram import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove
+from telegram import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove, ReplyKeyboardMarkup
 from telegram.ext import CallbackQueryHandler, MessageHandler, filters
 
 log = logging.getLogger("netyar.telegram.inline_only")
@@ -42,8 +42,14 @@ def _inline_kb(rows):
 
 
 class _InlineOnlyReplyKeyboard:
+    """Compatibility shim: legacy B.ReplyKeyboardMarkup becomes inline."""
     def __new__(cls, keyboard, *args, **kwargs):
         return _inline_kb(keyboard)
+
+
+def restart_keyboard():
+    """The one and only persistent Telegram reply keyboard."""
+    return ReplyKeyboardMarkup([["🔄 شروع مجدد"]], resize_keyboard=True, is_persistent=True)
 
 
 async def _remove_legacy_keyboard(message):
@@ -64,7 +70,11 @@ async def _remove_legacy_keyboard(message):
 
 
 async def _remove_on_message(update, context):
-    await _remove_legacy_keyboard(getattr(update, "effective_message", None))
+    # Do not remove our restart keyboard when the restart button itself is used.
+    msg = getattr(update, "effective_message", None)
+    if getattr(msg, "text", None) == "🔄 شروع مجدد":
+        return
+    await _remove_legacy_keyboard(msg)
 
 
 def _button_label_from_message(q):
@@ -80,7 +90,6 @@ def _button_label_from_message(q):
 
 
 def _message_update_from_callback(update, q):
-    """Give legacy routers a message-shaped update while preserving the clicker."""
     return SimpleNamespace(
         update_id=getattr(update, "update_id", None),
         message=q.message,
@@ -98,12 +107,9 @@ async def _inline_callback(update, context, B):
     if not label:
         await q.answer("این گزینه دیگر معتبر نیست؛ لطفاً از منوی فعلی استفاده کنید.")
         return
-
     await q.answer()
-    await _remove_legacy_keyboard(q.message)
     original = getattr(q.message, "text", None)
     proxy = _message_update_from_callback(update, q)
-
     try:
         object.__setattr__(q.message, "text", label)
         await B.router(proxy, context)
@@ -126,6 +132,7 @@ def install(app, B):
 
     B.kb = _inline_kb
     B.ReplyKeyboardMarkup = _InlineOnlyReplyKeyboard
+    B.restart_keyboard = restart_keyboard
 
     for module_name in (
         "telegram_admin_plus",
@@ -146,8 +153,12 @@ def install(app, B):
     old_start = B.start
 
     async def start_without_reply_keyboard(update, context):
-        await _remove_legacy_keyboard(getattr(update, "effective_message", None))
-        return await old_start(update, context)
+        result = await old_start(update, context)
+        try:
+            await update.effective_message.reply_text("منوی اصلی:", reply_markup=restart_keyboard())
+        except Exception:
+            log.exception("failed to install restart keyboard")
+        return result
 
     B.start = start_without_reply_keyboard
     B._netyar_no_reply_keyboard = True
