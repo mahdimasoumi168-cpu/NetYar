@@ -8,19 +8,27 @@ B = None
 
 
 def _admin_markup(rid):
+    """Manager actions shown directly under every new service notification."""
     return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📨 درخواست کد از همکار", callback_data=f"panel:askcode:{rid}")],
         [InlineKeyboardButton("🔎 مشاهده درخواست", callback_data=f"panel:req:{rid}")],
-        [InlineKeyboardButton("⏳ در حال بررسی", callback_data=f"panel:review:{rid}"), InlineKeyboardButton("✅ انجام شد", callback_data=f"panel:approve:{rid}")],
-        [InlineKeyboardButton("❌ رد درخواست", callback_data=f"panel:reject:{rid}"), InlineKeyboardButton("✉️ پاسخ به مشترک", callback_data=f"req:r:{rid}")],
+        [InlineKeyboardButton("⏳ در حال بررسی", callback_data=f"panel:review:{rid}"),
+         InlineKeyboardButton("✅ انجام شد", callback_data=f"panel:approve:{rid}")],
+        [InlineKeyboardButton("❌ رد درخواست", callback_data=f"panel:reject:{rid}"),
+         InlineKeyboardButton("✉️ پاسخ به مشترک", callback_data=f"req:r:{rid}")],
     ])
 
 
 def _partner_keyboard():
+    """Partner menu: no manual 'send code to manager' option.
+
+    The partner only receives a code request from management when the manager
+    presses '📨 درخواست کد از همکار' on a service notification.
+    """
     return B.kb([
         ["➕ شارژ حساب", "🏛 حل مشکل سامانه دولت من"],
         ["🎫 درخواست‌های من", "🔎 پیگیری کد"],
         ["📋 سوابق", "💰 موجودی"],
-        ["📨 ارسال کد به مدیریت"],
         ["📨 ارسال پیام به مدیریت"],
         ["🚪 خروج از پنل"],
         [B.CANCEL],
@@ -84,10 +92,9 @@ async def _text(update, context):
     t = (update.message.text or "").strip()
     uid = update.effective_user.id
     st = B.S.setdefault(uid, {})
-    if t == "📨 ارسال کد به مدیریت" and st.get("partner_id"):
-        st["mode"] = "partner_send_code"
-        await update.message.reply_text("🎫 کد پیگیری/کد خدمت را برای مدیریت ارسال کنید:", reply_markup=B.cancel_kb())
-        raise ApplicationHandlerStop
+
+    # Intentionally no manual "ارسال کد به مدیریت" option here. A code is
+    # requested by management from the service notification itself.
     if st.get("mode") == "partner_send_code" and st.get("partner_id"):
         p = B.db.conn.execute("SELECT name,phone FROM partners WHERE id=?", (st["partner_id"],)).fetchone()
         if p:
