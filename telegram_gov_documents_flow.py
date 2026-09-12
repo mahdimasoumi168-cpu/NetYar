@@ -1,26 +1,18 @@
 """Government service document flow: ID document required, SIM-card proof optional."""
-import re
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import MessageHandler, CallbackQueryHandler, ApplicationHandlerStop, filters
 
 
-def _cancel(B):
-    return B.cancel_kb()
-
-
 def _optional_kb():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📱 ارسال تصویر سند سیم‌کارت (اختیاری)", callback_data="govsim:skip")],
-        [InlineKeyboardButton("⏭️ ادامه بدون سند سیم‌کارت", callback_data="govsim:skip")],
-    ])
+    return InlineKeyboardMarkup([[InlineKeyboardButton("⏭️ ادامه بدون سند سیم‌کارت", callback_data="govsim:skip")]])
 
 
 def _file_id(message):
     if message.photo:
-        return message.photo[-1].file_id, "photo"
+        return message.photo[-1].file_id
     if message.document:
-        return message.document.file_id, "document"
-    return "", ""
+        return message.document.file_id
+    return ""
 
 
 async def _finalize(update, context, B, st, sim_fid=""):
@@ -33,11 +25,9 @@ async def _finalize(update, context, B, st, sim_fid=""):
             f"❌ اعتبار کافی نیست.\n💰 هزینه خدمت: {amount:,} تومان\n💳 اعتبار فعلی: {int(p['balance'] if p else 0):,} تومان\n\nلطفاً ابتدا حساب را شارژ کنید.",
             reply_markup=B.partner_kb(st.get("lang", "fa")),
         )
-
     doc_fid = st.get("gov_document_file_id", "")
     if not doc_fid:
         return await update.effective_message.reply_text("❌ تصویر مدرک شناسایی ثبت نشده است. لطفاً دوباره ارسال کنید.")
-
     owner = pid or B.db.user("telegram", uid, update.effective_user.username, update.effective_user.full_name)
     rid, code = B.db.create_request(owner, "government", "telegram", amount)
     fields = [
@@ -57,7 +47,6 @@ async def _finalize(update, context, B, st, sim_fid=""):
     B.db.answer(rid, "document", file_id=doc_fid)
     if sim_fid:
         B.db.answer(rid, "sim_card_document", file_id=sim_fid)
-
     if pid:
         B.db.conn.execute("UPDATE requests SET status='submitted',payment_status='paid',payment_method='partner_balance',updated_at=? WHERE id=?", (B.now(), rid))
         B.db.conn.execute("UPDATE partners SET balance=balance-?,updated_at=? WHERE id=?", (amount, B.now(), pid))
@@ -67,7 +56,6 @@ async def _finalize(update, context, B, st, sim_fid=""):
         B.db.conn.execute("UPDATE requests SET status='submitted',updated_at=? WHERE id=?", (B.now(), rid))
         B.db.conn.commit()
         left = None
-
     text = (
         "👔 مدیر — اعلان خدمات جدید\n\n"
         "🆕 حل مشکل سامانه دولت من\n"
@@ -105,6 +93,7 @@ async def _finalize(update, context, B, st, sim_fid=""):
                 pass
     st["mode"] = None
     st.pop("gov_document_file_id", None)
+    st.pop("gov_sim_document_file_id", None)
     if pid:
         return await update.effective_message.reply_text(
             f"✅ درخواست با موفقیت ثبت شد.\n🎫 کد پیگیری: {code}\n💰 مبلغ کسرشده: {amount:,} تومان\n💳 اعتبار باقی‌مانده: {left:,} تومان",
@@ -120,18 +109,17 @@ async def _media(update, context, B):
     uid = update.effective_user.id
     st = B.S.setdefault(uid, {})
     mode = st.get("mode")
-    fid, kind = _file_id(message)
+    fid = _file_id(message)
     if not fid or mode not in {"gov_photo", "gov_sim"}:
         return
     if mode == "gov_photo":
         st["gov_document_file_id"] = fid
         st["mode"] = "gov_sim"
         await message.reply_text(
-            "✅ تصویر مدرک شناسایی دریافت شد.\n\n📱 حالا اگر دارید، تصویر سند سیم‌کارت را ارسال کنید.\nاین مدرک **اختیاری** است و می‌توانید بدون ارسال آن ادامه دهید.",
+            "✅ تصویر مدرک شناسایی دریافت شد.\n\n📱 حالا اگر دارید، تصویر سند سیم‌کارت را ارسال کنید.\nاین مدرک اختیاری است؛ اگر ندارید روی «⏭️ ادامه بدون سند سیم‌کارت» بزنید.",
             reply_markup=_optional_kb(),
         )
         raise ApplicationHandlerStop
-    st["gov_sim_document_file_id"] = fid
     await _finalize(update, context, B, st, fid)
     raise ApplicationHandlerStop
 
@@ -141,8 +129,7 @@ async def _skip(update, context, B):
     if not q or q.data != "govsim:skip":
         return
     await q.answer()
-    uid = q.from_user.id
-    st = B.S.setdefault(uid, {})
+    st = B.S.setdefault(q.from_user.id, {})
     if st.get("mode") != "gov_sim":
         return
     await _finalize(update, context, B, st, "")
@@ -150,7 +137,5 @@ async def _skip(update, context, B):
 
 
 def install(app, B):
-    # These handlers run before the old government media handler, so the old
-    # flow cannot prematurely create/charge a request after the ID document.
     app.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL, lambda u, c: _media(u, c, B)), group=-6)
     app.add_handler(CallbackQueryHandler(lambda u, c: _skip(u, c, B), pattern=r"^govsim:skip$"), group=-6)
