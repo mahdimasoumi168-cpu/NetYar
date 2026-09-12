@@ -5,13 +5,14 @@ using the official getUpdates long-polling API instead of marking Rubika offline
 """
 import asyncio
 import logging
+import os
 
 log = logging.getLogger("netyar.rubika_polling_fallback")
 
 
 async def _poll(server, rb):
     offset_id = None
-    log.warning("Rubika webhook unavailable; getUpdates fallback started")
+    log.warning("Rubika getUpdates fallback started")
     while True:
         try:
             payload = {"limit": 20}
@@ -47,7 +48,11 @@ def install():
 
     async def initialize():
         await original()
-        if getattr(server, "rubika_ready", False):
+        # RUBIKA_FORCE_POLLING is used when the provider rejects the public
+        # Railway endpoint. It deliberately takes precedence over the
+        # webhook success flag from the older initializer.
+        force_polling = os.getenv("RUBIKA_FORCE_POLLING", "0").strip().lower() in {"1", "true", "yes", "on"}
+        if getattr(server, "rubika_ready", False) and not force_polling:
             return
         try:
             import rubika_v2 as rb
@@ -56,8 +61,9 @@ def install():
             if task is None or task.done():
                 server._rubika_polling_task = asyncio.create_task(_poll(server, rb))
             server.rubika_ready = True
-            log.warning("Rubika webhook failed; bot kept online with getUpdates fallback")
+            log.warning("Rubika is online with getUpdates polling fallback")
         except Exception:
+            server.rubika_ready = False
             log.exception("Could not start Rubika getUpdates fallback")
 
     server._initialize_integrations = initialize
