@@ -20,6 +20,8 @@ _PATCH_MODULES = (
     "rubika_button_guard", "admin_control_v4", "admin_control_v5", "rubika_admin_control_v5",
     "admin_full_v6", "keyboard_rubika_stability", "production_hotfix_v3",
     "telegram_reconnect_patch", "telegram_polling_guard", "telegram_production_final",
+    # Must be last: owns the final Telegram state/navigation behavior.
+    "telegram_final_hardening",
 )
 
 
