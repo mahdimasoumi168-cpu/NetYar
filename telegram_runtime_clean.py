@@ -38,6 +38,7 @@ import telegram_ultimate_hardening
 import telegram_final_control
 import telegram_sim_service
 import telegram_sim_service_v2
+import telegram_public_tracking
 import telegram_absolute_fix
 
 
@@ -47,7 +48,6 @@ def build():
     final_navigation_language_stability.install()
     cross_platform_stability_final.install()
     admin_control_v4.install()
-
     app = B.build()
     telegram_ticket_reliability.install(app, B)
     telegram_panels.install(app, B)
@@ -80,9 +80,7 @@ def build():
     telegram_ultimate_hardening.install(app, B)
     telegram_final_control.install(app, B)
     telegram_sim_service.install(app, B)
-    # New canonical SIM flow is installed last among SIM handlers and uses a
-    # separate callback namespace, so the legacy flow cannot consume sim2:*.
     telegram_sim_service_v2.install(app, B)
-    # Absolute last: canonical ownership of ik:* Telegram callbacks.
+    telegram_public_tracking.install(app, B)
     telegram_absolute_fix.install(app, B)
     return app
