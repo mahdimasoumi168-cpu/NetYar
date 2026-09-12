@@ -41,6 +41,8 @@ import telegram_sim_service_v2
 import telegram_public_tracking
 import telegram_tracking_router
 import telegram_absolute_fix
+import telegram_business_rules_v2
+import telegram_partner_price_flow_v2
 
 
 def build():
@@ -85,4 +87,7 @@ def build():
     telegram_public_tracking.install(app, B)
     telegram_tracking_router.install(B)
     telegram_absolute_fix.install(app, B)
+    # Last business-rule layer: hard logout + Iranian isolation + exact partner pricing.
+    telegram_business_rules_v2.install(app, B)
+    telegram_partner_price_flow_v2.install(app, B)
     return app
