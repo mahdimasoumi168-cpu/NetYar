@@ -26,19 +26,34 @@ def install():
         await asyncio.sleep(1)
 
         # Telegram: force long polling. Do not register a webhook here.
-        # This also removes any stale webhook left by an older deployment.
         try:
             import telegram_runtime as tg
             server.telegram_app = tg.build()
             await server.telegram_app.initialize()
             await server.telegram_app.start()
 
+            # Verify the token before starting the polling worker. This makes
+            # invalid BOT_TOKEN failures explicit instead of looking like a
+            # silent /start failure.
+            me = await server.telegram_app.bot.get_me()
+            server.log.info(
+                "Telegram bot authenticated: id=%s username=@%s",
+                getattr(me, "id", "unknown"),
+                getattr(me, "username", "unknown"),
+            )
+
+            # Remove any stale webhook left by an older deployment.
             await server.telegram_app.bot.delete_webhook(drop_pending_updates=False)
             updater = getattr(server.telegram_app, "updater", None)
             if updater is None:
                 raise RuntimeError("python-telegram-bot updater is unavailable")
 
-            await updater.start_polling(allowed_updates=None)
+            error_callback = getattr(server, "_telegram_polling_error_callback", None)
+            await updater.start_polling(
+                allowed_updates=None,
+                drop_pending_updates=False,
+                error_callback=error_callback,
+            )
             server.telegram_ready = True
             server.log.info("Telegram long polling started successfully")
         except Exception:
@@ -92,7 +107,6 @@ def install():
             )
             server.rubika_ready = True
         except Exception:
-            # Rubika is deliberately isolated from Telegram startup.
             server.log.exception("Rubika startup failed; Telegram remains active")
             server.rubika_ready = False
             global_error = True
