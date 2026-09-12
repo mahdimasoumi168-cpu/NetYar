@@ -6,7 +6,9 @@ log = logging.getLogger("netyar.canonical_buttons")
 def install():
     import bot as B
     import telegram_runtime as TG
-    from telegram import CallbackQueryHandler, InlineKeyboardMarkup, InlineKeyboardButton
+    # CallbackQueryHandler lives in telegram.ext in python-telegram-bot.
+    from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+    from telegram.ext import CallbackQueryHandler
     from final_platform_fix import _actions
     from final_ui_flow_patch import _UI
 
@@ -92,8 +94,6 @@ def install():
             if text == "❌ انصراف":
                 return await B.cancel(update, context)
 
-            # Partner login is authoritative. Do not let legacy routers turn
-            # the phone/password into a stale menu command.
             if st.get("mode") in {"p_phone", "p_pass", "ptrack"}:
                 return await B.ptext(update, context)
 
@@ -155,9 +155,6 @@ def install():
         label = ""
         if data.startswith("ik:"): label = norm(_actions.get(data, ""))
         elif data.startswith("ui:"): label = norm(_UI.get(data, (None, ""))[1])
-
-        # Recover the visible label from the clicked button. This prevents a
-        # harmless restart/deploy from turning valid buttons into "expired".
         if not label:
             try:
                 markup = getattr(q.message, "reply_markup", None)
@@ -183,7 +180,6 @@ def install():
             if label == "❌ انصراف":
                 fake = type("U", (), {"effective_user":q.from_user,"message":q.message})(); return await B.cancel(fake, context)
 
-            # Never assign q.message.text. It is read-only in current PTB.
             class MessageProxy:
                 __slots__ = ("_message", "text")
                 def __init__(self, message, text): self._message, self.text = message, text
@@ -217,6 +213,7 @@ def install():
             try: await q.message.reply_text("❌ اجرای گزینه با خطا مواجه شد.", reply_markup=B.main(uid))
             except Exception: pass
 
+    # This wrapper is kept for any code that rebuilds the application later.
     old_build = TG.build
     def build():
         app = old_build()
