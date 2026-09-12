@@ -29,12 +29,21 @@ def _remember(label):
     return key
 
 
+def _clean_label(label):
+    s = str(label or "").strip()
+    for prefix in ("🟦 ", "🟩 ", "🟨 ", "🔵 "):
+        if s.startswith(prefix):
+            s = s[len(prefix):].strip()
+    return s
+
+
 def _inline_kb(rows):
     out = []
     for row in rows or []:
         buttons = []
         for item in row or []:
             label = str(item[1]) if isinstance(item, (tuple, list)) and len(item) >= 2 else str(item)
+            label = _clean_label(label)
             if label:
                 buttons.append(InlineKeyboardButton(label, callback_data=_remember(label)))
         if buttons:
@@ -83,7 +92,7 @@ def _button_label_from_message(q):
         for row in getattr(markup, "inline_keyboard", []) or []:
             for button in row:
                 if getattr(button, "callback_data", None) == str(q.data or ""):
-                    return str(getattr(button, "text", "") or "").strip()
+                    return _clean_label(getattr(button, "text", "") or "")
     except Exception:
         log.exception("inline button label recovery failed")
     return ""
@@ -107,6 +116,7 @@ async def _inline_callback(update, context, B):
     if not label:
         await q.answer("این گزینه دیگر معتبر نیست؛ لطفاً از منوی فعلی استفاده کنید.")
         return
+    label = _clean_label(label)
     await q.answer()
     original = getattr(q.message, "text", None)
     proxy = _message_update_from_callback(update, q)
@@ -155,13 +165,13 @@ def install(app, B):
             chat_id = getattr(getattr(update, "effective_chat", None), "id", None)
             if chat_id is not None:
                 _RESTART_CHATS.add(chat_id)
-            await update.effective_message.reply_text("منوی اصلی:", reply_markup=restart_keyboard())
+            # Install the persistent keyboard without adding another visible
+            # startup heading/message to the conversation.
+            await update.effective_message.reply_text("\u2063", reply_markup=restart_keyboard())
         except Exception:
             log.exception("failed to install restart keyboard")
         raise ApplicationHandlerStop
 
-    # Highest-priority terminal handlers make both /start and the persistent
-    # restart button use exactly the same original start flow, once only.
     app.add_handler(CommandHandler("start", _restart), group=-301)
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex(r"^🔄 شروع مجدد$"), _restart), group=-300)
     app.add_handler(MessageHandler(filters.ALL, _remove_on_message), group=-200)
