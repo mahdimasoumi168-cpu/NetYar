@@ -53,7 +53,8 @@ def _install_features(app):
     try:
         import telegram_admin_entry as AE; AE.install(app,B)
     except Exception: log.exception("admin entry unavailable")
-    import telegram_government_flow_v2 as G; G.install(app,B)
+    # telegram_government_flow_v2 is a legacy duplicate of the runtime-fix flow.
+    # Do not install both: the runtime-fix flow is the canonical government flow.
     try:
         import telegram_government_flow_runtime_fix as GF; GF.install(app,B)
     except Exception: log.exception("government flow runtime fix unavailable")
