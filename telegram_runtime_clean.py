@@ -73,16 +73,16 @@ def _install_features(app):
     try:
         import telegram_partner_ui_fix as PUI;PUI.install(app,B)
     except Exception:log.exception("partner UI fix unavailable")
-    # The canonical _status_select below is the ONLY st: handler.
-    # Do not install telegram_status_ui here: it registered another st:
-    # handler at group -100 and caused every citizenship selection to send
-    # the services menu twice.
     try:
         import telegram_public_tracking as PT;PT.install(app,B)
     except Exception:log.exception("public tracking unavailable")
+    # Stable FIDA/SIM flow: exact prices, partner-balance charging, customer card-to-card.
+    try:
+        import telegram_service_billing_v3_fix as SVC3;SVC3.install(app,B)
+    except Exception:log.exception("service billing v3 unavailable")
     try:
         import telegram_sim_service_v2 as SIM;SIM.install(app,B)
-    except Exception:log.exception("SIM service unavailable")
+    except Exception:log.exception("SIM service legacy layer unavailable")
     try:
         import telegram_topup_invoice as TI
         TI.install(B)
