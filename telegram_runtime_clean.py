@@ -62,8 +62,9 @@ async def _status_select(update,context):
         except Exception:pass
         return
     await q.answer();uid=q.from_user.id;status=str(q.data or "").split(":",1)[-1];st=B.S.setdefault(uid,{})
+    if status not in {"foreign","iranian"}: return
     st["status"]=status;st.pop("mode",None);lang=st.get("lang","fa")
-    text={"fa":"منوی خدمات کمک یار مهاجر 👇","en":"Mohajer Helper services 👇","ar":"قائمة خدمات المهاجرين 👇"}.get(lang,"منوی خدمات کمک یار مهاجر 👇") if status!="iranian" else {"fa":"🇮🇷 منوی خدمات ایرانی 👇","en":"🇮🇷 Iranian user menu 👇","ar":"🇮🇷 قائمة المستخدم الإيراني 👇"}.get(lang,"🇮🇷 منوی خدمات ایرانی 👇")
+    text={"fa":"منوی خدمات کمک یار مهاجر 👇","en":"Mohajer Helper services 👇","ar":"قائمة خدمات المهاجرين 👇"}[lang] if status=="foreign" else {"fa":"🇮🇷 منوی خدمات ایرانی 👇","en":"🇮🇷 Iranian user menu 👇","ar":"🇮🇷 قائمة المستخدم الإيراني 👇"}[lang]
     return await q.message.reply_text(text,reply_markup=B.main(uid))
 
 def _install_features(app):
@@ -76,13 +77,15 @@ def _install_features(app):
     try:
         import telegram_public_tracking as PT;PT.install(app,B)
     except Exception:log.exception("public tracking unavailable")
-    # Stable FIDA/SIM flow: exact prices, partner-balance charging, customer card-to-card.
     try:
         import telegram_service_billing_v3_fix as SVC3;SVC3.install(app,B)
     except Exception:log.exception("service billing v3 unavailable")
     try:
         import telegram_sim_service_v2 as SIM;SIM.install(app,B)
     except Exception:log.exception("SIM service legacy layer unavailable")
+    try:
+        import telegram_partner_application_gate as PAG;PAG.install(app,B)
+    except Exception:log.exception("partner application gate unavailable")
     try:
         import telegram_topup_invoice as TI
         TI.install(B)
@@ -128,8 +131,10 @@ def build():
     app.add_handler(CommandHandler(["start","srart"],_start),group=0)
     app.add_handler(CommandHandler("addpartner",lambda u,c:_safe_call(B.addpartner,u,c)),group=0)
     app.add_handler(MessageHandler(filters.Regex(r"^/Admin2025$"),lambda u,c:_safe_call(B.admin_command,u,c)),group=0)
-    app.add_handler(CallbackQueryHandler(_lang_select,pattern=r'^lang:'),group=0)
-    app.add_handler(CallbackQueryHandler(_status_select,pattern=r'^st:'),group=0)
+    # Route through the final function stored on B so feature layers cannot leave
+    # the stale status handler behind. There is exactly one lang/status dispatcher.
+    app.add_handler(CallbackQueryHandler(lambda u,c:_safe_call(B.langcb,u,c),pattern=r'^lang:'),group=0)
+    app.add_handler(CallbackQueryHandler(lambda u,c:_safe_call(B.statuscb,u,c),pattern=r'^st:'),group=0)
     app.add_handler(CallbackQueryHandler(lambda u,c:_safe_call(B.admin_cb,u,c),pattern=r'^(tu|pay|req|admin):'),group=0)
     app.add_handler(MessageHandler(filters.PHOTO|filters.Document.ALL,lambda u,c:_safe_call(B.media,u,c)),group=1)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,lambda u,c:_safe_call(B.router,u,c)),group=1)
