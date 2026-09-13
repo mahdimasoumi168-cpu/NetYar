@@ -29,6 +29,13 @@ async def _diagnostic(update, context):
     except Exception:
         log.exception("Telegram diagnostic failed")
 
+async def _error_handler(update, context):
+    """Never let an unhandled Telegram exception disappear from Railway logs."""
+    try:
+        log.error("Telegram unhandled error update_id=%s",getattr(update,"update_id",None),exc_info=context.error)
+    except Exception:
+        log.exception("Telegram error handler failed")
+
 async def _start(update, context):
     user=update.effective_user
     if not update.message or not user:return
@@ -67,12 +74,7 @@ async def _status_select(update,context):
     raise ApplicationHandlerStop
 
 async def _absolute_startup_callback(update,context):
-    """Last-resort, absolute-priority startup router.
-
-    This deliberately lives in the runtime instead of a feature module so no
-    later-installed legacy CallbackQueryHandler can consume startup callbacks.
-    It supports both the new startup:* namespace and legacy lang:/st: buttons.
-    """
+    """Absolute-priority startup router; legacy startup callbacks are normalized here."""
     q=getattr(update,"callback_query",None)
     if not q:return
     data=str(q.data or "").strip()
@@ -80,10 +82,8 @@ async def _absolute_startup_callback(update,context):
         lang=data.split(":",1)[1]
         log.info("Telegram startup language callback handled: %r",data)
         await q.answer()
-        uid=q.from_user.id
-        old=B.S.get(uid,{})
-        B.S[uid]={k:old[k] for k in ("partner_id","partner_active","admin","phone") if k in old}
-        B.S[uid]["lang"]=lang
+        uid=q.from_user.id;old=B.S.get(uid,{})
+        B.S[uid]={k:old[k] for k in ("partner_id","partner_active","admin","phone") if k in old};B.S[uid]["lang"]=lang
         texts={"fa":"آیا اتباع هستید یا ایرانی؟","en":"Are you a foreign national or Iranian?","ar":"هل أنت أجنبي أم إيراني؟"}
         labels={"fa":("🪪 اتباع هستم","🇮🇷 ایرانی هستم"),"en":("🪪 Foreign national","🇮🇷 Iranian"),"ar":("🪪 أجنبي","🇮🇷 إيراني")}[lang]
         await q.message.reply_text(texts[lang],reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(labels[0],callback_data="startup:foreign"),InlineKeyboardButton(labels[1],callback_data="startup:iranian")]]))
@@ -92,15 +92,11 @@ async def _absolute_startup_callback(update,context):
         status=data.split(":",1)[1] if ":" in data else data
         log.info("Telegram startup citizenship callback handled: %r -> %s",data,status)
         await q.answer()
-        uid=q.from_user.id
-        st=B.S.setdefault(uid,{})
+        uid=q.from_user.id;st=B.S.setdefault(uid,{})
         st["status"]=status;st["citizenship"]=status;st.pop("mode",None)
         lang=st.get("lang","fa")
         if lang not in _LANGS:lang="fa"
-        if status=="foreign":
-            text={"fa":"منوی خدمات کمک یار مهاجر 👇","en":"Mohajer Helper services 👇","ar":"قائمة خدمات المهاجرين 👇"}[lang]
-        else:
-            text={"fa":"🇮🇷 منوی خدمات ایرانی 👇","en":"🇮🇷 Iranian user menu 👇","ar":"🇮🇷 قائمة المستخدم الإيراني 👇"}[lang]
+        text={"fa":"منوی خدمات کمک یار مهاجر 👇","en":"Mohajer Helper services 👇","ar":"قائمة خدمات المهاجرين 👇"}[lang] if status=="foreign" else {"fa":"🇮🇷 منوی خدمات ایرانی 👇","en":"🇮🇷 Iranian user menu 👇","ar":"🇮🇷 قائمة المستخدم الإيراني 👇"}[lang]
         await q.message.reply_text(text,reply_markup=B.main(uid))
         raise ApplicationHandlerStop
 
@@ -137,6 +133,12 @@ def _install_features(app):
     try:
         import telegram_admin_entry as AE;AE.install(app,B)
     except Exception:log.exception("admin entry unavailable")
+    # Unified Government flow must be installed before its runtime hardening.
+    # The old bot.gov flow only exposed two document types; govv2 provides
+    # Amayesh, temporary card, passport and residence booklet.
+    try:
+        import telegram_government_flow_v2 as GV;GV.install(app,B)
+    except Exception:log.exception("unified government flow unavailable")
     try:
         import telegram_government_flow_runtime_fix as GF;GF.install(app,B)
     except Exception:log.exception("government flow runtime fix unavailable")
@@ -165,10 +167,24 @@ def _install_features(app):
     app.add_handler(TypeHandler(Update,_absolute_startup_callback),group=-1000000)
     log.info("Telegram feature layers installed; absolute startup router installed")
 
+def _self_check():
+    required=("main","partner","fida","gov","prt","ptrack","phistory","media","router","admin","cancel")
+    missing=[name for name in required if not callable(getattr(B,name,None))]
+    if missing:log.error("Telegram runtime self-check FAILED; missing hooks: %s",missing)
+    else:log.info("Telegram runtime self-check: core hooks OK")
+    if not getattr(B,"_gov_v2",False):log.error("Telegram runtime self-check FAILED; unified government flow is not active")
+    else:log.info("Telegram runtime self-check: government v2 active")
+    if not getattr(B,"_inline_ui_v2",False):log.error("Telegram runtime self-check FAILED; inline UI v2 is not active")
+    else:log.info("Telegram runtime self-check: inline UI v2 active")
+
 def build():
     token=os.getenv("BOT_TOKEN","").strip() or os.getenv("TELEGRAM_BOT_TOKEN","").strip() or os.getenv("TELEGRAM_TOKEN","").strip()
     if not token:raise RuntimeError("Telegram bot token is missing")
-    app=Application.builder().token(token).build();app.add_handler(TypeHandler(Update,_diagnostic),group=-1000001);_install_features(app)
+    app=Application.builder().token(token).build()
+    app.add_error_handler(_error_handler)
+    app.add_handler(TypeHandler(Update,_diagnostic),group=-1000001)
+    _install_features(app)
+    _self_check()
     app.add_handler(CommandHandler(["start","srart"],_start),group=0)
     app.add_handler(CommandHandler("addpartner",lambda u,c:_safe_call(B.addpartner,u,c)),group=0)
     app.add_handler(MessageHandler(filters.Regex(r"^/Admin2025$"),lambda u,c:_safe_call(B.admin_command,u,c)),group=0)
