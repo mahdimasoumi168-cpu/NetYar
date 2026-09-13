@@ -26,6 +26,8 @@ async def _install_final_telegram_patches():
         "telegram_final_admin_menu_fix",
         "telegram_final_ops_overlay",
         "telegram_button_stability_final",
+        "telegram_service_billing_v3_fix",
+        "telegram_partner_ui_fix",
     )
 
     for module_name in modules:
@@ -42,18 +44,25 @@ async def _install_final_telegram_patches():
                 module.install(server.telegram_app, B)
             log.info("telegram layer installed: %s", module_name)
         except Exception:
-            # A legacy/optional layer must not bring down the complete bot.
             log.exception("telegram layer unavailable: %s", module_name)
 
-    # One authoritative UI/router is installed last. This prevents older
-    # overlays from replacing B.main/B.partner_kb/B.kb after startup.
+    # Canonical UI first, then the final operational router owns partner
+    # buttons and their follow-up messages without legacy collisions.
     try:
         import telegram_ui_policy_v2 as UI
         import bot as B
         UI.install(server.telegram_app, B)
-        log.info("telegram canonical UI installed last")
+        log.info("telegram canonical UI installed")
     except Exception:
         log.exception("telegram canonical UI unavailable")
+
+    try:
+        import telegram_absolute_fix as AF
+        import bot as B
+        AF.install(server.telegram_app, B)
+        log.info("telegram absolute operational router installed last")
+    except Exception:
+        log.exception("telegram absolute operational router unavailable")
 
 
 def main():
