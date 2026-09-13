@@ -73,7 +73,10 @@ def _install_features(app):
     try:
         import telegram_partner_ui_fix as PUI;PUI.install(app,B)
     except Exception:log.exception("partner UI fix unavailable")
-    import telegram_status_ui as SU;SU.install(app,B)
+    # The canonical _status_select below is the ONLY st: handler.
+    # Do not install telegram_status_ui here: it registered another st:
+    # handler at group -100 and caused every citizenship selection to send
+    # the services menu twice.
     try:
         import telegram_public_tracking as PT;PT.install(app,B)
     except Exception:log.exception("public tracking unavailable")
