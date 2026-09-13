@@ -10,9 +10,8 @@ bale_bootstrap.install(server)
 
 @server.api.on_event("startup")
 async def _install_final_telegram_patches():
-    # Final Telegram reliability stack. Keep the last stability layer at the
-    # highest handler priority so legacy duplicate routers cannot consume the
-    # same button/message first.
+    # Final Telegram reliability stack. High-priority guards are loaded first
+    # so logout/login and communication buttons cannot be swallowed by legacy routers.
     for module_name in (
         "telegram_partner_logout_fix",
         "telegram_language_consistency",
@@ -21,6 +20,8 @@ async def _install_final_telegram_patches():
         "final_government_payment_overlay",
         "telegram_price_dedup_guard",
         "telegram_final_layer_loader",
+        "telegram_night_logout_final",
+        "telegram_partner_login_fix",
         "telegram_offhours_partner_gate_v2",
         "telegram_final_admin_menu_fix",
         "telegram_final_ops_overlay",
