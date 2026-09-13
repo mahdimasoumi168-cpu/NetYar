@@ -15,6 +15,22 @@ def install(app,B):
     except Exception: pass
     def kb(rid):
         return InlineKeyboardMarkup([[InlineKeyboardButton('🔎 مشاهده اطلاعات کامل',callback_data=f'req:v:{rid}')],[InlineKeyboardButton('✅ تأیید خدمت',callback_data=f'req:a:{rid}'),InlineKeyboardButton('❌ رد خدمت',callback_data=f'req:x:{rid}')],[InlineKeyboardButton('🔐 درخواست کد از همکار',callback_data=f'req:p:{rid}')],[InlineKeyboardButton('🧩 درخواست کپچا',callback_data=f'req:captcha:{rid}'),InlineKeyboardButton('📝 درخواست نوشتار چکاپ',callback_data=f'req:checkup:{rid}')],[InlineKeyboardButton('💬 ارتباط با همکار',callback_data=f'req:chat:{rid}'),InlineKeyboardButton('📌 انتقال به آخر چت',callback_data=f'req:bottom:{rid}')],[InlineKeyboardButton('✉️ پاسخ',callback_data=f'req:r:{rid}')]])
+    def request_target(r):
+        target=None
+        try:
+            u=B.db.conn.execute("SELECT external_id FROM users WHERE id=? AND platform='telegram' LIMIT 1",(r['user_id'],)).fetchone()
+            if u and str(u['external_id']).isdigit(): target=int(u['external_id'])
+        except Exception: pass
+        if not target:
+            try: target=int(B.db.setting(f"partner_chat_{r['user_id']}",'') or 0) or None
+            except Exception: pass
+        if not target:
+            try:
+                p=B.db.conn.execute("SELECT phone FROM partners WHERE id=? LIMIT 1",(r['user_id'],)).fetchone()
+                if p:
+                    target=int(B.db.setting(f"partner_chat_{p['phone']}",'') or 0) or None
+            except Exception: pass
+        return target
     async def cb(update,context):
         q=update.callback_query
         if not q or not B.admin(q.from_user.id): return
@@ -24,22 +40,32 @@ def install(app,B):
             buttons=[[InlineKeyboardButton(f"👤 {p['name'] or p['phone'] or p['id']}",callback_data=f'final:chat:{p["id"]}')] for p in rows]
             buttons.append([InlineKeyboardButton('⬅️ بازگشت',callback_data='adm:menu')])
             await q.answer(); await q.message.reply_text('💬 ارتباط با همکار\n\nهمکار موردنظر را انتخاب کنید:',reply_markup=InlineKeyboardMarkup(buttons)); raise ApplicationHandlerStop
-        if d.startswith('req:r:'):
-            try: rid=int(d.split(':')[-1])
-            except Exception: return
-            r=B.db.conn.execute('SELECT * FROM requests WHERE id=?',(rid,)).fetchone()
-            if not r: await q.answer('درخواست پیدا نشد',show_alert=True); raise ApplicationHandlerStop
-            target=None
-            try:
-                u=B.db.conn.execute("SELECT external_id FROM users WHERE id=? AND platform='telegram' LIMIT 1",(r['user_id'],)).fetchone()
-                if u and str(u['external_id']).isdigit(): target=int(u['external_id'])
-            except Exception: pass
+        if not d.startswith('req:'): return
+        parts=d.split(':')
+        if len(parts)<3:return
+        try: rid=int(parts[2])
+        except Exception:return
+        r=B.db.conn.execute('SELECT * FROM requests WHERE id=?',(rid,)).fetchone()
+        if not r:
+            await q.answer('درخواست پیدا نشد',show_alert=True); raise ApplicationHandlerStop
+        action=parts[1]
+        if action=='r':
+            target=request_target(r)
             if not target:
-                try: target=int(B.db.setting(f"partner_chat_{r['user_id']}",'') or 0) or None
-                except Exception: pass
-            if not target: await q.answer('گیرنده این درخواست پیدا نشد',show_alert=True); raise ApplicationHandlerStop
+                await q.answer('گیرنده این درخواست پیدا نشد',show_alert=True); raise ApplicationHandlerStop
             B.S.setdefault(q.from_user.id,{}).update(mode='admin_reply_request',reply_target=target,reply_request_id=rid)
             await q.answer('آماده پاسخ'); await q.message.reply_text(f"✉️ پاسخ به درخواست {r['tracking_code']}\n\nمتن پاسخ را ارسال کنید.")
+            raise ApplicationHandlerStop
+        if action in {'a','x'}:
+            status='completed' if action=='a' else 'rejected'
+            B.db.conn.execute("UPDATE requests SET status=?,updated_at=? WHERE id=?",(status,B.now(),rid)); B.db.conn.commit()
+            target=request_target(r)
+            text='✅ درخواست شما تأیید و انجام شد.' if action=='a' else '❌ درخواست شما توسط مدیریت رد شد.'
+            if target:
+                try: await context.bot.send_message(chat_id=target,text=text)
+                except Exception: pass
+            await q.answer('درخواست تأیید شد' if action=='a' else 'درخواست رد شد')
+            await q.message.reply_text(('✅ درخواست انجام شد.' if action=='a' else '❌ درخواست رد شد.'),reply_markup=kb(rid))
             raise ApplicationHandlerStop
     async def text(update,context):
         m=update.effective_message
@@ -58,7 +84,7 @@ def install(app,B):
         except Exception:return
         try: await q.message.edit_reply_markup(reply_markup=kb(rid))
         except Exception: pass
-    app.add_handler(CallbackQueryHandler(cb,pattern=r'^(adm:partnerchat|req:r:)'),group=-50000)
+    app.add_handler(CallbackQueryHandler(cb,pattern=r'^(adm:partnerchat|req:)'),group=-50000)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,text),group=-49999)
     app.add_handler(CallbackQueryHandler(normalize,pattern=r'^req:'),group=-49998)
     B._admin_request_reliability_fix=True
