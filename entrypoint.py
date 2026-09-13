@@ -47,6 +47,7 @@ def _install_before_telegram_start(app, B, log):
         "telegram_partner_chat_reliability",
         "telegram_final_notification_reliability",
         "telegram_final_admin_partner_fix",
+        "telegram_final_menu_dedup_guard",
     )
     for module_name in app_modules:
         try:
@@ -104,6 +105,7 @@ async def _install_final_telegram_patches():
         "telegram_partner_chat_reliability",
         "telegram_final_notification_reliability",
         "telegram_final_admin_partner_fix",
+        "telegram_final_menu_dedup_guard",
     )
     for module_name in modules:
         try:
