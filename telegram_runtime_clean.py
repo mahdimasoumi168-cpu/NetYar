@@ -1,4 +1,4 @@
-"""Canonical Telegram runtime with one Application and deterministic feature installation."""
+"""Canonical Telegram runtime with deterministic feature installation and final routing guards."""
 import logging, os, inspect
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, MessageHandler, TypeHandler, filters, ApplicationHandlerStop
@@ -64,6 +64,40 @@ async def _absolute_startup_callback(update,context):
         text={"fa":"منوی خدمات کمک یار مهاجر 👇","en":"Mohajer Helper services 👇","ar":"قائمة خدمات المهاجرين 👇"}[lang] if status=="foreign" else {"fa":"🇮🇷 منوی خدمات ایرانی 👇","en":"🇮🇷 Iranian user menu 👇","ar":"🇮🇷 قائمة المستخدم الإيراني 👇"}[lang]
         await q.message.reply_text(text,reply_markup=B.main(uid));raise ApplicationHandlerStop
 
+async def _final_admin_callback(update, context):
+    """Single final owner for adm callbacks; prevents legacy handlers from stealing buttons."""
+    q=getattr(update,"callback_query",None)
+    if not q or not str(q.data or "").startswith("adm:"): return
+    if not B.admin(q.from_user.id):
+        await q.answer("دسترسی مجاز نیست.",show_alert=True)
+        raise ApplicationHandlerStop
+    import telegram_admin_plus as A
+    try:
+        await A._callback(update,context,B)
+    except ApplicationHandlerStop: raise
+    except Exception:
+        log.exception("Final admin callback failed: %r",q.data)
+        try: await q.message.reply_text("❌ اجرای این گزینه با خطا مواجه شد. لطفاً دوباره تلاش کنید.")
+        finally: raise ApplicationHandlerStop
+    raise ApplicationHandlerStop
+
+async def _final_admin_text(update, context):
+    """Single final owner for admin text states, including broadcast."""
+    if not getattr(update,"message",None) or not getattr(update,"effective_user",None): return
+    uid=update.effective_user.id
+    if not B.admin(uid): return
+    st=B.S.get(uid,{})
+    if not st.get("admin_plus_mode"): return
+    import telegram_admin_plus as A
+    try:
+        await A._text(update,context,B)
+    except ApplicationHandlerStop: raise
+    except Exception:
+        log.exception("Final admin text handler failed; mode=%r",st.get("admin_plus_mode"))
+        st["admin_plus_mode"]=None
+        await update.message.reply_text("❌ اجرای درخواست مدیریت با خطا مواجه شد. لطفاً دوباره تلاش کنید.",reply_markup=A._admin_menu())
+    raise ApplicationHandlerStop
+
 def _install_features(app):
     B.start=_start
     try:
@@ -127,16 +161,18 @@ def _install_features(app):
     try:
         import telegram_partner_application_gate as PAG;PAG.install(app,B)
     except Exception:log.exception("partner application gate unavailable")
-    # IMPORTANT: this must be the final partner-router installation. Several legacy
-    # feature layers above mutate B.partner/B.partner_kb; installing the guard only
-    # from runtime_patches happens too early and can therefore be overwritten.
     try:
-        import telegram_partner_router_guard as PRG;PRG.install()
-        log.info("Telegram partner router guard installed LAST")
-    except Exception:log.exception("partner router guard final install unavailable")
+        import telegram_partner_router_guard as PRG;PRG.install();log.info("Telegram partner router guard installed LAST")
+    except Exception:log.exception("Telegram partner router guard final install unavailable")
+    # Re-bind the current admin menu after every menu mutation.
+    try: B.amenu=A._admin_menu
+    except Exception: pass
+    # Final admin owners run before all legacy admin handlers.
+    app.add_handler(CallbackQueryHandler(_final_admin_callback,pattern=r"^adm:"),group=-10000)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,_final_admin_text),group=-9999)
     B.start=_start;B.langcb=_lang_select;B.statuscb=_status_select
     app.add_handler(TypeHandler(Update,_absolute_startup_callback),group=-1000000)
-    log.info("Telegram feature layers installed; absolute startup router installed")
+    log.info("Telegram feature layers installed; final admin router installed")
 
 def _self_check():
     required=("main","partner","fida","gov","prt","ptrack","phistory","media","router","admin","cancel")
