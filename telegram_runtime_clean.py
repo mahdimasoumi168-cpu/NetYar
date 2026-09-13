@@ -1,16 +1,17 @@
 """Canonical Telegram runtime with one Application and deterministic feature installation."""
 import logging, os, inspect
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import Application, CallbackQueryHandler, CommandHandler, MessageHandler, TypeHandler, filters
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, MessageHandler, TypeHandler, filters, ApplicationHandlerStop
 import bot as B
 log=logging.getLogger("netyar.telegram_runtime")
-_CALLBACK_SEEN=set()
 
 async def _safe_call(fn, update, context):
     try:
         result=fn(update,context)
         if inspect.isawaitable(result): return await result
         return result
+    except ApplicationHandlerStop:
+        raise
     except Exception:
         log.exception("Telegram handler failed: %r",fn)
         return None
@@ -31,44 +32,33 @@ async def _start(update, context):
     B.S[uid]={k:old[k] for k in ("partner_id","partner_active","admin","lang","status","phone") if k in old}
     await update.message.reply_text("سلام و خوش آمدید 🌷\nلطفاً زبان را انتخاب کنید:",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🇮🇷 فارسی",callback_data="lang:fa"),InlineKeyboardButton("🇬🇧 English",callback_data="lang:en"),InlineKeyboardButton("🇸🇦 العربية",callback_data="lang:ar")]]))
 
-def _claim(q):
-    cid=getattr(q,"id",None)
-    if not cid:return True
-    if cid in _CALLBACK_SEEN:return False
-    _CALLBACK_SEEN.add(cid)
-    if len(_CALLBACK_SEEN)>2000:_CALLBACK_SEEN.clear();_CALLBACK_SEEN.add(cid)
-    return True
-
 async def _lang_select(update,context):
     q=update.callback_query
     if not q:return
-    if not _claim(q):
-        try:await q.answer()
-        except Exception:pass
-        return
     await q.answer();uid=q.from_user.id;lang=str(q.data or "").split(":",1)[-1]
     if lang not in {"fa","en","ar"}:lang="fa"
     old=B.S.get(uid,{})
     B.S[uid]={k:old[k] for k in ("partner_id","partner_active","admin","phone") if k in old};B.S[uid]["lang"]=lang
     texts={"fa":"آیا اتباع هستید یا ایرانی؟","en":"Are you a foreign national or Iranian?","ar":"هل أنت أجنبي أم إيراني؟"}
     labels={"fa":("🪪 اتباع هستم","🇮🇷 ایرانی هستم"),"en":("🪪 Foreign national","🇮🇷 Iranian"),"ar":("🪪 أجنبي","🇮🇷 إيراني")}[lang]
-    return await q.message.reply_text(texts[lang],reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(labels[0],callback_data="st:foreign"),InlineKeyboardButton(labels[1],callback_data="st:iranian")]]))
+    await q.message.reply_text(texts[lang],reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(labels[0],callback_data="st:foreign"),InlineKeyboardButton(labels[1],callback_data="st:iranian")]]))
+    raise ApplicationHandlerStop
 
 async def _status_select(update,context):
     q=update.callback_query
     if not q:return
-    if not _claim(q):
-        try:await q.answer()
-        except Exception:pass
-        return
     await q.answer();uid=q.from_user.id;status=str(q.data or "").split(":",1)[-1];st=B.S.setdefault(uid,{})
-    if status not in {"foreign","iranian"}: return
+    if status not in {"foreign","iranian"}: raise ApplicationHandlerStop
     st["status"]=status;st.pop("mode",None);lang=st.get("lang","fa")
     text={"fa":"منوی خدمات کمک یار مهاجر 👇","en":"Mohajer Helper services 👇","ar":"قائمة خدمات المهاجرين 👇"}[lang] if status=="foreign" else {"fa":"🇮🇷 منوی خدمات ایرانی 👇","en":"🇮🇷 Iranian user menu 👇","ar":"🇮🇷 قائمة المستخدم الإيراني 👇"}[lang]
-    return await q.message.reply_text(text,reply_markup=B.main(uid))
+    await q.message.reply_text(text,reply_markup=B.main(uid))
+    raise ApplicationHandlerStop
 
 def _install_features(app):
     B.start=_start
+    # Priority startup routing: these callbacks must not be swallowed by legacy routers.
+    app.add_handler(CallbackQueryHandler(_lang_select,pattern=r'^lang:(fa|en|ar)$'),group=-110)
+    app.add_handler(CallbackQueryHandler(_status_select,pattern=r'^st:(foreign|iranian)$'),group=-109)
     import telegram_business_features as F;F.install(app,B)
     import telegram_ui_policy_v2 as UI;UI.install(app,B)
     try:
@@ -131,8 +121,7 @@ def build():
     app.add_handler(CommandHandler(["start","srart"],_start),group=0)
     app.add_handler(CommandHandler("addpartner",lambda u,c:_safe_call(B.addpartner,u,c)),group=0)
     app.add_handler(MessageHandler(filters.Regex(r"^/Admin2025$"),lambda u,c:_safe_call(B.admin_command,u,c)),group=0)
-    app.add_handler(CallbackQueryHandler(lambda u,c:_safe_call(B.langcb,u,c),pattern=r'^lang:'),group=0)
-    app.add_handler(CallbackQueryHandler(lambda u,c:_safe_call(B.statuscb,u,c),pattern=r'^st:'),group=0)
+    # lang/st are already installed at high priority above; avoid duplicate handlers here.
     app.add_handler(CallbackQueryHandler(lambda u,c:_safe_call(B.admin_cb,u,c),pattern=r'^(tu|pay|req|admin):'),group=0)
     app.add_handler(MessageHandler(filters.PHOTO|filters.Document.ALL,lambda u,c:_safe_call(B.media,u,c)),group=1)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,lambda u,c:_safe_call(B.router,u,c)),group=1)
