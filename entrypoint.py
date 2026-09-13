@@ -13,6 +13,20 @@ import bale_bootstrap
 bale_bootstrap.install(server)
 
 
+@server.api.on_event("startup")
+async def _install_partner_logout_fix():
+    # Run after the server's integration startup so later Telegram feature
+    # layers cannot replace the logout behavior. A permanent logout clears
+    # authentication/pending states and never starts p_phone automatically.
+    try:
+        import telegram_partner_logout_fix as fix
+        import bot as B
+        fix.install(B)
+    except Exception:
+        import logging
+        logging.getLogger("netyar.entrypoint").exception("partner logout fix unavailable")
+
+
 def main():
     uvicorn.run(
         server.api,
