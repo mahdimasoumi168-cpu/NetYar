@@ -31,6 +31,8 @@ def _label_to_id(rb, uid, value):
     value = str(value or "").strip()
     if not value:
         return value
+    # Search the actual current menus instead of maintaining a second list of
+    # labels. This keeps Rubika aligned with future menu changes.
     menus = []
     for name in ("main_rows", "partner_rows", "admin_rows"):
         fn = getattr(rb, name, None)
@@ -46,7 +48,19 @@ def _label_to_id(rb, uid, value):
                 if isinstance(item, (tuple, list)) and len(item) >= 2:
                     if str(item[1]).strip() == value:
                         return str(item[0]).strip()
+                elif isinstance(item, dict):
+                    label = item.get("button_text") or item.get("text") or item.get("label")
+                    bid = item.get("id") or item.get("button_id")
+                    if label is not None and str(label).strip() == value and bid is not None:
+                        return str(bid).strip()
     return value
+
+
+def _normalise_row(row):
+    """Accept both [(id,label), ...] and [id,label] legacy rows."""
+    if isinstance(row, (tuple, list)) and len(row) == 2 and not isinstance(row[0], (tuple, list, dict)):
+        return [(str(row[0]), str(row[1]))]
+    return list(row or [])
 
 
 def install():
@@ -58,9 +72,12 @@ def install():
         out = []
         for row in rows or []:
             buttons = []
-            for i, item in enumerate(row or []):
+            for i, item in enumerate(_normalise_row(row)):
                 if isinstance(item, (tuple, list)) and len(item) >= 2:
                     button_id, label = str(item[0]), str(item[1])
+                elif isinstance(item, dict):
+                    button_id = str(item.get("id") or item.get("button_id") or i)
+                    label = str(item.get("button_text") or item.get("text") or item.get("label") or "")
                 else:
                     button_id, label = str(i + 1), str(item)
                 buttons.append({
@@ -77,11 +94,13 @@ def install():
         if not isinstance(m, dict):
             return ""
         aux = _aux(update)
+        # Always prefer the provider's explicit button id.
         for source in (aux, m, update):
             if isinstance(source, dict):
-                button_id = source.get("button_id")
+                button_id = source.get("button_id") or source.get("id")
                 if button_id not in (None, ""):
                     return str(button_id).strip()
+        # Fall back to visible text only when no id exists.
         for source in (aux, m, update):
             if isinstance(source, dict):
                 for key in ("button_text", "text"):
