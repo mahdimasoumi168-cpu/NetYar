@@ -1,11 +1,12 @@
 """Final Telegram business/stability overlay.
 Loaded after all legacy feature layers. It only adds missing partner menu
-entries, corrects temporary-card government data collection, and provides a
-simple per-partner/per-service exact-price workflow. It does not touch /data.
+entries and provides a simple per-partner/per-service exact-price workflow.
+Temporary-card government flow is intentionally left to the canonical
+telegram_government_flow_v2 handler so mobile/family prompts cannot collide.
 """
 import re
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import CallbackQueryHandler, MessageHandler, ApplicationHandlerStop, filters
+from telegram.ext import CallbackQueryHandler, MessageHandler, filters
 
 
 def _digits(v):
@@ -44,35 +45,9 @@ def install(app, B):
 
     app.add_handler(CallbackQueryHandler(partner_service_cb, pattern=r"^__(placeholder_fida|placeholder_sim)$"), group=-9000)
 
-    # Temporary card: request family code, never temporary-card number.
-    async def temp_cb(update, context):
-        q = update.callback_query
-        if not q or q.data != "govv2:temporary":
-            return
-        await q.answer()
-        uid = q.from_user.id
-        st = B.S.setdefault(uid, {})
-        st["gov_doc_type"] = "temporary_card"
-        st["mode"] = "govv2_family_temp"
-        return await q.message.reply_text("👨‍👩‍👧‍👦 کد خانوار مشترک را وارد کنید:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ انصراف", callback_data="govv2:cancel")]]))
-
-    async def temp_text(update, context):
-        if not update.message:
-            return
-        uid = update.effective_user.id
-        st = B.S.setdefault(uid, {})
-        if st.get("mode") != "govv2_family_temp":
-            return
-        d = _digits(update.message.text).strip()
-        if not d.isdigit():
-            return await update.message.reply_text("❌ کد خانوار باید فقط عدد باشد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ انصراف", callback_data="govv2:cancel")]]))
-        st["gov_family_code"] = d
-        st["mode"] = "govv2_postal"
-        await update.message.reply_text("📮 کد پستی ۱۰ رقمی منزل مشترک را وارد کنید:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ انصراف", callback_data="govv2:cancel")]]))
-        raise ApplicationHandlerStop
-
-    app.add_handler(CallbackQueryHandler(temp_cb, pattern=r"^govv2:temporary$"), group=-8000)
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, temp_text), group=-8000)
+    # Do NOT register another govv2:temporary callback here.
+    # The canonical government flow owns this callback and asks for mobile first.
+    # Family code is collected only for Amayesh card, not temporary card.
 
     # Exact per-partner/per-service price workflow.
     services = [
