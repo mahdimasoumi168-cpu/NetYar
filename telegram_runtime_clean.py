@@ -30,7 +30,12 @@ async def _start(update, context):
     except Exception:log.exception("user persistence")
     old=B.S.get(uid,{})
     B.S[uid]={k:old[k] for k in ("partner_id","partner_active","admin","lang","status","phone") if k in old}
-    await update.message.reply_text("سلام و خوش آمدید 🌷\nلطفاً زبان را انتخاب کنید:",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🇮🇷 فارسی",callback_data="lang:fa"),InlineKeyboardButton("🇬🇧 English",callback_data="lang:en"),InlineKeyboardButton("🇸🇦 العربية",callback_data="lang:ar")]]))
+    text=("👋 سلام!\n\n"
+          "به سامانه خدمات آنلاین بات، کمک یار مهاجر خوش آمدید. 🌟\n\n"
+          "لطفاً خدمت موردنظر خود را از منوی زیر انتخاب کنید تا در سریع‌ترین زمان راهنمایی شوید.\n\n"
+          "🚀 بات، کمک یار مهاجر؛ خدماتی برای شما، درآمدی برای همه.\n\n"
+          "لطفاً زبان را انتخاب کنید:")
+    await update.message.reply_text(text,reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🇮🇷 فارسی",callback_data="lang:fa"),InlineKeyboardButton("🇬🇧 English",callback_data="lang:en"),InlineKeyboardButton("🇸🇦 العربية",callback_data="lang:ar")]]))
 
 async def _lang_select(update,context):
     q=update.callback_query
@@ -56,7 +61,6 @@ async def _status_select(update,context):
 
 def _install_features(app):
     B.start=_start
-    # Absolute-priority startup/citizenship firewall handles current and legacy button payloads.
     try:
         import telegram_startup_button_firewall as SBF; SBF.install(app,B)
     except Exception:log.exception("startup button firewall unavailable")
@@ -112,7 +116,6 @@ def _install_features(app):
     try:
         import telegram_partner_application_gate as PAG;PAG.install(app,B)
     except Exception:log.exception("partner application gate unavailable")
-    # Keep the canonical callbacks available to any legacy code that calls B.statuscb directly.
     B.start=_start;B.langcb=_lang_select;B.statuscb=_status_select
     log.info("Telegram feature layers installed")
 
@@ -123,7 +126,6 @@ def build():
     app.add_handler(CommandHandler(["start","srart"],_start),group=0)
     app.add_handler(CommandHandler("addpartner",lambda u,c:_safe_call(B.addpartner,u,c)),group=0)
     app.add_handler(MessageHandler(filters.Regex(r"^/Admin2025$"),lambda u,c:_safe_call(B.admin_command,u,c)),group=0)
-    # lang/st are handled by the firewall at higher priority; do not register competing handlers here.
     app.add_handler(CallbackQueryHandler(lambda u,c:_safe_call(B.admin_cb,u,c),pattern=r'^(tu|pay|req|admin):'),group=0)
     app.add_handler(MessageHandler(filters.PHOTO|filters.Document.ALL,lambda u,c:_safe_call(B.media,u,c)),group=1)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,lambda u,c:_safe_call(B.router,u,c)),group=1)
