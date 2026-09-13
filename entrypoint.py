@@ -5,9 +5,13 @@ import uvicorn
 import server
 import bale_bootstrap
 import rubika_bootstrap_final
+import production_stability
 
 bale_bootstrap.install(server)
 rubika_bootstrap_final.install(server)
+# One deterministic serialization layer for both messengers. This prevents
+# concurrent updates from one user from overwriting another user's state.
+production_stability.install()
 
 
 def _install_before_telegram_start(app, B, log):
@@ -44,6 +48,7 @@ def _install_before_telegram_start(app, B, log):
         "telegram_government_family_code_fix",
         "telegram_ui_policy_v2",
         "telegram_absolute_fix",
+        "telegram_context_recovery",
         "telegram_operational_continuation_guard",
         "telegram_admin_request_reliability_fix",
         "telegram_partner_chat_reliability",
@@ -101,6 +106,7 @@ async def _install_final_telegram_patches():
         "telegram_government_family_code_fix",
         "telegram_ui_policy_v2",
         "telegram_absolute_fix",
+        "telegram_context_recovery",
         "telegram_operational_continuation_guard",
         "telegram_admin_request_reliability_fix",
         "telegram_partner_chat_reliability",
