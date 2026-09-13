@@ -34,6 +34,11 @@ def _install_before_telegram_start(app, B, log):
         "final_government_payment_overlay",
         "telegram_price_dedup_guard",
         "telegram_final_layer_loader",
+        # This is the single deterministic owner for the Government access
+        # flow. It must be installed before legacy text handlers so a phone
+        # number is consumed exactly once and cannot also advance the next
+        # state (for example phone -> transient error -> DOB).
+        "telegram_government_flow_runtime_fix",
         "telegram_night_logout_final",
         "telegram_partner_login_fix",
         "telegram_offhours_partner_gate_v2",
