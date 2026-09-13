@@ -1,9 +1,8 @@
 """Deterministic Telegram partner-panel callback guard.
 
-The production bot has several legacy layers that can overwrite partner
-handlers and keyboards. Partner entry must therefore be isolated from those
-mutable wrappers. This guard also provides its own cancel keyboard so the
-entry path cannot fail because another patch replaced B.cancel_kb.
+This module is the final owner of the partner-panel entry callback.  The
+production bot has several legacy layers that can overwrite partner handlers
+and keyboards, so this path must not depend on mutable legacy wrappers.
 """
 import logging
 
@@ -13,20 +12,37 @@ CANCEL = "❌ انصراف"
 
 
 def _cancel_markup(B, UI, uid):
-    return UI.inline([[CANCEL]], B, uid)
+    try:
+        return UI.inline([[CANCEL]], B, uid)
+    except Exception:
+        log.exception("partner cancel markup failed")
+        return None
 
 
 def _partner_markup(B, UI, uid):
-    return UI.inline(
-        [
-            ["➕ شارژ حساب", "🏛 حل مشکل سامانه دولت من"],
-            ["🔎 پیگیری کد", "📋 سوابق"],
-            ["💰 موجودی", "🎫 تیکت به مدیریت"],
-            ["🚪 خروج از پنل"],
-            [CANCEL],
-        ],
-        B,
-        uid,
+    rows = [
+        ["➕ شارژ حساب", "🏛 حل مشکل سامانه دولت من"],
+        ["🔎 پیگیری کد", "📋 سوابق"],
+        ["💰 موجودی", "🎫 تیکت به مدیریت"],
+        ["🚪 خروج از پنل"],
+        [CANCEL],
+    ]
+    try:
+        return UI.inline(rows, B, uid)
+    except Exception:
+        log.exception("partner markup failed")
+        return None
+
+
+async def _login_prompt(q, B, UI, uid, st):
+    st["mode"] = "p_phone"
+    st.pop("phone", None)
+    st.pop("partner_active", None)
+    markup = _cancel_markup(B, UI, uid)
+    kwargs = {"reply_markup": markup} if markup is not None else {}
+    return await q.message.reply_text(
+        "👥 ورود به پنل همکاران\n\n📱 لطفاً شماره موبایل اختصاصی همکار را وارد کنید:",
+        **kwargs,
     )
 
 
@@ -35,51 +51,60 @@ async def _open_partner_from_callback(update, context, B, UI):
     uid = int(q.from_user.id)
     st = B.S.setdefault(uid, {})
 
-    if st.get("partner_logged_out"):
-        st.pop("partner_id", None)
-        st.pop("partner_active", None)
+    try:
+        if st.get("partner_logged_out"):
+            st.pop("partner_id", None)
+            st.pop("partner_active", None)
 
-    pid = st.get("partner_id")
-    if pid and st.get("partner_active", True):
-        try:
-            p = B.db.conn.execute(
-                "SELECT * FROM partners WHERE id=? AND active=1 LIMIT 1",
-                (pid,),
-            ).fetchone()
-        except Exception:
-            log.exception("partner lookup failed")
-            p = None
-
-        if p:
-            st["partner_active"] = True
-            st["mode"] = None
-            st["partner_logged_out"] = False
+        pid = st.get("partner_id")
+        if pid and st.get("partner_active", True):
             try:
-                name = p["name"] or "-"
-                phone = p["phone"] or "-"
-                balance = int(p["balance"] or 0)
+                p = B.db.conn.execute(
+                    "SELECT * FROM partners WHERE id=? AND active=1 LIMIT 1",
+                    (pid,),
+                ).fetchone()
             except Exception:
-                name = phone = "-"
-                balance = 0
-            return await q.message.reply_text(
-                f"👥 پنل همکاران\n👤 {name}\n📱 {phone}\n💰 اعتبار: {balance:,} تومان",
-                reply_markup=_partner_markup(B, UI, uid),
-            )
+                log.exception("partner lookup failed")
+                p = None
 
-    st["mode"] = "p_phone"
-    st.pop("phone", None)
-    st.pop("partner_active", None)
-    return await q.message.reply_text(
-        "👥 ورود به پنل همکاران\n\n📱 لطفاً شماره موبایل اختصاصی همکار را وارد کنید:",
-        reply_markup=_cancel_markup(B, UI, uid),
-    )
+            if p:
+                st["partner_active"] = True
+                st["mode"] = None
+                st["partner_logged_out"] = False
+                try:
+                    name = p["name"] or "-"
+                    phone = p["phone"] or "-"
+                    balance = int(p["balance"] or 0)
+                except Exception:
+                    name = phone = "-"
+                    balance = 0
+                markup = _partner_markup(B, UI, uid)
+                kwargs = {"reply_markup": markup} if markup is not None else {}
+                return await q.message.reply_text(
+                    f"👥 پنل همکاران\n👤 {name}\n📱 {phone}\n💰 اعتبار: {balance:,} تومان",
+                    **kwargs,
+                )
+
+        return await _login_prompt(q, B, UI, uid, st)
+    except Exception:
+        # Never let the partner entry callback fall through to the generic
+        # ui2 error.  If an optional database/UI layer fails, keep the user in
+        # the deterministic phone-login flow instead.
+        log.exception("partner callback guard failed; forcing login flow")
+        try:
+            return await _login_prompt(q, B, UI, uid, st)
+        except Exception:
+            log.exception("partner fallback login prompt failed")
+            return await q.message.reply_text(
+                "👥 ورود به پنل همکاران\n\n📱 لطفاً شماره موبایل اختصاصی همکار را وارد کنید:"
+            )
 
 
 def install():
     import bot as B
     import telegram_ui_policy_v2 as UI
 
-    if getattr(UI, "_partner_router_guard_v3", False):
+    if getattr(UI, "_partner_router_guard_v4", False):
         return
 
     original_dispatch = UI._dispatch
@@ -90,7 +115,7 @@ def install():
         return await original_dispatch(update, context, bot_obj, label)
 
     UI._dispatch = guarded_dispatch
-    UI._partner_router_guard_v3 = True
+    UI._partner_router_guard_v4 = True
 
     def safe_partner_kb(lang="fa"):
         uid = UI._uid()
@@ -112,4 +137,4 @@ def install():
     except Exception:
         log.exception("could not lock legacy partner keyboard")
 
-    log.info("Telegram partner router guard v3 installed")
+    log.info("Telegram partner router guard v4 installed")
