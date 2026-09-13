@@ -4,8 +4,10 @@ import logging
 import uvicorn
 import server
 import bale_bootstrap
+import rubika_bootstrap_final
 
 bale_bootstrap.install(server)
+rubika_bootstrap_final.install(server)
 
 
 def _install_before_telegram_start(app, B, log):
@@ -58,7 +60,6 @@ def _install_before_telegram_start(app, B, log):
             log.exception("telegram pre-polling layer unavailable: %s", module_name)
 
 
-# Install critical Telegram layers before Application.initialize/start/polling.
 try:
     import telegram_runtime_clean as _telegram_runtime
     import bot as _telegram_bot
