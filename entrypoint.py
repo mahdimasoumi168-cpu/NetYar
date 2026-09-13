@@ -26,6 +26,17 @@ async def _install_partner_logout_fix():
         import logging
         logging.getLogger("netyar.entrypoint").exception("partner logout fix unavailable")
 
+    # Re-apply the language/UI lock after every feature layer has finished
+    # replacing menu builders. This prevents FIDA/SIM and partner buttons from
+    # disappearing or reverting to a different language.
+    try:
+        import telegram_language_consistency as language_lock
+        import bot as B
+        language_lock.install(B)
+    except Exception:
+        import logging
+        logging.getLogger("netyar.entrypoint").exception("final language lock unavailable")
+
     # Apply the contextual Cancel policy after all Telegram feature layers
     # have installed/replaced their keyboard helpers.
     try:
