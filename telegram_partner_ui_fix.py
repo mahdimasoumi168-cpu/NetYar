@@ -11,25 +11,16 @@ log = logging.getLogger("netyar.telegram.partner_ui")
 
 def _partner_row(B, uid):
     st = B.S.setdefault(uid, {})
-    # Explicit logout is authoritative. Do not silently re-link the Telegram
-    # account from partner_telegram_links until the user starts login again.
     if st.get("partner_logged_out"):
         return None
     pid = st.get("partner_id")
     try:
         if pid:
-            row = B.db.conn.execute(
-                "SELECT * FROM partners WHERE id=? AND active=1 LIMIT 1", (pid,)
-            ).fetchone()
+            row = B.db.conn.execute("SELECT * FROM partners WHERE id=? AND active=1 LIMIT 1", (pid,)).fetchone()
             if row:
                 st["partner_active"] = True
                 return row
-        row = B.db.conn.execute(
-            "SELECT p.* FROM partners p "
-            "JOIN partner_telegram_links l ON l.partner_id=p.id "
-            "WHERE l.telegram_user_id=? AND p.active=1 LIMIT 1",
-            (str(uid),),
-        ).fetchone()
+        row = B.db.conn.execute("SELECT p.* FROM partners p JOIN partner_telegram_links l ON l.partner_id=p.id WHERE l.telegram_user_id=? AND p.active=1 LIMIT 1", (str(uid),)).fetchone()
         if row:
             st["partner_id"] = row["id"]
             st["partner_active"] = True
@@ -42,6 +33,7 @@ def _partner_row(B, uid):
 def install(app, B):
     if getattr(B, "_partner_ui_fix", False):
         return
+    B._telegram_application = app
     import telegram_business_features as F
     import telegram_ui_policy_v2 as UI
 
@@ -56,7 +48,6 @@ def install(app, B):
 
     F._partner_kb = lambda: partner_inline()
     B.partner_kb = lambda lang="fa": partner_inline()
-
     old_partner = B.partner
 
     async def partner(update, context):
@@ -69,22 +60,14 @@ def install(app, B):
             st["partner_logged_out"] = False
             st["mode"] = None
             await update.message.reply_text(
-                f"👥 پنل همکاران\n"
-                f"👤 {row['name']}\n"
-                f"📱 {row['phone']}\n"
-                f"💰 اعتبار: {int(row['balance'] or 0):,} تومان",
+                f"👥 پنل همکاران\n👤 {row['name']}\n📱 {row['phone']}\n💰 اعتبار: {int(row['balance'] or 0):,} تومان",
                 reply_markup=partner_inline(uid),
             )
             return
-        # No active session (including after explicit logout): enter the normal
-        # login/registration flow instead of auto-entering the panel.
         return await old_partner(update, context)
 
     B.partner = partner
 
-    # Install the canonical callback owner here so every inline button has one
-    # deterministic execution path. The language lock is re-applied afterwards
-    # because the callback owner also exposes legacy menu builders.
     try:
         import telegram_absolute_fix as AF
         AF.install(app, B)
@@ -95,5 +78,4 @@ def install(app, B):
         TLC.install(B)
     except Exception:
         log.exception("Telegram language lock re-apply unavailable")
-
     B._partner_ui_fix = True
