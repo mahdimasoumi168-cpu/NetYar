@@ -1,6 +1,9 @@
 """Final Telegram off-hours gate with explicit night-worker login.
 Outside normal hours, ordinary users and ordinary partners are blocked.
 Night-worker entry is explicitly authenticated by phone + partner password.
+
+Important: every handled callback is stopped immediately so legacy Telegram
+routers cannot process the same button a second time.
 """
 from datetime import datetime, time
 from zoneinfo import ZoneInfo
@@ -31,9 +34,7 @@ def is_open():
 def _partner_by_phone(B, phone):
     phone = normalize_phone(phone)
     try:
-        rows = B.db.conn.execute(
-            "SELECT * FROM partners WHERE active=1 ORDER BY id DESC"
-        ).fetchall()
+        rows = B.db.conn.execute("SELECT * FROM partners WHERE active=1 ORDER BY id DESC").fetchall()
         for row in rows:
             if normalize_phone(row["phone"]) == phone:
                 return row
@@ -91,12 +92,18 @@ def install(app, B):
         data = str(q.data or "")
         if data not in {"off:restart", "off:partner"}:
             return
-        await q.answer()
+        try:
+            await q.answer()
+        except Exception:
+            pass
         uid = q.from_user.id
+
         if data == "off:restart":
             if not is_open() and not _allowed_during_closed(B, uid):
-                return await q.message.reply_text(_closed_text(), reply_markup=_markup())
-            return await q.message.reply_text("🔄 شروع مجدد", reply_markup=B.main(uid))
+                await q.message.reply_text(_closed_text(), reply_markup=_markup())
+                raise ApplicationHandlerStop
+            await q.message.reply_text("🔄 شروع مجدد", reply_markup=B.main(uid))
+            raise ApplicationHandlerStop
 
         # During night hours, NEVER trust an old logged-in partner session.
         # Force phone + password authentication for every new panel entry.
@@ -104,21 +111,24 @@ def install(app, B):
             if B.admin(uid):
                 from telegram_partner_router_guard import _open_partner
                 import telegram_ui_policy_v2 as UI
-                return await _open_partner(update, context, B, UI)
+                await _open_partner(update, context, B, UI)
+                raise ApplicationHandlerStop
             st = B.S.setdefault(uid, {})
             st.pop("partner_id", None)
             st.pop("partner_active", None)
             st.pop("partner", None)
             st["mode"] = "night_phone"
             st["step"] = "night_phone"
-            return await q.message.reply_text(
+            await q.message.reply_text(
                 "🌙 ورود به پنل همکاران در شیفت شب\n\n📱 لطفاً شماره موبایل اختصاصی همکار را وارد کنید:",
                 reply_markup=_night_login_markup(),
             )
+            raise ApplicationHandlerStop
 
         from telegram_partner_router_guard import _open_partner
         import telegram_ui_policy_v2 as UI
-        return await _open_partner(update, context, B, UI)
+        await _open_partner(update, context, B, UI)
+        raise ApplicationHandlerStop
 
     async def night_login(update, context):
         if not update.effective_user or not update.message:
@@ -154,7 +164,6 @@ def install(app, B):
             await update.message.reply_text("🔐 رمز عبور همکار را وارد کنید:")
             raise ApplicationHandlerStop
 
-        # night_pass
         phone = normalize_phone(st.get("night_phone"))
         partner = _partner_by_phone(B, phone)
         if not partner or str(B.db.setting(PREFIX + str(partner["id"]), "0")) != "1":
@@ -223,7 +232,7 @@ def install(app, B):
         finally:
             raise ApplicationHandlerStop
 
-    # Must run before the global closed-hours blocker so phone/password can be entered.
+    # These handlers are deliberately placed ahead of legacy/global off-hours handlers.
     app.add_handler(CallbackQueryHandler(cb, pattern=r"^off:(restart|partner)$"), group=-30000)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, night_login), group=-29999)
     app.add_handler(MessageHandler(filters.ALL, lambda u, c: message_gate(u, c, B)), group=-29998)
