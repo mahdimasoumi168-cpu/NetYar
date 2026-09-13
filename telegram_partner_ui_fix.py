@@ -1,7 +1,8 @@
 """Reliable Telegram partner-panel UI.
 
-Authorized partners always get a fresh inline partner menu. The persistent
-ReplyKeyboard remains reserved for the global restart action.
+Authorized partners get the partner menu only while their session is active.
+An explicit logout blocks automatic relinking until the user starts a new
+partner-panel login flow.
 """
 import logging
 
@@ -10,6 +11,10 @@ log = logging.getLogger("netyar.telegram.partner_ui")
 
 def _partner_row(B, uid):
     st = B.S.setdefault(uid, {})
+    # Explicit logout is authoritative. Do not silently re-link the Telegram
+    # account from partner_telegram_links until the user starts login again.
+    if st.get("partner_logged_out"):
+        return None
     pid = st.get("partner_id")
     try:
         if pid:
@@ -56,11 +61,12 @@ def install(app, B):
 
     async def partner(update, context):
         uid = update.effective_user.id
+        st = B.S.setdefault(uid, {})
         row = _partner_row(B, uid)
         if row:
-            st = B.S.setdefault(uid, {})
             st["partner_id"] = row["id"]
             st["partner_active"] = True
+            st["partner_logged_out"] = False
             st["mode"] = None
             await update.message.reply_text(
                 f"👥 پنل همکاران\n"
@@ -70,6 +76,8 @@ def install(app, B):
                 reply_markup=partner_inline(uid),
             )
             return
+        # No active session (including after explicit logout): enter the normal
+        # login/registration flow instead of auto-entering the panel.
         return await old_partner(update, context)
 
     B.partner = partner
