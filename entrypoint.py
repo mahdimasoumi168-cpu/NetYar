@@ -10,8 +10,8 @@ bale_bootstrap.install(server)
 
 @server.api.on_event("startup")
 async def _install_final_telegram_patches():
-    # Final reliability layers are installed after legacy patches. Their
-    # handlers use higher priority groups so legacy routers cannot steal them.
+    # Final Telegram reliability stack. Keep this list last-loaded so the
+    # final request/communication routing owns Telegram's high-priority paths.
     for module_name in (
         "telegram_partner_logout_fix",
         "telegram_language_consistency",
