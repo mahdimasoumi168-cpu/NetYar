@@ -50,45 +50,21 @@ async def _install_final_telegram_patches():
         except Exception:
             log.exception("telegram layer unavailable: %s", module_name)
 
-    try:
-        import telegram_ui_policy_v2 as UI
-        import bot as B
-        UI.install(server.telegram_app, B)
-        log.info("telegram canonical UI installed")
-    except Exception:
-        log.exception("telegram canonical UI unavailable")
-
-    try:
-        import telegram_absolute_fix as AF
-        import bot as B
-        AF.install(server.telegram_app, B)
-        log.info("telegram absolute operational router installed last")
-    except Exception:
-        log.exception("telegram absolute operational router unavailable")
-
-    try:
-        import telegram_operational_continuation_guard as OC
-        import bot as B
-        OC.install(server.telegram_app, B)
-        log.info("telegram operational continuation guard installed last")
-    except Exception:
-        log.exception("telegram operational continuation guard unavailable")
-
-    try:
-        import telegram_admin_request_reliability_fix as AR
-        import bot as B
-        AR.install(server.telegram_app, B)
-        log.info("telegram admin request reliability fix installed last")
-    except Exception:
-        log.exception("telegram admin request reliability fix unavailable")
-
-    try:
-        import telegram_partner_chat_reliability as PCR
-        import bot as B
-        PCR.install(server.telegram_app, B)
-        log.info("telegram partner chat reliability installed last")
-    except Exception:
-        log.exception("telegram partner chat reliability unavailable")
+    for module_name, label in (
+        ("telegram_ui_policy_v2", "telegram canonical UI installed"),
+        ("telegram_absolute_fix", "telegram absolute operational router installed last"),
+        ("telegram_operational_continuation_guard", "telegram operational continuation guard installed last"),
+        ("telegram_admin_request_reliability_fix", "telegram admin request reliability fix installed last"),
+        ("telegram_partner_chat_reliability", "telegram partner chat reliability installed last"),
+        ("telegram_final_notification_reliability", "telegram final notification reliability installed last"),
+    ):
+        try:
+            module = __import__(module_name)
+            import bot as B
+            module.install(server.telegram_app, B)
+            log.info(label)
+        except Exception:
+            log.exception("telegram layer unavailable: %s", module_name)
 
 
 def main():
