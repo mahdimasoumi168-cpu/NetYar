@@ -1,6 +1,6 @@
 """Deterministic Telegram entry routing for partner/admin panels.
 
-The final runtime installs a single fail-safe owner for ui2 callbacks here.
+The final runtime installs a single fail-safe owner for ui2 callbacks.
 Legacy dispatch wrappers remain available for compatibility, but normal user
 buttons are handled by telegram_stable_callback before the older ui2 handler.
 """
@@ -11,6 +11,8 @@ log = logging.getLogger("netyar.telegram.entry_router_guard")
 PARTNER = "👥 پنل همکاران"
 ADMIN_PANEL = "🛠 پنل مدیریت بات"
 CANCEL = "❌ انصراف"
+FIDA = "🪪 فیدای غیر حضوری"
+SIM = "📱 خدمات سیم کارت"
 
 
 def _is_admin(B, uid):
@@ -22,7 +24,14 @@ def _is_admin(B, uid):
 
 
 def _partner_markup(B, UI, uid):
-    rows = [["➕ شارژ حساب", "🏛 حل مشکل سامانه دولت من"], ["🔎 پیگیری کد", "📋 سوابق"], ["💰 موجودی", "🎫 تیکت به مدیریت"]]
+    # Canonical partner menu. Service buttons are intentionally partner-facing:
+    # the service flows use the partner's charged bot credit, not customer card-to-card.
+    rows = [
+        ["➕ شارژ حساب", "🏛 حل مشکل سامانه دولت من"],
+        [FIDA, SIM],
+        ["🔎 پیگیری کد", "📋 سوابق"],
+        ["💰 موجودی", "🎫 تیکت به مدیریت"],
+    ]
     if _is_admin(B, uid):
         rows.append([ADMIN_PANEL])
     rows.extend([["🚪 خروج از پنل"], [CANCEL]])
@@ -62,7 +71,10 @@ async def _open_partner(update, context, B, UI):
                 st["partner_active"] = True; st["partner_logged_out"] = False; st["mode"] = None
                 name = row["name"] or "-"; phone = row["phone"] or "-"; balance = int(row["balance"] or 0)
                 markup = _partner_markup(B, UI, uid); kwargs = {"reply_markup": markup} if markup is not None else {}
-                return await q.message.reply_text(f"👥 پنل همکاران\n👤 {name}\n📱 {phone}\n💰 اعتبار: {balance:,} تومان", **kwargs)
+                return await q.message.reply_text(
+                    f"👥 پنل همکاران\n👤 {name}\n📱 {phone}\n💰 اعتبار قابل استفاده: {balance:,} تومان\n\nخدمات فیدای غیرحضوری و سیم کارت از اعتبار همین پنل کسر می‌شود.",
+                    **kwargs,
+                )
         return await _login(q.message, B, UI, uid, st)
     except Exception:
         log.exception("partner entry failed")
@@ -107,11 +119,11 @@ async def _stable_ui2(update, context, B):
         aliases = {
             "👥 Partner panel": PARTNER, "👥 لوحة الشركاء": PARTNER,
             "🛠 Admin panel": ADMIN_PANEL, "🛠 لوحة الإدارة": ADMIN_PANEL,
-            "🪪 FIDA service": "🪪 فیدای غیر حضوری", "🪪 خدمة فيدا": "🪪 فیدای غیر حضوری",
+            "🪪 FIDA service": FIDA, "🪪 خدمة فيدا": FIDA,
             "🖨 Printing services": "🖨 خدمات چاپ", "🖨 خدمات الطباعة": "🖨 خدمات چاپ",
             "🪪 Government access help": "🪪 حل مشکل ورود اتباع دولت من", "🪪 مساعدة الدخول الحكومي": "🪪 حل مشکل ورود اتباع دولت من",
             "🎫 Card renewal tracking": "🎫 کد رهگیری تمدید کارت‌ها", "🎫 متابعة تجديد البطاقة": "🎫 کد رهگیری تمدید کارت‌ها",
-            "📱 SIM card services": "📱 خدمات سیم کارت", "📱 خدمات شرائح الهاتف": "📱 خدمات سیم کارت",
+            "📱 SIM card services": SIM, "📱 خدمات شرائح الهاتف": SIM,
             "📝 Screening test": "📝 آزمون غربالگری", "📝 اختبار الفرز": "📝 آزمون غربالگری",
             "🎫 Track request": "🎫 پیگیری", "🎫 متابعة الطلب": "🎫 پیگیری",
             "💰 My wallet": "💰 کیف پول من", "💰 محفظتي": "💰 کیف پول من",
@@ -159,7 +171,6 @@ def install():
     B.partner_kb = partner_kb
     B.cancel_kb = lambda lang="fa": UI.inline([[CANCEL]], B, UI._uid() or 0)
     B.partner = lambda update, context: _open_partner_from_message(update, context, B, UI)
-    # This handler is registered at -11, before the legacy ui2 handler at -10.
     if not getattr(B, "_stable_ui2_handler", False):
         app = getattr(B, "_telegram_application", None)
         if app is not None:
@@ -181,7 +192,10 @@ async def _open_partner_from_message(update, context, B, UI):
             if row:
                 st["partner_active"] = True; st["mode"] = None
                 markup = _partner_markup(B, UI, uid); kwargs = {"reply_markup": markup} if markup is not None else {}
-                return await message.reply_text(f"👥 پنل همکاران\n👤 {row['name'] or '-'}\n📱 {row['phone'] or '-'}\n💰 اعتبار: {int(row['balance'] or 0):,} تومان", **kwargs)
+                return await message.reply_text(
+                    f"👥 پنل همکاران\n👤 {row['name'] or '-'}\n📱 {row['phone'] or '-'}\n💰 اعتبار قابل استفاده: {int(row['balance'] or 0):,} تومان\n\nخدمات فیدای غیرحضوری و سیم کارت از اعتبار همین پنل کسر می‌شود.",
+                    **kwargs,
+                )
         return await _login(message, B, UI, uid, st)
     except Exception:
         log.exception("partner message entry failed")
