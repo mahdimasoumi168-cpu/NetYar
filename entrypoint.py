@@ -74,6 +74,14 @@ async def _install_final_telegram_patches():
     except Exception:
         log.exception("telegram operational continuation guard unavailable")
 
+    try:
+        import telegram_admin_request_reliability_fix as AR
+        import bot as B
+        AR.install(server.telegram_app, B)
+        log.info("telegram admin request reliability fix installed last")
+    except Exception:
+        log.exception("telegram admin request reliability fix unavailable")
+
 
 def main():
     uvicorn.run(
