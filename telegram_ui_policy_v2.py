@@ -1,7 +1,7 @@
 """Canonical Telegram UI and callback routing.
 
-Only one ReplyKeyboard button is kept below the chat: ``🔄 شروع مجدد``.
-All normal options are inline buttons attached to messages.
+Normal options are inline buttons attached to messages. No extra
+"دسترسی سریع" startup message is sent.
 """
 from contextvars import ContextVar
 from types import SimpleNamespace
@@ -49,7 +49,6 @@ def restart_keyboard():
 
 
 def _resolve_partner(B, uid):
-    """Resolve an already-linked partner from persistent Telegram-ID linkage."""
     st=B.S.setdefault(uid,{})
     try:
         if st.get("partner_id"):
@@ -80,8 +79,6 @@ def _main_rows(B,uid):
         rows=[["🎫 پیگیری","💰 کیف پول من"],["📞 تماس با ما","📝 ثبت شکایت مشتریان"]]
     else:
         rows=[["🪪 فیدای غیر حضوری","🖨 خدمات چاپ"],["🪪 حل مشکل ورود اتباع دولت من","🎫 کد رهگیری تمدید کارت‌ها"],["📱 خدمات سیم کارت","📝 آزمون غربالگری"],["🎫 پیگیری","💰 کیف پول من"],["📞 تماس با ما","📝 ثبت شکایت مشتریان"]]
-    # This is a login entry point, so it must be visible on every device/account.
-    # B.partner performs the actual phone/password authentication before access.
     rows.append(["👥 پنل همکاران"])
     if B.admin(uid): rows.append(["🛠 پنل مدیریت بات"])
     return rows
@@ -183,13 +180,10 @@ def install(app,B):
         F._partner_kb=lambda: inline([["➕ شارژ حساب","🏛 حل مشکل سامانه دولت من"],["🔎 پیگیری کد","📋 سوابق"],["💰 موجودی","🎫 تیکت به مدیریت"],["🚪 خروج از پنل"],[CANCEL]],B)
         B.partner_kb=lambda lang="fa":F._partner_kb()
     except Exception:pass
-    old_start=B.start
-    async def start(update,context):
-        result=await old_start(update,context)
-        try: await update.effective_message.reply_text("دسترسی سریع:",reply_markup=restart_keyboard())
-        except Exception: pass
-        return result
-    B.start=start
+
+    # IMPORTANT: do not wrap B.start here. The old wrapper sent an extra
+    # "دسترسی سریع:" message together with a ReplyKeyboard on every /start,
+    # which polluted the language-selection screen and duplicated startup UI.
 
     async def restart_text(update,context):
         if not update.message:return
