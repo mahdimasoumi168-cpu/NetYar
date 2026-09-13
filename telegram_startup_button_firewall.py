@@ -1,7 +1,7 @@
-"""Final high-priority Telegram startup/citizenship button router.
+"""Deterministic Telegram startup router.
 
-Routes startup callbacks at Update level before any legacy callback routers.
-This prevents competing handlers from consuming the citizenship buttons.
+Startup language/citizenship callbacks use a dedicated namespace so they cannot
+collide with legacy callback routers elsewhere in the project.
 """
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import TypeHandler, CallbackQueryHandler, MessageHandler, ApplicationHandlerStop, filters
@@ -15,7 +15,7 @@ def _status_from_data(data):
     if d in _STATUS:
         return d
     parts = d.split(":", 1)
-    if len(parts) == 2 and parts[0] in {"st", "status", "citizen", "citizenship", "type", "user_type"} and parts[1] in _STATUS:
+    if len(parts) == 2 and parts[0] in {"startup", "st", "status", "citizen", "citizenship", "type", "user_type"} and parts[1] in _STATUS:
         return parts[1]
     return None
 
@@ -23,21 +23,20 @@ def _status_from_data(data):
 def _lang_from_data(data):
     d = str(data or "").strip()
     parts = d.split(":", 1)
-    if len(parts) == 2 and parts[0] in {"lang", "language"} and parts[1] in _LANG:
-        return parts[1]
+    if len(parts) == 2 and parts[0] in {"lang", "language", "startup"}:
+        value = parts[1]
+        if value in _LANG:
+            return value
     return None
 
 
 async def _route_update(update, context, B):
-    """Absolute-priority router for startup language/citizenship callbacks."""
     q = update.callback_query
     if not q:
         return
-
     data = str(q.data or "").strip()
     lang = _lang_from_data(data)
     status = _status_from_data(data)
-
     if not lang and not status:
         return
 
@@ -46,7 +45,6 @@ async def _route_update(update, context, B):
     st = B.S.setdefault(uid, {})
 
     if lang:
-        # Preserve only stable account/admin state while resetting startup state.
         old = dict(st)
         B.S[uid] = {k: old[k] for k in ("partner_id", "partner_active", "admin", "phone") if k in old}
         B.S[uid]["lang"] = lang
@@ -63,8 +61,8 @@ async def _route_update(update, context, B):
         await q.message.reply_text(
             texts[lang],
             reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton(labels[0], callback_data="st:foreign"),
-                InlineKeyboardButton(labels[1], callback_data="st:iranian"),
+                InlineKeyboardButton(labels[0], callback_data="startup:foreign"),
+                InlineKeyboardButton(labels[1], callback_data="startup:iranian"),
             ]]),
         )
         raise ApplicationHandlerStop
@@ -74,35 +72,22 @@ async def _route_update(update, context, B):
     current_lang = st.get("lang", "fa")
     if current_lang not in _LANG:
         current_lang = "fa"
-    text = (
-        {"fa": "منوی خدمات کمک یار مهاجر 👇", "en": "Mohajer Helper services 👇", "ar": "قائمة خدمات المهاجرين 👇"}[current_lang]
-        if status == "foreign"
-        else {"fa": "🇮🇷 منوی خدمات ایرانی 👇", "en": "🇮🇷 Iranian user menu 👇", "ar": "🇮🇷 قائمة المستخدم الإيراني 👇"}[current_lang]
-    )
+    if status == "foreign":
+        text = {"fa": "منوی خدمات کمک یار مهاجر 👇", "en": "Mohajer Helper services 👇", "ar": "قائمة خدمات المهاجرين 👇"}[current_lang]
+    else:
+        text = {"fa": "🇮🇷 منوی خدمات ایرانی 👇", "en": "🇮🇷 Iranian user menu 👇", "ar": "🇮🇷 قائمة المستخدم الإيراني 👇"}[current_lang]
     await q.message.reply_text(text, reply_markup=B.main(uid))
     raise ApplicationHandlerStop
 
 
 async def _status(update, context, B):
-    # Kept as a fallback for callback handlers registered by older PTB layers.
-    q = update.callback_query
-    if not q:
-        return
-    status = _status_from_data(q.data)
-    if not status:
-        return
-    await _route_update(update, context, B)
+    if update.callback_query and _status_from_data(update.callback_query.data):
+        await _route_update(update, context, B)
 
 
 async def _lang(update, context, B):
-    # Kept as a fallback for callback handlers registered by older PTB layers.
-    q = update.callback_query
-    if not q:
-        return
-    lang = _lang_from_data(q.data)
-    if not lang:
-        return
-    await _route_update(update, context, B)
+    if update.callback_query and _lang_from_data(update.callback_query.data):
+        await _route_update(update, context, B)
 
 
 async def _text(update, context, B):
@@ -127,10 +112,8 @@ async def _text(update, context, B):
 def install(app, B):
     if getattr(B, "_startup_button_firewall", False):
         return
-    # TypeHandler runs before all ordinary handler groups and sees the raw Update.
     app.add_handler(TypeHandler(Update, lambda u, c: _route_update(u, c, B)), group=-300)
-    # Fallbacks for unusual/legacy callback payloads and reply-keyboard text.
-    app.add_handler(CallbackQueryHandler(lambda u, c: _lang(u, c, B), pattern=r"^(?:lang|language):(fa|en|ar)$"), group=-200)
-    app.add_handler(CallbackQueryHandler(lambda u, c: _status(u, c, B), pattern=r"^(?:(?:st|status|citizen|citizenship|type|user_type):(foreign|iranian)|foreign|iranian)$"), group=-199)
+    app.add_handler(CallbackQueryHandler(lambda u, c: _lang(u, c, B), pattern=r"^(?:lang|language|startup):(fa|en|ar)$"), group=-200)
+    app.add_handler(CallbackQueryHandler(lambda u, c: _status(u, c, B), pattern=r"^(?:(?:startup|st|status|citizen|citizenship|type|user_type):(foreign|iranian)|foreign|iranian)$"), group=-199)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, lambda u, c: _text(u, c, B)), group=-198)
     B._startup_button_firewall = True
