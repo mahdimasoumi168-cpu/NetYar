@@ -1,9 +1,8 @@
-"""Final Telegram off-hours gate with explicit night-worker login.
-Outside normal hours, ordinary users and ordinary partners are blocked.
-Night-worker entry is explicitly authenticated by phone + partner password.
+"""Final Telegram off-hours gate with persistent night-worker sessions.
 
-Important: every handled callback is stopped immediately so legacy Telegram
-routers cannot process the same button a second time.
+Night-shift partners authenticate once. An already authenticated, active partner
+session remains valid while the bot is running; inactivity must not silently
+turn a valid session into a fake "please log in again" state.
 """
 from datetime import datetime, time
 from zoneinfo import ZoneInfo
@@ -43,12 +42,35 @@ def _partner_by_phone(B, phone):
     return None
 
 
+def _active_partner_session(B, uid):
+    """Return the active partner row for an already authenticated session."""
+    st = B.S.get(uid, {}) or {}
+    pid = st.get("partner_id")
+    if not pid or st.get("partner_active") is False or st.get("partner_logged_out"):
+        return None
+    try:
+        return B.db.conn.execute(
+            "SELECT * FROM partners WHERE id=? AND active=1 LIMIT 1", (int(pid),)
+        ).fetchone()
+    except Exception:
+        return None
+
+
 def is_night_worker(B, uid):
-    st = B.S.get(uid, {})
+    # A valid authenticated partner session is sufficient. Do not require a
+    # second session lookup/refresh after inactivity; this was the source of
+    # the night-shift "please log in again" behaviour.
+    row = _active_partner_session(B, uid)
+    if row:
+        return True
+
+    st = B.S.get(uid, {}) or {}
     pid = st.get("partner_id")
     try:
         if pid and B.db.setting(PREFIX + str(pid), "0") == "1":
-            row = B.db.conn.execute("SELECT id FROM partners WHERE id=? AND active=1 LIMIT 1", (pid,)).fetchone()
+            row = B.db.conn.execute(
+                "SELECT id FROM partners WHERE id=? AND active=1 LIMIT 1", (int(pid),)
+            ).fetchone()
             return bool(row)
         phone = normalize_phone(st.get("phone") or st.get("partner_phone"))
         if phone:
@@ -105,8 +127,24 @@ def install(app, B):
             await q.message.reply_text("🔄 شروع مجدد", reply_markup=B.main(uid))
             raise ApplicationHandlerStop
 
-        # During night hours, NEVER trust an old logged-in partner session.
-        # Force phone + password authentication for every new panel entry.
+        # Keep a valid night-shift session alive. Only request credentials when
+        # there is no active partner session or the partner account is invalid.
+        active = _active_partner_session(B, uid)
+        if not is_open() and active:
+            try:
+                import telegram_ui_policy_v2 as UI
+                markup = UI.inline([
+                    ["➕ شارژ حساب", "🔎 پیگیری کد"],
+                    ["📋 سوابق", "💰 موجودی"],
+                    ["🏛 حل مشکل سامانه دولت من"],
+                    ["💬 ارتباط با مدیریت"],
+                    ["🚪 خروج از پنل"],
+                ], B, uid)
+            except Exception:
+                markup = B.partner_kb("fa")
+            await q.message.reply_text("🌙 پنل همکاران شیفت شب فعال است.", reply_markup=markup)
+            raise ApplicationHandlerStop
+
         if not is_open():
             if B.admin(uid):
                 from telegram_partner_router_guard import _open_partner
@@ -232,7 +270,6 @@ def install(app, B):
         finally:
             raise ApplicationHandlerStop
 
-    # These handlers are deliberately placed ahead of legacy/global off-hours handlers.
     app.add_handler(CallbackQueryHandler(cb, pattern=r"^off:(restart|partner)$"), group=-30000)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, night_login), group=-29999)
     app.add_handler(MessageHandler(filters.ALL, lambda u, c: message_gate(u, c, B)), group=-29998)
