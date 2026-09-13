@@ -38,6 +38,9 @@ def install(app, B):
             st.pop("_continuation_guard_mode", None)
             raise ApplicationHandlerStop
 
+    # Callback buttons are intentionally left to their owning handlers; the
+    # text-flow firewall only terminates conversational messages after the
+    # active flow has had its chance to consume them.
     app.add_handler(MessageHandler(filters.ALL, _capture), group=-300)
     app.add_handler(MessageHandler(filters.TEXT | filters.PHOTO | filters.Document.ALL | filters.VOICE | filters.AUDIO, _stop), group=5000)
     B._input_continuation_guard = True
