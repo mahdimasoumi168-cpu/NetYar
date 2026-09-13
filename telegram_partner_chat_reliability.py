@@ -1,8 +1,8 @@
 """High-priority partner communication resolver.
 
-Resolves every active Telegram partner through the canonical link table first,
-then legacy settings. Also owns the highest-priority text/media relay so that
-legacy handlers cannot consume the first message after admin selects a partner.
+Keeps admin/partner conversations deterministic. Every outgoing message has
+explicit Reply and Back-to-panel controls, and those controls restore the
+correct side's panel instead of falling through to unrelated handlers.
 """
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import CallbackQueryHandler, MessageHandler, ApplicationHandlerStop, filters
@@ -35,7 +35,18 @@ def install(app, B):
                 return int(value)
         return None
 
-    def buttons(rid):
+    def chat_kb(side):
+        if side == "admin":
+            return InlineKeyboardMarkup([
+                [InlineKeyboardButton("✉️ پاسخ دادن", callback_data="chat:reply")],
+                [InlineKeyboardButton("⬅️ بازگشت به پنل مدیریت", callback_data="chat:back")],
+            ])
+        return InlineKeyboardMarkup([
+            [InlineKeyboardButton("✉️ پاسخ دادن", callback_data="chat:reply")],
+            [InlineKeyboardButton("⬅️ بازگشت به پنل همکاران", callback_data="chat:back")],
+        ])
+
+    def request_buttons(rid):
         return InlineKeyboardMarkup([
             [InlineKeyboardButton("🔎 مشاهده اطلاعات کامل", callback_data=f"req:v:{rid}")],
             [InlineKeyboardButton("✅ تأیید خدمت", callback_data=f"req:a:{rid}"), InlineKeyboardButton("❌ رد خدمت", callback_data=f"req:x:{rid}")],
@@ -44,6 +55,38 @@ def install(app, B):
             [InlineKeyboardButton("💬 ارتباط با همکار", callback_data=f"req:chat:{rid}"), InlineKeyboardButton("📌 انتقال به آخر چت", callback_data=f"req:bottom:{rid}")],
             [InlineKeyboardButton("✉️ پاسخ", callback_data=f"req:r:{rid}")],
         ])
+
+    async def chat_control(update, context):
+        q = update.callback_query
+        if not q:
+            return
+        uid = int(q.from_user.id)
+        data = str(q.data or "")
+        if data not in {"chat:reply", "chat:back"}:
+            return
+        st = B.S.setdefault(uid, {})
+        mode = st.get("mode")
+        if mode not in {"final_admin_chat", "final_partner_chat"}:
+            return
+        if data == "chat:reply":
+            st["chat_reply_pending"] = True
+            await q.answer("آماده پاسخ")
+            if mode == "final_admin_chat":
+                await q.message.reply_text("✉️ پاسخ به همکار را ارسال کنید:", reply_markup=chat_kb("admin"))
+            else:
+                await q.message.reply_text("✉️ پاسخ به مدیریت را ارسال کنید:", reply_markup=chat_kb("partner"))
+            raise ApplicationHandlerStop
+
+        st["chat_reply_pending"] = False
+        st["mode"] = None
+        for key in ("final_chat_partner", "final_chat_partner_id", "final_chat_admin"):
+            st.pop(key, None)
+        await q.answer("بازگشت انجام شد")
+        if mode == "final_admin_chat":
+            await q.message.reply_text("⬅️ به پنل مدیریت برگشتید.", reply_markup=B.amenu())
+        else:
+            await q.message.reply_text("⬅️ به پنل همکاران برگشتید.", reply_markup=B.partner_kb())
+        raise ApplicationHandlerStop
 
     async def cb(update, context):
         q = update.callback_query
@@ -98,11 +141,11 @@ def install(app, B):
 
         admin_id = int(q.from_user.id)
         ast = B.S.setdefault(admin_id, {})
-        ast.update(mode="final_admin_chat", final_chat_partner=chat, final_chat_partner_id=pid)
+        ast.update(mode="final_admin_chat", final_chat_partner=chat, final_chat_partner_id=pid, chat_reply_pending=False)
         if rid is not None:
             ast["final_chat_rid"] = rid
         pst = B.S.setdefault(chat, {})
-        pst.update(mode="final_partner_chat", partner_id=pid, final_chat_admin=admin_id)
+        pst.update(mode="final_partner_chat", partner_id=pid, final_chat_admin=admin_id, chat_reply_pending=False)
         if rid is not None:
             pst["final_chat_rid"] = rid
 
@@ -111,16 +154,16 @@ def install(app, B):
         extra = f"\n🎫 درخواست: {r['tracking_code']}" if r is not None else ""
         await q.message.reply_text(
             f"💬 ارتباط با همکار فعال شد.\n{title}{extra}\n\nپیام، عکس، فایل، صوت یا ویس را ارسال کنید.",
-            reply_markup=B.amenu(),
+            reply_markup=chat_kb("admin"),
         )
         await context.bot.send_message(
             chat_id=chat,
             text=f"💬 مدیریت ارتباط با شما را آغاز کرد.{extra}\nهر پیام، عکس، فایل، صوت یا ویس شما برای مدیریت ارسال می‌شود.",
-            reply_markup=B.partner_kb(),
+            reply_markup=chat_kb("partner"),
         )
         if rid is not None:
             try:
-                await q.message.reply_text("📌 کنترل‌های درخواست:", reply_markup=buttons(rid))
+                await q.message.reply_text("📌 کنترل‌های درخواست:", reply_markup=request_buttons(rid))
             except Exception:
                 pass
         raise ApplicationHandlerStop
@@ -139,10 +182,10 @@ def install(app, B):
                 await msg.reply_text("❌ همکار مقصد مشخص نیست.", reply_markup=B.amenu())
                 raise ApplicationHandlerStop
             try:
-                await context.bot.send_message(chat_id=int(chat), text=f"👔 مدیریت:\n{msg.text.strip()}")
-                await msg.reply_text("✅ پیام برای همکار ارسال شد.", reply_markup=B.amenu())
+                await context.bot.send_message(chat_id=int(chat), text=f"👔 مدیریت:\n{msg.text.strip()}", reply_markup=chat_kb("partner"))
+                await msg.reply_text("✅ پیام برای همکار ارسال شد.", reply_markup=chat_kb("admin"))
             except Exception:
-                await msg.reply_text("❌ ارسال پیام به همکار انجام نشد. ارتباط دوباره برقرار نشد.", reply_markup=B.amenu())
+                await msg.reply_text("❌ ارسال پیام به همکار انجام نشد. ارتباط دوباره برقرار نشد.", reply_markup=chat_kb("admin"))
             raise ApplicationHandlerStop
         if mode == "final_partner_chat":
             admin = st.get("final_chat_admin")
@@ -150,10 +193,10 @@ def install(app, B):
                 await msg.reply_text("❌ مدیریت مقصد مشخص نیست.", reply_markup=B.partner_kb())
                 raise ApplicationHandlerStop
             try:
-                await context.bot.send_message(chat_id=int(admin), text=f"👥 همکار:\n{msg.text.strip()}")
-                await msg.reply_text("✅ پیام برای مدیریت ارسال شد.", reply_markup=B.partner_kb())
+                await context.bot.send_message(chat_id=int(admin), text=f"👥 همکار:\n{msg.text.strip()}", reply_markup=chat_kb("admin"))
+                await msg.reply_text("✅ پیام برای مدیریت ارسال شد.", reply_markup=chat_kb("partner"))
             except Exception:
-                await msg.reply_text("❌ ارسال پیام به مدیریت انجام نشد.", reply_markup=B.partner_kb())
+                await msg.reply_text("❌ ارسال پیام به مدیریت انجام نشد.", reply_markup=chat_kb("partner"))
             raise ApplicationHandlerStop
 
     async def relay_media(update, context):
@@ -167,43 +210,42 @@ def install(app, B):
             if mode == "final_admin_chat":
                 chat = int(st.get("final_chat_partner"))
                 if msg.photo:
-                    await context.bot.send_photo(chat_id=chat, photo=msg.photo[-1].file_id, caption="👔 تصویر از مدیریت")
+                    await context.bot.send_photo(chat_id=chat, photo=msg.photo[-1].file_id, caption="👔 تصویر از مدیریت", reply_markup=chat_kb("partner"))
                 elif msg.voice:
-                    await context.bot.send_voice(chat_id=chat, voice=msg.voice.file_id, caption="👔 ویس از مدیریت")
+                    await context.bot.send_voice(chat_id=chat, voice=msg.voice.file_id, caption="👔 ویس از مدیریت", reply_markup=chat_kb("partner"))
                 elif msg.audio:
-                    await context.bot.send_audio(chat_id=chat, audio=msg.audio.file_id, caption="👔 صوت از مدیریت")
+                    await context.bot.send_audio(chat_id=chat, audio=msg.audio.file_id, caption="👔 صوت از مدیریت", reply_markup=chat_kb("partner"))
                 elif msg.document:
-                    await context.bot.send_document(chat_id=chat, document=msg.document.file_id, caption="👔 فایل از مدیریت")
+                    await context.bot.send_document(chat_id=chat, document=msg.document.file_id, caption="👔 فایل از مدیریت", reply_markup=chat_kb("partner"))
                 else:
                     return
-                await msg.reply_text("✅ فایل برای همکار ارسال شد.", reply_markup=B.amenu())
+                await msg.reply_text("✅ فایل برای همکار ارسال شد.", reply_markup=chat_kb("admin"))
                 raise ApplicationHandlerStop
             if mode == "final_partner_chat":
                 admin = int(st.get("final_chat_admin"))
                 if msg.photo:
-                    await context.bot.send_photo(chat_id=admin, photo=msg.photo[-1].file_id, caption="👥 تصویر از همکار")
+                    await context.bot.send_photo(chat_id=admin, photo=msg.photo[-1].file_id, caption="👥 تصویر از همکار", reply_markup=chat_kb("admin"))
                 elif msg.voice:
-                    await context.bot.send_voice(chat_id=admin, voice=msg.voice.file_id, caption="👥 ویس از همکار")
+                    await context.bot.send_voice(chat_id=admin, voice=msg.voice.file_id, caption="👥 ویس از همکار", reply_markup=chat_kb("admin"))
                 elif msg.audio:
-                    await context.bot.send_audio(chat_id=admin, audio=msg.audio.file_id, caption="👥 صوت از همکار")
+                    await context.bot.send_audio(chat_id=admin, audio=msg.audio.file_id, caption="👥 صوت از همکار", reply_markup=chat_kb("admin"))
                 elif msg.document:
-                    await context.bot.send_document(chat_id=admin, document=msg.document.file_id, caption="👥 فایل از همکار")
+                    await context.bot.send_document(chat_id=admin, document=msg.document.file_id, caption="👥 فایل از همکار", reply_markup=chat_kb("admin"))
                 else:
                     return
-                await msg.reply_text("✅ فایل برای مدیریت ارسال شد.", reply_markup=B.partner_kb())
+                await msg.reply_text("✅ فایل برای مدیریت ارسال شد.", reply_markup=chat_kb("partner"))
                 raise ApplicationHandlerStop
         except ApplicationHandlerStop:
             raise
         except Exception:
             if mode == "final_admin_chat":
-                await msg.reply_text("❌ ارسال فایل به همکار انجام نشد.", reply_markup=B.amenu())
+                await msg.reply_text("❌ ارسال فایل به همکار انجام نشد.", reply_markup=chat_kb("admin"))
             elif mode == "final_partner_chat":
-                await msg.reply_text("❌ ارسال فایل به مدیریت انجام نشد.", reply_markup=B.partner_kb())
+                await msg.reply_text("❌ ارسال فایل به مدیریت انجام نشد.", reply_markup=chat_kb("partner"))
             raise ApplicationHandlerStop
 
+    app.add_handler(CallbackQueryHandler(chat_control, pattern=r"^chat:(reply|back)$"), group=-60002)
     app.add_handler(CallbackQueryHandler(cb, pattern=r"^(final:chat:|req:chat:)"), group=-60000)
-    # These must be above legacy text/media routers; otherwise the first message
-    # after selecting a partner can be consumed by an unrelated service flow.
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, relay_text), group=-59999)
     app.add_handler(MessageHandler(filters.PHOTO | filters.VOICE | filters.AUDIO | filters.Document.ALL, relay_media), group=-59998)
     B._partner_chat_reliability = True
