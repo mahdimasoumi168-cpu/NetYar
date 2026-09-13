@@ -10,6 +10,9 @@ bale_bootstrap.install(server)
 
 @server.api.on_event("startup")
 async def _install_final_telegram_patches():
+    # Order matters: the final navigation layer is installed last in this
+    # startup sequence but uses a much earlier handler group (-20000), so its
+    # owned callbacks cannot be stolen by legacy routers.
     for module_name in (
         "telegram_partner_logout_fix",
         "telegram_language_consistency",
@@ -17,13 +20,12 @@ async def _install_final_telegram_patches():
         "final_stability_overlay",
         "final_government_payment_overlay",
         "telegram_price_dedup_guard",
+        "telegram_final_admin_navigation_v3",
     ):
         try:
             module=__import__(module_name)
             import bot as B
-            if module_name=="telegram_partner_logout_fix":
-                module.install(B)
-            elif module_name in {"telegram_language_consistency","telegram_cancel_policy"}:
+            if module_name in {"telegram_partner_logout_fix","telegram_language_consistency","telegram_cancel_policy"}:
                 module.install(B)
             else:
                 module.install(server.telegram_app,B)
