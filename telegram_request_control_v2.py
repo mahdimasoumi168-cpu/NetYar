@@ -32,6 +32,27 @@ def menu(rid,paid=False):
     rows.append([InlineKeyboardButton("❌ رد درخواست",callback_data=f"rq:reject:{rid}")])
     return InlineKeyboardMarkup(rows)
 
+DETAIL_LABELS={
+    "doc_type":"🪪 نوع مدرک",
+    "phone":"📱 شماره موبایل مشترک",
+    "dob":"🎂 تاریخ تولد مشترک",
+    "unique_id":"🆔 شناسه یکتای مشترک",
+    "special_id":"🔖 شناسه اختصاصی مشترک",
+    "family_code":"👨‍👩‍👧‍👦 کد خانوار مشترک",
+    "postal_code":"📮 کد پستی مشترک",
+    "passport":"🛂 شماره گذرنامه مشترک",
+    "temporary_card_number":"👨‍👩‍👧‍👦 کد خانوار مشترک",
+    "booklet_number":"📗 شماره دفترچه اقامت مشترک",
+    "document":"📸 تصویر مدرک",
+    "partner_id":"👤 شناسه همکار",
+}
+DOC_TYPES={"card":"کارت آمایش","temporary_card":"کارت موقت","passport":"گذرنامه","residence_booklet":"دفترچه اقامت"}
+
+def detail_line(key,value):
+    label=DETAIL_LABELS.get(key,key)
+    if key=="doc_type": value=DOC_TYPES.get(str(value),value)
+    return f"{label}: {value}"
+
 async def cb(update,context,B):
     q=update.callback_query
     if not q:return
@@ -47,7 +68,7 @@ async def cb(update,context,B):
     action=d[1];paid=str(r["payment_status"] or "").lower()=="paid"
     if action=="detail":
         ans=B.db.conn.execute("SELECT key,answer FROM request_answers WHERE request_id=?",(rid,)).fetchall()
-        lines=[f"🎫 کد پیگیری: {r['tracking_code']}",f"🧾 خدمت: {r['service_key']}",f"📌 وضعیت: {r['status']}",f"💰 مبلغ: {int(r['amount'] or 0):,} تومان",f"💳 پرداخت: {'تأیید شده' if paid else 'تأیید نشده'}"]+[f"{a['key']}: {a['answer']}" for a in ans if a['answer']]
+        lines=[f"🎫 کد پیگیری: {r['tracking_code']}",f"🧾 خدمت: {r['service_key']}",f"📌 وضعیت: {r['status']}",f"💰 مبلغ: {int(r['amount'] or 0):,} تومان",f"💳 پرداخت: {'تأیید شده' if paid else 'تأیید نشده'}"]+[detail_line(str(a['key']),str(a['answer'])) for a in ans if a['answer']]
         return await q.message.reply_text("🔎 جزئیات کامل درخواست\n\n"+"\n".join(lines),reply_markup=menu(rid,paid))
     if action=="payconfirm":
         if paid:return await q.message.reply_text("ℹ️ پرداخت قبلاً تأیید شده است.",reply_markup=admin_kb(B))
