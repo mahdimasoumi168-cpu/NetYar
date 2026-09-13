@@ -1,11 +1,11 @@
 """High-priority partner communication resolver.
 
 Resolves every active Telegram partner through the canonical link table first,
-then legacy settings. This prevents admin chat buttons from failing for
-partners whose legacy partner_chat setting was never populated.
+then legacy settings. Also owns the highest-priority text/media relay so that
+legacy handlers cannot consume the first message after admin selects a partner.
 """
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import CallbackQueryHandler, ApplicationHandlerStop
+from telegram.ext import CallbackQueryHandler, MessageHandler, ApplicationHandlerStop, filters
 
 
 def install(app, B):
@@ -13,7 +13,6 @@ def install(app, B):
         return True
 
     def resolve(pid, phone=None):
-        # Canonical login link is authoritative.
         try:
             row = B.db.conn.execute(
                 "SELECT telegram_user_id FROM partner_telegram_links WHERE partner_id=? LIMIT 1",
@@ -28,7 +27,6 @@ def install(app, B):
                 return chat
         except Exception:
             pass
-        # Legacy settings remain supported.
         for key in (f"partner_chat_{pid}", f"partner_chat_{phone}" if phone else ""):
             if not key:
                 continue
@@ -75,7 +73,8 @@ def install(app, B):
             if pid is None:
                 try:
                     p0 = B.db.conn.execute("SELECT id FROM partners WHERE id=? AND active=1 LIMIT 1", (r["user_id"],)).fetchone()
-                    if p0: pid = int(p0["id"])
+                    if p0:
+                        pid = int(p0["id"])
                 except Exception:
                     pass
             if pid is None:
@@ -126,7 +125,86 @@ def install(app, B):
                 pass
         raise ApplicationHandlerStop
 
-    # Must run before legacy final-ops callbacks.
+    async def relay_text(update, context):
+        msg = update.effective_message
+        user = update.effective_user
+        if not msg or not user or not msg.text:
+            return
+        uid = int(user.id)
+        st = B.S.setdefault(uid, {})
+        mode = st.get("mode")
+        if mode == "final_admin_chat":
+            chat = st.get("final_chat_partner")
+            if not chat:
+                await msg.reply_text("❌ همکار مقصد مشخص نیست.", reply_markup=B.amenu())
+                raise ApplicationHandlerStop
+            try:
+                await context.bot.send_message(chat_id=int(chat), text=f"👔 مدیریت:\n{msg.text.strip()}")
+                await msg.reply_text("✅ پیام برای همکار ارسال شد.", reply_markup=B.amenu())
+            except Exception:
+                await msg.reply_text("❌ ارسال پیام به همکار انجام نشد. ارتباط دوباره برقرار نشد.", reply_markup=B.amenu())
+            raise ApplicationHandlerStop
+        if mode == "final_partner_chat":
+            admin = st.get("final_chat_admin")
+            if not admin:
+                await msg.reply_text("❌ مدیریت مقصد مشخص نیست.", reply_markup=B.partner_kb())
+                raise ApplicationHandlerStop
+            try:
+                await context.bot.send_message(chat_id=int(admin), text=f"👥 همکار:\n{msg.text.strip()}")
+                await msg.reply_text("✅ پیام برای مدیریت ارسال شد.", reply_markup=B.partner_kb())
+            except Exception:
+                await msg.reply_text("❌ ارسال پیام به مدیریت انجام نشد.", reply_markup=B.partner_kb())
+            raise ApplicationHandlerStop
+
+    async def relay_media(update, context):
+        msg = update.effective_message
+        user = update.effective_user
+        if not msg or not user:
+            return
+        st = B.S.setdefault(int(user.id), {})
+        mode = st.get("mode")
+        try:
+            if mode == "final_admin_chat":
+                chat = int(st.get("final_chat_partner"))
+                if msg.photo:
+                    await context.bot.send_photo(chat_id=chat, photo=msg.photo[-1].file_id, caption="👔 تصویر از مدیریت")
+                elif msg.voice:
+                    await context.bot.send_voice(chat_id=chat, voice=msg.voice.file_id, caption="👔 ویس از مدیریت")
+                elif msg.audio:
+                    await context.bot.send_audio(chat_id=chat, audio=msg.audio.file_id, caption="👔 صوت از مدیریت")
+                elif msg.document:
+                    await context.bot.send_document(chat_id=chat, document=msg.document.file_id, caption="👔 فایل از مدیریت")
+                else:
+                    return
+                await msg.reply_text("✅ فایل برای همکار ارسال شد.", reply_markup=B.amenu())
+                raise ApplicationHandlerStop
+            if mode == "final_partner_chat":
+                admin = int(st.get("final_chat_admin"))
+                if msg.photo:
+                    await context.bot.send_photo(chat_id=admin, photo=msg.photo[-1].file_id, caption="👥 تصویر از همکار")
+                elif msg.voice:
+                    await context.bot.send_voice(chat_id=admin, voice=msg.voice.file_id, caption="👥 ویس از همکار")
+                elif msg.audio:
+                    await context.bot.send_audio(chat_id=admin, audio=msg.audio.file_id, caption="👥 صوت از همکار")
+                elif msg.document:
+                    await context.bot.send_document(chat_id=admin, document=msg.document.file_id, caption="👥 فایل از همکار")
+                else:
+                    return
+                await msg.reply_text("✅ فایل برای مدیریت ارسال شد.", reply_markup=B.partner_kb())
+                raise ApplicationHandlerStop
+        except ApplicationHandlerStop:
+            raise
+        except Exception:
+            if mode == "final_admin_chat":
+                await msg.reply_text("❌ ارسال فایل به همکار انجام نشد.", reply_markup=B.amenu())
+            elif mode == "final_partner_chat":
+                await msg.reply_text("❌ ارسال فایل به مدیریت انجام نشد.", reply_markup=B.partner_kb())
+            raise ApplicationHandlerStop
+
     app.add_handler(CallbackQueryHandler(cb, pattern=r"^(final:chat:|req:chat:)"), group=-60000)
+    # These must be above legacy text/media routers; otherwise the first message
+    # after selecting a partner can be consumed by an unrelated service flow.
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, relay_text), group=-59999)
+    app.add_handler(MessageHandler(filters.PHOTO | filters.VOICE | filters.AUDIO | filters.Document.ALL, relay_media), group=-59998)
     B._partner_chat_reliability = True
     return True
