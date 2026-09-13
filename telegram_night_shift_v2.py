@@ -39,27 +39,8 @@ def closed():
 
 def markup(B,uid=None):
     rows=[[RESTART]]
-    if uid is not None and (B.admin(uid) or worker_phone(B,B.S.get(uid,{}).get("phone")) or worker(B,B.S.get(uid,{}).get("partner_id"))):
-        rows.append([PARTNER])
+    if uid is not None and (B.admin(uid) or worker_phone(B,B.S.get(uid,{}).get("phone")) or worker(B,B.S.get(uid,{}).get("partner_id"))): rows.append([PARTNER])
     return ReplyKeyboardMarkup(rows,resize_keyboard=True,one_time_keyboard=False,is_persistent=True)
-
-def _opening_markup(): return InlineKeyboardMarkup([[InlineKeyboardButton(RESTART,callback_data="night2:restart")]])
-
-async def _broadcast_opening(context,B):
-    now=datetime.now(TZ)
-    if is_friday() or not (OPEN<=now.time()<time(7,2)): return
-    day=now.strftime("%Y-%m-%d")
-    if B.db.setting("opening_notice_date","")==day:return
-    rows=B.db.conn.execute("SELECT external_id FROM users WHERE platform='telegram' AND external_id IS NOT NULL").fetchall()
-    text="🟢 ربات باز شد\n\nساعت کاری عادی شروع شد.\nبرای ورود و نمایش منوی خدمات، دکمه «🔄 شروع مجدد» را بزنید."
-    sent=0
-    for r in rows:
-        try:
-            await context.bot.send_message(chat_id=int(r["external_id"]),text=text,reply_markup=_opening_markup());sent+=1
-        except Exception: continue
-    B.db.set_setting("opening_notice_date",day)
-    try:B.db.set_setting("opening_notice_count",str(sent))
-    except Exception:pass
 
 def install(app,B):
     if getattr(B,"_night_shift_v2",False):return
@@ -82,8 +63,7 @@ def install(app,B):
         if not q or not d or d[0]!="night2":return
         await q.answer()
         if len(d)<2:return
-        if d[1]=="restart":
-            return await B.start(type("U",(),{"message":q.message,"effective_message":q.message,"effective_user":q.from_user})(),context)
+        if d[1]=="restart":return await B.start(type("U",(),{"message":q.message,"effective_message":q.message,"effective_user":q.from_user})(),context)
         uid=q.from_user.id
         if not B.admin(uid):return await q.answer("دسترسی ندارید",show_alert=True)
         st=B.S.setdefault(uid,{})
@@ -108,8 +88,7 @@ def install(app,B):
         if not q:return
         uid=q.from_user.id
         if open_now() or allowed(B,uid):return
-        data=str(q.data or "")
-        if data.startswith("night2:"):return
+        if str(q.data or "").startswith("night2:"):return
         try:await q.answer("⏰ خارج از ساعت کاری است.",show_alert=True)
         except Exception:pass
         try:await q.message.reply_text(closed(),reply_markup=markup(B,uid))
@@ -125,8 +104,4 @@ def install(app,B):
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,text),group=-2199)
     app.add_handler(MessageHandler(filters.ALL,gate),group=-2198)
     app.add_handler(CallbackQueryHandler(callback_gate),group=-2197)
-    try:
-        if getattr(app,"job_queue",None):app.job_queue.run_repeating(_broadcast_opening,interval=30,first=5,data=B,name="netyar-opening-broadcast")
-    except Exception:
-        import logging;logging.getLogger("netyar.night").exception("opening broadcast scheduler unavailable")
     B._night_shift_v2=True
