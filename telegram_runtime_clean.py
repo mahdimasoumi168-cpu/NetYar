@@ -90,6 +90,9 @@ def _install_features(app):
     except Exception:log.exception("topup invoice unavailable")
     import telegram_admin_plus as A
     app.add_handler(CallbackQueryHandler(lambda u,c:_safe_call(A._callback,u,c,B),pattern=r'^adm:'),group=-20)
+    try:
+        import telegram_announcement_media as AMEDIA;AMEDIA.install(app,B)
+    except Exception:log.exception("announcement media unavailable")
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,lambda u,c:_safe_call(A._text,u,c,B)),group=-19)
     try:
         import telegram_admin_entry as AE;AE.install(app,B)
