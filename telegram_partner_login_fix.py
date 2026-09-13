@@ -57,17 +57,23 @@ def install(app=None, B=None):
         if not text:
             return
 
+        # This handler is the single deterministic owner of normal partner
+        # phone/password entry. It runs before legacy routers so a valid phone
+        # cannot be consumed by an unrelated service handler and turned into
+        # the generic "temporary error" recovery message.
         if mode == "p_phone" or step == "partner_phone":
             phone = normalize_phone(text)
             if not re.fullmatch(r"09\d{9}", phone):
-                await update.message.reply_text("❌ شماره همراه را صحیح وارد کنید.")
+                st["mode"] = "p_phone"; st["step"] = "partner_phone"
+                await update.message.reply_text("❌ شماره موبایل صحیح نیست.\n\n📱 شماره موبایل اختصاصی همکار را دوباره وارد کنید:")
                 raise ApplicationHandlerStop
             partner = partner_fixed(phone)
             if not partner:
-                await update.message.reply_text("❌ همکار پیدا نشد. شماره همراه را دوباره وارد کنید.")
                 st["mode"] = "p_phone"; st["step"] = "partner_phone"
+                await update.message.reply_text("❌ این شماره به همکار فعال اختصاص ندارد.\n\n📱 شماره را دوباره وارد کنید:")
                 raise ApplicationHandlerStop
             st["partner_phone"] = phone
+            st["partner_id"] = partner["id"] if "id" in partner.keys() else None
             st["mode"] = "p_pass"; st["step"] = "partner_pass"
             await update.message.reply_text("🔐 رمز عبور همکار را وارد کنید:")
             raise ApplicationHandlerStop
@@ -82,11 +88,14 @@ def install(app=None, B=None):
                 log.exception("partner password verification failed")
             if not ok:
                 st["mode"] = "p_pass"; st["step"] = "partner_pass"
-                await update.message.reply_text("❌ شماره همراه یا رمز عبور نادرست است.\n\n🔐 رمز عبور را دوباره وارد کنید:")
+                await update.message.reply_text("❌ رمز عبور نادرست است.\n\n🔐 رمز عبور همکار را دوباره وارد کنید:")
                 raise ApplicationHandlerStop
 
             st["partner"] = phone
+            st["partner_phone"] = phone
             st["partner_id"] = partner["id"] if "id" in partner.keys() else None
+            st["partner_active"] = True
+            st["partner_logged_out"] = False
             st["mode"] = "partner"; st["step"] = "partner"
             try:
                 B.db.set_setting(f"partner_chat_{phone}", str(uid))
@@ -95,14 +104,15 @@ def install(app=None, B=None):
             except Exception:
                 log.exception("partner chat mapping save failed")
             balance = int(partner["balance"] or 0)
-            markup = B.kb([
-                ["➕ شارژ حساب", "🔎 پیگیری کد"],
-                ["📋 سوابق", "💰 موجودی"],
-                ["🏛 حل مشکل سامانه دولت من"],
-                ["✉️ تیکت به مدیریت"],
-                ["🚪 خروج از پنل"],
-            ])
-            await update.message.reply_text(f"👥 پنل همکار\n📱 {phone}\n💰 موجودی اعتبار: {balance:,} تومان\n\nگزینه موردنظر را انتخاب کنید:", reply_markup=markup)
+            try:
+                markup = B.partner_kb(st.get("lang", "fa"))
+            except Exception:
+                markup = None
+            kwargs = {"reply_markup": markup} if markup is not None else {}
+            await update.message.reply_text(
+                f"👥 پنل همکاران\n👤 {partner['name'] or '-'}\n📱 {phone}\n💰 اعتبار قابل استفاده: {balance:,} تومان\n\nگزینه موردنظر را انتخاب کنید:",
+                **kwargs,
+            )
             raise ApplicationHandlerStop
 
         if mode == "partner" and text == "🚪 خروج از پنل":
@@ -112,6 +122,8 @@ def install(app=None, B=None):
             await update.message.reply_text("✅ از پنل همکاران خارج شدید.", reply_markup=B.main(uid))
             raise ApplicationHandlerStop
 
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, partner_login), group=-90)
+    # Highest-priority normal-message owner for partner authentication.
+    # Lower group number runs before legacy service/text handlers.
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, partner_login), group=-10001)
     B._telegram_partner_login_fix_installed = True
     log.info("Telegram partner login fix installed")
