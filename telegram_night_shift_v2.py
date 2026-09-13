@@ -1,10 +1,9 @@
-"""Tehran business-hours gate with Friday closure, admin/night-partner overrides and opening broadcast."""
+"""Tehran business-hours gate with Friday closure and night-partner access."""
 from datetime import datetime,time
 from zoneinfo import ZoneInfo
 from telegram import ReplyKeyboardMarkup,InlineKeyboardButton,InlineKeyboardMarkup
 from telegram.ext import CallbackQueryHandler,MessageHandler,ApplicationHandlerStop,filters
-TZ=ZoneInfo("Asia/Tehran");OPEN=time(7,0);CLOSE=time(19,0);PREFIX="night_worker:";RESTART="🔄 شروع مجدد"
-
+TZ=ZoneInfo("Asia/Tehran");OPEN=time(7,0);CLOSE=time(19,0);PREFIX="night_worker:";RESTART="🔄 شروع مجدد";PARTNER="👥 پنل همکاران"
 
 def is_friday(): return datetime.now(TZ).weekday()==4
 def open_now():
@@ -18,53 +17,46 @@ def phone(v):
     return s if len(s)==11 and s.startswith("09") and s.isdigit() else None
 
 def worker(B,pid): return bool(pid and B.db.setting(PREFIX+str(pid),"0")=="1")
-
 def worker_phone(B,v):
     p=phone(v)
     if not p:return False
     r=B.db.conn.execute("SELECT id FROM partners WHERE phone=? AND active=1",(p,)).fetchone();return bool(r and worker(B,r["id"]))
 
 def allowed(B,uid,update=None):
-    # Management is an absolute override: day/night, Friday/holiday, always.
     if B.admin(uid): return True
     st=B.S.get(uid,{})
-    if worker(B,st.get("partner_id")):return True
-    if worker_phone(B,st.get("phone")):return True
-    if st.get("mode") in {"p_phone","p_pass"}:return True
+    if worker(B,st.get("partner_id")) or worker_phone(B,st.get("phone")): return True
+    if st.get("mode") in {"p_phone","p_pass"}: return True
     if update:
         msg=getattr(update,"effective_message",None);txt=getattr(msg,"text","") if msg else ""
-        if txt and txt.strip() in {RESTART,"شروع مجدد","/start","start"}: return True
-        if txt and "پنل همکاران" in txt:return True
-        if worker_phone(B,txt):return True
+        if txt and txt.strip() in {RESTART,"شروع مجدد","/start","start",PARTNER}: return True
+        if worker_phone(B,txt): return True
     return False
 
 def closed():
-    if is_friday():return "⛔ امروز جمعه است و ربات خدمات عادی تعطیل می‌باشد.\n\n👤 مدیریت و همکاران شیفت شبِ تعریف‌شده همچنان دسترسی دارند.\n📅 فعالیت عادی از شنبه ادامه خواهد داشت."
-    return "⏰ ربات در حال حاضر خارج از ساعت کاری است.\n\n🕖 ساعت کاری عادی: ۷ صبح تا ۷ شب به وقت تهران\n🌙 دسترسی شبانه: فقط مدیریت و همکاران شیفت شبِ تعریف‌شده\n\nلطفاً در ساعت کاری مراجعه کنید."
+    if is_friday(): return "⛔ امروز جمعه است و ربات خدمات عادی تعطیل می‌باشد.\n\nبرای استفاده از خدمات لطفاً در ساعت کاری مراجعه کنید."
+    return "⏰ ربات در حال حاضر خارج از ساعت کاری است.\n\n🕖 ساعت کاری عادی: ۷ صبح تا ۷ شب به وقت تهران\n\nلطفاً در ساعت کاری مراجعه کنید."
 
-def markup():return ReplyKeyboardMarkup([[RESTART]],resize_keyboard=True,one_time_keyboard=False,is_persistent=True)
+def markup(B,uid=None):
+    rows=[[RESTART]]
+    if uid is not None and (B.admin(uid) or worker_phone(B,B.S.get(uid,{}).get("phone")) or worker(B,B.S.get(uid,{}).get("partner_id"))):
+        rows.append([PARTNER])
+    return ReplyKeyboardMarkup(rows,resize_keyboard=True,one_time_keyboard=False,is_persistent=True)
 
-def _opening_markup(B,uid=None):
-    return InlineKeyboardMarkup([[InlineKeyboardButton(RESTART,callback_data="night2:restart")]])
+def _opening_markup(): return InlineKeyboardMarkup([[InlineKeyboardButton(RESTART,callback_data="night2:restart")]])
 
 async def _broadcast_opening(context,B):
     now=datetime.now(TZ)
-    if is_friday() or not (OPEN<=now.time()<time(7,2)):return
+    if is_friday() or not (OPEN<=now.time()<time(7,2)): return
     day=now.strftime("%Y-%m-%d")
     if B.db.setting("opening_notice_date","")==day:return
     rows=B.db.conn.execute("SELECT external_id FROM users WHERE platform='telegram' AND external_id IS NOT NULL").fetchall()
-    text=("🟢 ربات باز شد\n\n"
-          "ساعت کاری عادی شروع شد و خدمات قابل استفاده است.\n"
-          "برای ورود و نمایش منوی خدمات، دکمه «🔄 شروع مجدد» را بزنید.")
+    text="🟢 ربات باز شد\n\nساعت کاری عادی شروع شد.\nبرای ورود و نمایش منوی خدمات، دکمه «🔄 شروع مجدد» را بزنید."
     sent=0
     for r in rows:
         try:
-            cid=int(r["external_id"])
-            await context.bot.send_message(chat_id=cid,text=text,reply_markup=_opening_markup(B,cid))
-            sent+=1
-            await context.bot.send_message(chat_id=cid,text="دسترسی سریع:",reply_markup=markup())
-        except Exception:
-            continue
+            await context.bot.send_message(chat_id=int(r["external_id"]),text=text,reply_markup=_opening_markup());sent+=1
+        except Exception: continue
     B.db.set_setting("opening_notice_date",day)
     try:B.db.set_setting("opening_notice_count",str(sent))
     except Exception:pass
@@ -74,15 +66,15 @@ def install(app,B):
     B.db.conn.execute("CREATE TABLE IF NOT EXISTS night_workers(partner_id INTEGER PRIMARY KEY,enabled INTEGER NOT NULL DEFAULT 1,updated_at TEXT NOT NULL)");B.db.conn.commit()
     old_partner=B.partner
     async def partner(update,context):
-        if not open_now() and not allowed(B,update.effective_user.id,update):return await update.effective_message.reply_text(closed(),reply_markup=markup())
+        uid=update.effective_user.id
+        if not open_now() and not allowed(B,uid,update):return await update.effective_message.reply_text(closed(),reply_markup=markup(B,uid))
         return await old_partner(update,context)
     B.partner=partner
     import telegram_admin_plus as A
     old_menu=A._admin_menu
     def menu():
         m=old_menu();rows=[list(r) for r in m.inline_keyboard]
-        if not any(any(getattr(b,"callback_data","")=="night2:menu" for b in r) for r in rows):
-            rows.insert(max(0,len(rows)-1),[InlineKeyboardButton("🌙 همکاران شب‌کار",callback_data="night2:menu")])
+        if not any(any(getattr(b,"callback_data","")=="night2:menu" for b in r) for r in rows): rows.insert(max(0,len(rows)-1),[InlineKeyboardButton("🌙 همکاران شب‌کار",callback_data="night2:menu")])
         return InlineKeyboardMarkup(rows)
     A._admin_menu=menu
     async def cb(update,context):
@@ -111,47 +103,30 @@ def install(app,B):
         if not row:return await update.message.reply_text("❌ همکار فعال با این شماره پیدا نشد.")
         B.db.set_setting(PREFIX+str(row["id"]),"1");B.db.conn.execute("INSERT OR REPLACE INTO night_workers VALUES(?,?,?)",(row["id"],1,B.now()));B.db.conn.commit();st["night_mode"]=None
         return await update.message.reply_text(f"✅ {row['name'] or p} همکار شب‌کار شد.",reply_markup=menu())
-
     async def callback_gate(update,context):
-        """Stop service callbacks outside hours before their feature handlers run."""
         q=getattr(update,"callback_query",None)
         if not q:return
         uid=q.from_user.id
         if open_now() or allowed(B,uid):return
         data=str(q.data or "")
-        # The night-shift controls themselves must remain reachable.
         if data.startswith("night2:"):return
-        # UI callbacks are tokenised, so resolve the token to its visible label.
-        if data.startswith("ui2:"):
-            token=data[4:]
-            try:
-                row=B.db.conn.execute("SELECT label FROM ui2_callbacks WHERE token=? AND user_id=? LIMIT 1",(token,str(uid))).fetchone()
-            except Exception:
-                row=None
-            label=str(row["label"]) if row else ""
-            if label in {RESTART,"شروع مجدد","👥 پنل همکاران"}:
-                return
-        try:await q.answer("⏰ ربات در حال حاضر خارج از ساعت کاری است.",show_alert=True)
+        try:await q.answer("⏰ خارج از ساعت کاری است.",show_alert=True)
         except Exception:pass
-        try:await q.message.reply_text(closed(),reply_markup=markup())
+        try:await q.message.reply_text(closed(),reply_markup=markup(B,uid))
         finally:raise ApplicationHandlerStop
-
     async def gate(update,context):
         if open_now() or allowed(B,update.effective_user.id,update):return
         msg=getattr(update,"effective_message",None)
         if not msg:return
         txt=(getattr(msg,"text","") or "").strip()
-        if txt in {"/start","/restart","start","شروع مجدد","🔄 شروع مجدد"}:return
-        await msg.reply_text(closed(),reply_markup=markup());raise ApplicationHandlerStop
-
-    # Keep night2 controls first, then block every other callback before service handlers.
+        if txt in {"/start","/restart","start",RESTART}:return
+        await msg.reply_text(closed(),reply_markup=markup(B,update.effective_user.id));raise ApplicationHandlerStop
     app.add_handler(CallbackQueryHandler(cb,pattern=r"^night2:"),group=-2200)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,text),group=-2199)
     app.add_handler(MessageHandler(filters.ALL,gate),group=-2198)
     app.add_handler(CallbackQueryHandler(callback_gate),group=-2197)
     try:
-        if getattr(app,"job_queue",None):
-            app.job_queue.run_repeating(_broadcast_opening,interval=30,first=5,data=B,name="netyar-opening-broadcast")
+        if getattr(app,"job_queue",None):app.job_queue.run_repeating(_broadcast_opening,interval=30,first=5,data=B,name="netyar-opening-broadcast")
     except Exception:
         import logging;logging.getLogger("netyar.night").exception("opening broadcast scheduler unavailable")
     B._night_shift_v2=True
