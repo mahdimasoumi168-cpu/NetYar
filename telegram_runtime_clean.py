@@ -4,38 +4,23 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, MessageHandler, TypeHandler, filters, ApplicationHandlerStop
 import bot as B
 log=logging.getLogger("netyar.telegram_runtime")
-
 _LANGS={"fa","en","ar"}
 _STATUSES={"foreign","iranian"}
-
 async def _safe_call(fn, update, context):
     try:
         result=fn(update,context)
         if inspect.isawaitable(result): return await result
         return result
-    except ApplicationHandlerStop:
-        raise
-    except Exception:
-        log.exception("Telegram handler failed: %r",fn)
-        return None
-
+    except ApplicationHandlerStop: raise
+    except Exception: log.exception("Telegram handler failed: %r",fn); return None
 async def _diagnostic(update, context):
-    """Async diagnostic handler; PTB awaits handler callbacks."""
     try:
-        if update.message is not None:
-            log.info("Telegram update id=%s user=%s text=%r",update.update_id,getattr(update.effective_user,"id",None),update.message.text)
-        elif update.callback_query is not None:
-            log.info("Telegram callback id=%s user=%s data=%r",update.update_id,getattr(update.effective_user,"id",None),update.callback_query.data)
-    except Exception:
-        log.exception("Telegram diagnostic failed")
-
+        if update.message is not None: log.info("Telegram update id=%s user=%s text=%r",update.update_id,getattr(update.effective_user,"id",None),update.message.text)
+        elif update.callback_query is not None: log.info("Telegram callback id=%s user=%s data=%r",update.update_id,getattr(update.effective_user,"id",None),update.callback_query.data)
+    except Exception: log.exception("Telegram diagnostic failed")
 async def _error_handler(update, context):
-    """Never let an unhandled Telegram exception disappear from Railway logs."""
-    try:
-        log.error("Telegram unhandled error update_id=%s",getattr(update,"update_id",None),exc_info=context.error)
-    except Exception:
-        log.exception("Telegram error handler failed")
-
+    try: log.error("Telegram unhandled error update_id=%s",getattr(update,"update_id",None),exc_info=context.error)
+    except Exception: log.exception("Telegram error handler failed")
 async def _start(update, context):
     user=update.effective_user
     if not update.message or not user:return
@@ -44,13 +29,8 @@ async def _start(update, context):
     except Exception:log.exception("user persistence")
     old=B.S.get(uid,{})
     B.S[uid]={k:old[k] for k in ("partner_id","partner_active","admin","lang","status","phone") if k in old}
-    text=("👋 سلام!\n\n"
-          "به سامانه خدمات آنلاین بات، کمک یار مهاجر خوش آمدید. 🌟\n\n"
-          "لطفاً خدمت موردنظر خود را از منوی زیر انتخاب کنید تا در سریع‌ترین زمان راهنمایی شوید.\n\n"
-          "🚀 بات، کمک یار مهاجر؛ خدماتی برای شما، درآمدی برای همه.\n\n"
-          "لطفاً زبان را انتخاب کنید.")
+    text=("👋 سلام!\n\nبه سامانه خدمات آنلاین بات، کمک یار مهاجر خوش آمدید. 🌟\n\nلطفاً خدمت موردنظر خود را از منوی زیر انتخاب کنید تا در سریع‌ترین زمان راهنمایی شوید.\n\n🚀 بات، کمک یار مهاجر؛ خدماتی برای شما، درآمدی برای همه.\n\nلطفاً زبان را انتخاب کنید.")
     await update.message.reply_text(text,reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🇮🇷 فارسی",callback_data="lang:fa"),InlineKeyboardButton("🇬🇧 English",callback_data="lang:en"),InlineKeyboardButton("🇸🇦 العربية",callback_data="lang:ar")]]))
-
 async def _lang_select(update,context):
     q=update.callback_query
     if not q:return
@@ -60,9 +40,7 @@ async def _lang_select(update,context):
     B.S[uid]={k:old[k] for k in ("partner_id","partner_active","admin","phone") if k in old};B.S[uid]["lang"]=lang
     texts={"fa":"آیا اتباع هستید یا ایرانی؟","en":"Are you a foreign national or Iranian?","ar":"هل أنت أجنبي أم إيراني؟"}
     labels={"fa":("🪪 اتباع هستم","🇮🇷 ایرانی هستم"),"en":("🪪 Foreign national","🇮🇷 Iranian"),"ar":("🪪 أجنبي","🇮🇷 إيراني")}[lang]
-    await q.message.reply_text(texts[lang],reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(labels[0],callback_data="startup:foreign"),InlineKeyboardButton(labels[1],callback_data="startup:iranian")]]))
-    raise ApplicationHandlerStop
-
+    await q.message.reply_text(texts[lang],reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(labels[0],callback_data="startup:foreign"),InlineKeyboardButton(labels[1],callback_data="startup:iranian")]]));raise ApplicationHandlerStop
 async def _status_select(update,context):
     q=update.callback_query
     if not q:return
@@ -70,43 +48,32 @@ async def _status_select(update,context):
     if status not in _STATUSES: raise ApplicationHandlerStop
     st["status"]=status;st["citizenship"]=status;st.pop("mode",None);lang=st.get("lang","fa")
     text={"fa":"منوی خدمات کمک یار مهاجر 👇","en":"Mohajer Helper services 👇","ar":"قائمة خدمات المهاجرين 👇"}[lang] if status=="foreign" else {"fa":"🇮🇷 منوی خدمات ایرانی 👇","en":"🇮🇷 Iranian user menu 👇","ar":"🇮🇷 قائمة المستخدم الإيراني 👇"}[lang]
-    await q.message.reply_text(text,reply_markup=B.main(uid))
-    raise ApplicationHandlerStop
-
+    await q.message.reply_text(text,reply_markup=B.main(uid));raise ApplicationHandlerStop
 async def _absolute_startup_callback(update,context):
-    """Absolute-priority startup router; legacy startup callbacks are normalized here."""
     q=getattr(update,"callback_query",None)
     if not q:return
     data=str(q.data or "").strip()
     if data in {"lang:fa","lang:en","lang:ar","language:fa","language:en","language:ar"}:
-        lang=data.split(":",1)[1]
-        log.info("Telegram startup language callback handled: %r",data)
-        await q.answer()
-        uid=q.from_user.id;old=B.S.get(uid,{})
+        lang=data.split(":",1)[1];log.info("Telegram startup language callback handled: %r",data);await q.answer();uid=q.from_user.id;old=B.S.get(uid,{})
         B.S[uid]={k:old[k] for k in ("partner_id","partner_active","admin","phone") if k in old};B.S[uid]["lang"]=lang
-        texts={"fa":"آیا اتباع هستید یا ایرانی؟","en":"Are you a foreign national or Iranian?","ar":"هل أنت أجنبي أم إيراني؟"}
-        labels={"fa":("🪪 اتباع هستم","🇮🇷 ایرانی هستم"),"en":("🪪 Foreign national","🇮🇷 Iranian"),"ar":("🪪 أجنبي","🇮🇷 إيراني")}[lang]
-        await q.message.reply_text(texts[lang],reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(labels[0],callback_data="startup:foreign"),InlineKeyboardButton(labels[1],callback_data="startup:iranian")]]))
-        raise ApplicationHandlerStop
+        texts={"fa":"آیا اتباع هستید یا ایرانی؟","en":"Are you a foreign national or Iranian?","ar":"هل أنت أجنبي أم إيراني؟"};labels={"fa":("🪪 اتباع هستم","🇮🇷 ایرانی هستم"),"en":("🪪 Foreign national","🇮🇷 Iranian"),"ar":("🪪 أجنبي","🇮🇷 إيراني")}[lang]
+        await q.message.reply_text(texts[lang],reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(labels[0],callback_data="startup:foreign"),InlineKeyboardButton(labels[1],callback_data="startup:iranian")]]));raise ApplicationHandlerStop
     if data in {"foreign","iranian","st:foreign","st:iranian","startup:foreign","startup:iranian","status:foreign","status:iranian"}:
-        status=data.split(":",1)[1] if ":" in data else data
-        log.info("Telegram startup citizenship callback handled: %r -> %s",data,status)
-        await q.answer()
-        uid=q.from_user.id;st=B.S.setdefault(uid,{})
-        st["status"]=status;st["citizenship"]=status;st.pop("mode",None)
-        lang=st.get("lang","fa")
-        if lang not in _LANGS:lang="fa"
+        status=data.split(":",1)[1] if ":" in data else data;log.info("Telegram startup citizenship callback handled: %r -> %s",data,status);await q.answer();uid=q.from_user.id;st=B.S.setdefault(uid,{})
+        st["status"]=status;st["citizenship"]=status;st.pop("mode",None);lang=st.get("lang","fa");lang=lang if lang in _LANGS else "fa"
         text={"fa":"منوی خدمات کمک یار مهاجر 👇","en":"Mohajer Helper services 👇","ar":"قائمة خدمات المهاجرين 👇"}[lang] if status=="foreign" else {"fa":"🇮🇷 منوی خدمات ایرانی 👇","en":"🇮🇷 Iranian user menu 👇","ar":"🇮🇷 قائمة المستخدم الإيراني 👇"}[lang]
-        await q.message.reply_text(text,reply_markup=B.main(uid))
-        raise ApplicationHandlerStop
+        await q.message.reply_text(text,reply_markup=B.main(uid));raise ApplicationHandlerStop
 
 def _install_features(app):
     B.start=_start
     try:
-        import telegram_startup_button_firewall as SBF; SBF.install(app,B)
+        import telegram_startup_button_firewall as SBF;SBF.install(app,B)
     except Exception:log.exception("startup button firewall unavailable")
     import telegram_business_features as F;F.install(app,B)
     import telegram_ui_policy_v2 as UI;UI.install(app,B)
+    try:
+        import telegram_language_consistency as TLC;TLC.install(B);log.info("Telegram language consistency lock active")
+    except Exception:log.exception("Telegram language consistency lock unavailable")
     try:
         import telegram_partner_ui_fix as PUI;PUI.install(app,B)
     except Exception:log.exception("partner UI fix unavailable")
@@ -133,9 +100,6 @@ def _install_features(app):
     try:
         import telegram_admin_entry as AE;AE.install(app,B)
     except Exception:log.exception("admin entry unavailable")
-    # Unified Government flow must be installed before its runtime hardening.
-    # The old bot.gov flow only exposed two document types; govv2 provides
-    # Amayesh, temporary card, passport and residence booklet.
     try:
         import telegram_government_flow_v2 as GV;GV.install(app,B)
     except Exception:log.exception("unified government flow unavailable")
@@ -176,15 +140,13 @@ def _self_check():
     else:log.info("Telegram runtime self-check: government v2 active")
     if not getattr(B,"_inline_ui_v2",False):log.error("Telegram runtime self-check FAILED; inline UI v2 is not active")
     else:log.info("Telegram runtime self-check: inline UI v2 active")
+    if not getattr(B,"_telegram_language_lock",False):log.error("Telegram runtime self-check FAILED; language lock is not active")
+    else:log.info("Telegram runtime self-check: language lock active")
 
 def build():
     token=os.getenv("BOT_TOKEN","").strip() or os.getenv("TELEGRAM_BOT_TOKEN","").strip() or os.getenv("TELEGRAM_TOKEN","").strip()
     if not token:raise RuntimeError("Telegram bot token is missing")
-    app=Application.builder().token(token).build()
-    app.add_error_handler(_error_handler)
-    app.add_handler(TypeHandler(Update,_diagnostic),group=-1000001)
-    _install_features(app)
-    _self_check()
+    app=Application.builder().token(token).build();app.add_error_handler(_error_handler);app.add_handler(TypeHandler(Update,_diagnostic),group=-1000001);_install_features(app);_self_check()
     app.add_handler(CommandHandler(["start","srart"],_start),group=0)
     app.add_handler(CommandHandler("addpartner",lambda u,c:_safe_call(B.addpartner,u,c)),group=0)
     app.add_handler(MessageHandler(filters.Regex(r"^/Admin2025$"),lambda u,c:_safe_call(B.admin_command,u,c)),group=0)
