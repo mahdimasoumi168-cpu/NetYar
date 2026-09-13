@@ -45,7 +45,6 @@ def closed():
 def markup():return ReplyKeyboardMarkup([[RESTART]],resize_keyboard=True,one_time_keyboard=False,is_persistent=True)
 
 def _opening_markup(B,uid=None):
-    # Opening action is attached to the message; the persistent reply keyboard remains only Restart.
     return InlineKeyboardMarkup([[InlineKeyboardButton(RESTART,callback_data="night2:restart")]])
 
 async def _broadcast_opening(context,B):
@@ -63,13 +62,11 @@ async def _broadcast_opening(context,B):
             cid=int(r["external_id"])
             await context.bot.send_message(chat_id=cid,text=text,reply_markup=_opening_markup(B,cid))
             sent+=1
-            # Keep the one fixed ReplyKeyboard available below the chat as well.
             await context.bot.send_message(chat_id=cid,text="دسترسی سریع:",reply_markup=markup())
         except Exception:
             continue
     B.db.set_setting("opening_notice_date",day)
-    try:
-        B.db.set_setting("opening_notice_count",str(sent))
+    try:B.db.set_setting("opening_notice_count",str(sent))
     except Exception:pass
 
 def install(app,B):
@@ -114,6 +111,31 @@ def install(app,B):
         if not row:return await update.message.reply_text("❌ همکار فعال با این شماره پیدا نشد.")
         B.db.set_setting(PREFIX+str(row["id"]),"1");B.db.conn.execute("INSERT OR REPLACE INTO night_workers VALUES(?,?,?)",(row["id"],1,B.now()));B.db.conn.commit();st["night_mode"]=None
         return await update.message.reply_text(f"✅ {row['name'] or p} همکار شب‌کار شد.",reply_markup=menu())
+
+    async def callback_gate(update,context):
+        """Stop service callbacks outside hours before their feature handlers run."""
+        q=getattr(update,"callback_query",None)
+        if not q:return
+        uid=q.from_user.id
+        if open_now() or allowed(B,uid):return
+        data=str(q.data or "")
+        # The night-shift controls themselves must remain reachable.
+        if data.startswith("night2:"):return
+        # UI callbacks are tokenised, so resolve the token to its visible label.
+        if data.startswith("ui2:"):
+            token=data[4:]
+            try:
+                row=B.db.conn.execute("SELECT label FROM ui2_callbacks WHERE token=? AND user_id=? LIMIT 1",(token,str(uid))).fetchone()
+            except Exception:
+                row=None
+            label=str(row["label"]) if row else ""
+            if label in {RESTART,"شروع مجدد","👥 پنل همکاران"}:
+                return
+        try:await q.answer("⏰ ربات در حال حاضر خارج از ساعت کاری است.",show_alert=True)
+        except Exception:pass
+        try:await q.message.reply_text(closed(),reply_markup=markup())
+        finally:raise ApplicationHandlerStop
+
     async def gate(update,context):
         if open_now() or allowed(B,update.effective_user.id,update):return
         msg=getattr(update,"effective_message",None)
@@ -121,10 +143,12 @@ def install(app,B):
         txt=(getattr(msg,"text","") or "").strip()
         if txt in {"/start","/restart","start","شروع مجدد","🔄 شروع مجدد"}:return
         await msg.reply_text(closed(),reply_markup=markup());raise ApplicationHandlerStop
+
+    # Keep night2 controls first, then block every other callback before service handlers.
     app.add_handler(CallbackQueryHandler(cb,pattern=r"^night2:"),group=-2200)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,text),group=-2199)
     app.add_handler(MessageHandler(filters.ALL,gate),group=-2198)
-    # At the opening of every normal workday, notify every registered Telegram user.
+    app.add_handler(CallbackQueryHandler(callback_gate),group=-2197)
     try:
         if getattr(app,"job_queue",None):
             app.job_queue.run_repeating(_broadcast_opening,interval=30,first=5,data=B,name="netyar-opening-broadcast")
