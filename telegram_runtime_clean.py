@@ -84,9 +84,6 @@ def _install_features(app):
         import telegram_sim_service_v2 as SIM;SIM.install(app,B)
     except Exception:log.exception("SIM service legacy layer unavailable")
     try:
-        import telegram_partner_application_gate as PAG;PAG.install(app,B)
-    except Exception:log.exception("partner application gate unavailable")
-    try:
         import telegram_topup_invoice as TI
         TI.install(B)
         if getattr(B,"_topup_invoice_install_app",None):B._topup_invoice_install_app(app)
@@ -121,6 +118,9 @@ def _install_features(app):
     try:
         import telegram_partner_visibility_fix as PV;PV.install(app,B)
     except Exception:log.exception("partner visibility fix unavailable")
+    try:
+        import telegram_partner_application_gate as PAG;PAG.install(app,B)
+    except Exception:log.exception("partner application gate unavailable")
     B.start=_start;B.langcb=_lang_select;B.statuscb=_status_select
     log.info("Telegram feature layers installed")
 
@@ -131,8 +131,6 @@ def build():
     app.add_handler(CommandHandler(["start","srart"],_start),group=0)
     app.add_handler(CommandHandler("addpartner",lambda u,c:_safe_call(B.addpartner,u,c)),group=0)
     app.add_handler(MessageHandler(filters.Regex(r"^/Admin2025$"),lambda u,c:_safe_call(B.admin_command,u,c)),group=0)
-    # Route through the final function stored on B so feature layers cannot leave
-    # the stale status handler behind. There is exactly one lang/status dispatcher.
     app.add_handler(CallbackQueryHandler(lambda u,c:_safe_call(B.langcb,u,c),pattern=r'^lang:'),group=0)
     app.add_handler(CallbackQueryHandler(lambda u,c:_safe_call(B.statuscb,u,c),pattern=r'^st:'),group=0)
     app.add_handler(CallbackQueryHandler(lambda u,c:_safe_call(B.admin_cb,u,c),pattern=r'^(tu|pay|req|admin):'),group=0)
