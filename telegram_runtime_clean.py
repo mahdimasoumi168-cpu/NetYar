@@ -19,11 +19,15 @@ async def _safe_call(fn, update, context):
         log.exception("Telegram handler failed: %r",fn)
         return None
 
-def _diagnostic(update, context):
+async def _diagnostic(update, context):
+    """Async diagnostic handler; PTB awaits handler callbacks."""
     try:
-        if update.message is not None: log.info("Telegram update id=%s user=%s text=%r",update.update_id,getattr(update.effective_user,"id",None),update.message.text)
-        elif update.callback_query is not None: log.info("Telegram callback id=%s user=%s data=%r",update.update_id,getattr(update.effective_user,"id",None),update.callback_query.data)
-    except Exception: log.exception("Telegram diagnostic failed")
+        if update.message is not None:
+            log.info("Telegram update id=%s user=%s text=%r",update.update_id,getattr(update.effective_user,"id",None),update.message.text)
+        elif update.callback_query is not None:
+            log.info("Telegram callback id=%s user=%s data=%r",update.update_id,getattr(update.effective_user,"id",None),update.callback_query.data)
+    except Exception:
+        log.exception("Telegram diagnostic failed")
 
 async def _start(update, context):
     user=update.effective_user
@@ -158,8 +162,6 @@ def _install_features(app):
         import telegram_partner_application_gate as PAG;PAG.install(app,B)
     except Exception:log.exception("partner application gate unavailable")
     B.start=_start;B.langcb=_lang_select;B.statuscb=_status_select
-    # Install absolute-priority startup routing LAST. PTB evaluates lower group
-    # numbers first, so this wins over every legacy handler in this application.
     app.add_handler(TypeHandler(Update,_absolute_startup_callback),group=-1000000)
     log.info("Telegram feature layers installed; absolute startup router installed")
 
