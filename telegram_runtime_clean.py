@@ -75,6 +75,9 @@ def _install_features(app):
     try:
         import telegram_partner_visibility_fix as PV; PV.install(app,B)
     except Exception: log.exception("partner visibility fix unavailable")
+    # telegram_ui_policy_v2 historically wrapped start to send a second
+    # "دسترسی سریع" message. The canonical start flow must stay single-shot.
+    B.start=_start
     log.info("Telegram feature layers installed")
 
 
@@ -90,7 +93,9 @@ def build():
     app.add_handler(CallbackQueryHandler(B.langcb,pattern=r'^lang:'),group=0)
     app.add_handler(CallbackQueryHandler(B.statuscb,pattern=r'^st:'),group=0)
     app.add_handler(CallbackQueryHandler(B.admin_cb,pattern=r'^(tu|pay|req|admin):'),group=0)
-    app.add_handler(MessageHandler(filters.PHOTO|filters.Document.ALL,B.media),group=1)
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,B.router),group=1)
-    log.info("Canonical Telegram handlers installed")
+    # Generic B.media/B.router handlers were running after specialized feature
+    # handlers and could execute the same action a second time. Feature modules
+    # now own their respective message/media states; do not register the legacy
+    # catch-all handlers here.
+    log.info("Canonical Telegram handlers installed without legacy catch-all router")
     return app
