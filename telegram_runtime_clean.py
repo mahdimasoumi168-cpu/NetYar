@@ -38,7 +38,7 @@ async def _lang_select(update,context):
     if lang not in _LANGS:lang="fa"
     old=B.S.get(uid,{})
     B.S[uid]={k:old[k] for k in ("partner_id","partner_active","admin","phone") if k in old};B.S[uid]["lang"]=lang
-    texts={"fa":"آیا اتباع هستید یا ایرانی؟","en":"Are you a foreign national or Iranian?","ar":"هل أنت أجنبي أم إيراني؟"}
+    texts={"fa":"آیا اتباع هستید یا ایرانی؟","en":"Are you a foreign national or Iranian?","ar":"هل أنت أجنبی أم إیرانی؟"}
     labels={"fa":("🪪 اتباع هستم","🇮🇷 ایرانی هستم"),"en":("🪪 Foreign national","🇮🇷 Iranian"),"ar":("🪪 أجنبي","🇮🇷 إيراني")}[lang]
     await q.message.reply_text(texts[lang],reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(labels[0],callback_data="startup:foreign"),InlineKeyboardButton(labels[1],callback_data="startup:iranian")]]));raise ApplicationHandlerStop
 async def _status_select(update,context):
@@ -56,7 +56,7 @@ async def _absolute_startup_callback(update,context):
     if data in {"lang:fa","lang:en","lang:ar","language:fa","language:en","language:ar"}:
         lang=data.split(":",1)[1];log.info("Telegram startup language callback handled: %r",data);await q.answer();uid=q.from_user.id;old=B.S.get(uid,{})
         B.S[uid]={k:old[k] for k in ("partner_id","partner_active","admin","phone") if k in old};B.S[uid]["lang"]=lang
-        texts={"fa":"آیا اتباع هستید یا ایرانی؟","en":"Are you a foreign national or Iranian?","ar":"هل أنت أجنبي أم إيراني؟"};labels={"fa":("🪪 اتباع هستم","🇮🇷 ایرانی هستم"),"en":("🪪 Foreign national","🇮🇷 Iranian"),"ar":("🪪 أجنبي","🇮🇷 إيراني")}[lang]
+        texts={"fa":"آیا اتباع هستید یا ایرانی؟","en":"Are you a foreign national or Iranian؟","ar":"هل أنت أجنبي أم إيراني؟"};labels={"fa":("🪪 اتباع هستم","🇮🇷 ایرانی هستم"),"en":("🪪 Foreign national","🇮🇷 Iranian"),"ar":("🪪 أجنبي","🇮🇷 إيراني")}[lang]
         await q.message.reply_text(texts[lang],reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(labels[0],callback_data="startup:foreign"),InlineKeyboardButton(labels[1],callback_data="startup:iranian")]]));raise ApplicationHandlerStop
     if data in {"foreign","iranian","st:foreign","st:iranian","startup:foreign","startup:iranian","status:foreign","status:iranian"}:
         status=data.split(":",1)[1] if ":" in data else data;log.info("Telegram startup citizenship callback handled: %r -> %s",data,status);await q.answer();uid=q.from_user.id;st=B.S.setdefault(uid,{})
@@ -127,6 +127,13 @@ def _install_features(app):
     try:
         import telegram_partner_application_gate as PAG;PAG.install(app,B)
     except Exception:log.exception("partner application gate unavailable")
+    # IMPORTANT: this must be the final partner-router installation. Several legacy
+    # feature layers above mutate B.partner/B.partner_kb; installing the guard only
+    # from runtime_patches happens too early and can therefore be overwritten.
+    try:
+        import telegram_partner_router_guard as PRG;PRG.install()
+        log.info("Telegram partner router guard installed LAST")
+    except Exception:log.exception("partner router guard final install unavailable")
     B.start=_start;B.langcb=_lang_select;B.statuscb=_status_select
     app.add_handler(TypeHandler(Update,_absolute_startup_callback),group=-1000000)
     log.info("Telegram feature layers installed; absolute startup router installed")
