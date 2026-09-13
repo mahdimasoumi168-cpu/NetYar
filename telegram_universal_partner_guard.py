@@ -2,9 +2,6 @@
 
 Owns the two fragile paths that must never fall through to legacy routers:
 partner phone/password authentication and direct communication with management.
-The guard is deliberately installed at a very high priority and stops propagation
-after consuming a state, preventing generic recovery from emitting misleading
-"temporary error/option unavailable" messages.
 """
 import logging
 import re
@@ -16,26 +13,19 @@ log = logging.getLogger("netyar.telegram.universal_partner_guard")
 def _phone(value):
     s = str(value or "").strip().translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789"))
     s = re.sub(r"[\s\-()]+", "", s)
-    if s.startswith("+98"):
-        s = "0" + s[3:]
-    elif s.startswith("0098"):
-        s = "0" + s[4:]
+    if s.startswith("+98"): s = "0" + s[3:]
+    elif s.startswith("0098"): s = "0" + s[4:]
     return s
 
 
 def _partner(B, phone):
     p = _phone(phone)
-    if not re.fullmatch(r"09\d{9}", p):
-        return None
+    if not re.fullmatch(r"09\d{9}", p): return None
     try:
-        row = B.db.conn.execute(
-            "SELECT * FROM partners WHERE phone=? AND active=1 LIMIT 1", (p,)
-        ).fetchone()
-        if row:
-            return row
+        row = B.db.conn.execute("SELECT * FROM partners WHERE phone=? AND active=1 LIMIT 1", (p,)).fetchone()
+        if row: return row
         for candidate in B.db.conn.execute("SELECT * FROM partners WHERE active=1 ORDER BY id DESC").fetchall():
-            if _phone(candidate["phone"]) == p:
-                return candidate
+            if _phone(candidate["phone"]) == p: return candidate
     except Exception:
         log.exception("partner lookup failed")
     return None
@@ -44,51 +34,32 @@ def _partner(B, phone):
 def _session(B, uid):
     st = B.S.get(uid, {}) or {}
     pid = st.get("partner_id")
-    if not pid or st.get("partner_active") is False or st.get("partner_logged_out"):
-        return None
+    if not pid or st.get("partner_active") is False or st.get("partner_logged_out"): return None
     try:
         return B.db.conn.execute("SELECT * FROM partners WHERE id=? AND active=1 LIMIT 1", (int(pid),)).fetchone()
     except Exception:
         return None
 
 
-async def install(app, B):
-    if getattr(B, "_universal_partner_guard", False):
-        return
+def install(app, B):
+    if getattr(B, "_universal_partner_guard", False): return
 
     async def text_owner(update, context):
         msg = getattr(update, "effective_message", None)
         user = getattr(update, "effective_user", None)
-        if not msg or not user or not msg.text:
-            return
-        uid = user.id
-        st = B.S.setdefault(uid, {})
-        text = msg.text.strip()
-        mode = st.get("mode")
+        if not msg or not user or not msg.text: return
+        uid = user.id; st = B.S.setdefault(uid, {}); text = msg.text.strip(); mode = st.get("mode")
 
-        # Exact partner-panel entry. Recover a valid session first; otherwise
-        # begin one deterministic phone -> password flow.
         if text in {"👥 پنل همکاران", "🔵 👥 پنل همکاران", "پنل همکاران"}:
             p = _session(B, uid)
             if p:
-                st["partner_phone"] = _phone(p["phone"])
-                st["partner_active"] = True
-                st["partner_logged_out"] = False
-                st["mode"] = None
-                await msg.reply_text(
-                    f"👥 پنل همکاران\n👤 {p['name'] or '-'}\n📱 {p['phone']}\n💰 اعتبار قابل استفاده: {int(p['balance'] or 0):,} تومان\n\nگزینه موردنظر را انتخاب کنید:",
-                    reply_markup=B.partner_kb(st.get("lang", "fa")),
-                )
+                st.update(partner_phone=_phone(p["phone"]), partner_active=True, partner_logged_out=False, mode=None)
+                await msg.reply_text(f"👥 پنل همکاران\n👤 {p['name'] or '-'}\n📱 {p['phone']}\n💰 اعتبار قابل استفاده: {int(p['balance'] or 0):,} تومان\n\nگزینه موردنظر را انتخاب کنید:", reply_markup=B.partner_kb(st.get("lang", "fa")))
                 raise ApplicationHandlerStop
-            st.update(mode="p_phone", step="partner_phone", partner_logged_out=False)
-            st.pop("pending_partner_id", None)
-            await msg.reply_text(
-                "👥 ورود به پنل همکاران\n\n📱 شماره موبایل اختصاصی همکار را وارد کنید:",
-                reply_markup=B.cancel_kb(st.get("lang", "fa")),
-            )
+            st.update(mode="p_phone", step="partner_phone", partner_logged_out=False); st.pop("pending_partner_id", None)
+            await msg.reply_text("👥 ورود به پنل همکاران\n\n📱 شماره موبایل اختصاصی همکار را وارد کنید:", reply_markup=B.cancel_kb(st.get("lang", "fa")))
             raise ApplicationHandlerStop
 
-        # Never let a generic text router consume a partner authentication step.
         if mode in {"p_phone", "partner_phone"} or st.get("step") == "partner_phone":
             phone = _phone(text)
             if not re.fullmatch(r"09\d{9}", phone):
@@ -105,72 +76,44 @@ async def install(app, B):
             raise ApplicationHandlerStop
 
         if mode in {"p_pass", "partner_pass"} or st.get("step") == "partner_pass":
-            phone = _phone(st.get("partner_phone") or st.get("phone"))
-            p = _partner(B, phone)
-            ok = False
-            try:
-                ok = bool(p and B.check_password(text, p["password_hash"]))
-            except Exception:
-                log.exception("partner password check failed")
+            phone = _phone(st.get("partner_phone") or st.get("phone")); p = _partner(B, phone); ok = False
+            try: ok = bool(p and B.check_password(text, p["password_hash"]))
+            except Exception: log.exception("partner password check failed")
             if not ok:
                 st.update(mode="p_pass", step="partner_pass")
                 await msg.reply_text("❌ رمز عبور نادرست است.\n\n🔐 رمز عبور همکار را دوباره وارد کنید:", reply_markup=B.cancel_kb(st.get("lang", "fa")))
                 raise ApplicationHandlerStop
-            st.update(partner=p["phone"], partner_phone=phone, partner_id=int(p["id"]), partner_active=True, partner_logged_out=False, mode=None, step="partner")
-            st.pop("pending_partner_id", None)
+            st.update(partner=p["phone"], partner_phone=phone, partner_id=int(p["id"]), partner_active=True, partner_logged_out=False, mode=None, step="partner"); st.pop("pending_partner_id", None)
             try:
-                B.db.set_setting(f"partner_chat_{p['id']}", str(uid))
-                B.db.set_setting(f"partner_chat_{p['phone']}", str(uid))
-            except Exception:
-                log.exception("partner chat mapping failed")
-            await msg.reply_text(
-                f"✅ ورود با موفقیت انجام شد.\n\n👥 پنل همکاران\n👤 {p['name'] or '-'}\n📱 {p['phone']}\n💰 اعتبار قابل استفاده: {int(p['balance'] or 0):,} تومان\n\nگزینه موردنظر را انتخاب کنید:",
-                reply_markup=B.partner_kb(st.get("lang", "fa")),
-            )
+                B.db.set_setting(f"partner_chat_{p['id']}", str(uid)); B.db.set_setting(f"partner_chat_{p['phone']}", str(uid))
+            except Exception: log.exception("partner chat mapping failed")
+            await msg.reply_text(f"✅ ورود با موفقیت انجام شد.\n\n👥 پنل همکاران\n👤 {p['name'] or '-'}\n📱 {p['phone']}\n💰 اعتبار قابل استفاده: {int(p['balance'] or 0):,} تومان\n\nگزینه موردنظر را انتخاب کنید:", reply_markup=B.partner_kb(st.get("lang", "fa")))
             raise ApplicationHandlerStop
 
-        # Direct management communication is one owned state. Recover the
-        # partner from phone if an old layer accidentally dropped partner_id.
         if text == "💬 ارتباط با مدیریت":
-            p = _session(B, uid)
+            p = _session(B, uid) or _partner(B, st.get("partner_phone") or st.get("partner") or st.get("phone"))
             if not p:
-                p = _partner(B, st.get("partner_phone") or st.get("partner") or st.get("phone"))
-                if p:
-                    st.update(partner_id=int(p["id"]), partner_phone=_phone(p["phone"]), partner_active=True, partner_logged_out=False)
-            if not p:
-                await msg.reply_text("⛔ ابتدا وارد پنل همکاران شوید.", reply_markup=B.main(uid))
-                raise ApplicationHandlerStop
-            st.update(mode="final_partner_chat", final_chat_admin=None, final_chat_partner_id=int(p["id"]), partner_active=True)
+                await msg.reply_text("⛔ ابتدا وارد پنل همکاران شوید.", reply_markup=B.main(uid)); raise ApplicationHandlerStop
+            st.update(partner_id=int(p["id"]), partner_phone=_phone(p["phone"]), partner_active=True, partner_logged_out=False, mode="final_partner_chat", final_chat_admin=None, final_chat_partner_id=int(p["id"]))
             try:
-                B.db.set_setting(f"partner_chat_{p['id']}", str(uid))
-                B.db.set_setting(f"partner_chat_{p['phone']}", str(uid))
-            except Exception:
-                log.exception("management chat mapping failed")
+                B.db.set_setting(f"partner_chat_{p['id']}", str(uid)); B.db.set_setting(f"partner_chat_{p['phone']}", str(uid))
+            except Exception: log.exception("management chat mapping failed")
             await msg.reply_text("💬 ارتباط با مدیریت فعال شد.\n\nپیام، عکس، فایل، ویس یا ویدیو را ارسال کنید.\nبرای پایان ارتباط «❌ انصراف» را بزنید.")
             raise ApplicationHandlerStop
 
-        if mode != "final_partner_chat":
-            return
-        p = _session(B, uid)
+        if mode != "final_partner_chat": return
+        p = _session(B, uid) or _partner(B, st.get("partner_phone") or st.get("partner") or st.get("phone"))
         if not p:
-            p = _partner(B, st.get("partner_phone") or st.get("partner") or st.get("phone"))
-        if not p:
-            st["mode"] = None
-            await msg.reply_text("⛔ نشست همکار معتبر نیست. لطفاً دوباره وارد پنل شوید.", reply_markup=B.main(uid))
-            raise ApplicationHandlerStop
+            st["mode"] = None; await msg.reply_text("⛔ نشست همکار معتبر نیست. لطفاً دوباره وارد پنل شوید.", reply_markup=B.main(uid)); raise ApplicationHandlerStop
         admins = list(getattr(B, "ADM", []) or [])
         if not admins:
-            await msg.reply_text("❌ مدیریت در حال حاضر در دسترس نیست؛ نشست شما حفظ شد. لطفاً دوباره تلاش کنید.")
-            raise ApplicationHandlerStop
-        sent = 0
-        header = f"💬 پیام همکار\n👤 {p['name'] or '-'}\n📱 {p['phone']}"
+            await msg.reply_text("❌ مدیریت در حال حاضر در دسترس نیست؛ نشست شما حفظ شد. لطفاً دوباره تلاش کنید."); raise ApplicationHandlerStop
+        sent = 0; header = f"💬 پیام همکار\n👤 {p['name'] or '-'}\n📱 {p['phone']}"
         for aid in admins:
             try:
                 out = await context.bot.send_message(chat_id=int(aid), text=header + "\n\n" + text)
-                B.db.set_setting(f"admin_reply_map_{out.message_id}", str(uid))
-                sent += 1
-            except Exception:
-                log.exception("management text delivery failed")
+                B.db.set_setting(f"admin_reply_map_{out.message_id}", str(uid)); sent += 1
+            except Exception: log.exception("management text delivery failed")
         await msg.reply_text("✅ پیام برای مدیریت ارسال شد." if sent else "❌ ارسال پیام به مدیریت انجام نشد؛ نشست شما حفظ شد.")
         raise ApplicationHandlerStop
 
