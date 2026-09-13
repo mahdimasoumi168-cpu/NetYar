@@ -1,13 +1,14 @@
 """Deterministic Telegram partner-panel entry owner.
 
-This is loaded last because the production bot contains legacy layers that can
-replace B.partner, B.partner_kb, and B.cancel_kb.  Both inline-callback entry
-and legacy reply/inline keyboards must therefore converge on the same handler.
+This module is installed LAST because the production bot contains legacy layers
+that can replace B.partner, B.partner_kb, and B.cancel_kb. Both inline-callback
+entry and legacy reply/inline keyboards therefore converge on one safe handler.
 """
 import logging
 
 log = logging.getLogger("netyar.telegram.partner_router_guard")
 PARTNER = "👥 پنل همکاران"
+ADMIN_PANEL = "🛠 پنل مدیریت بات"
 CANCEL = "❌ انصراف"
 
 
@@ -19,14 +20,29 @@ def _cancel_markup(B, UI, uid):
         return None
 
 
+def _is_admin(B, uid):
+    try:
+        return bool(B.admin(uid))
+    except Exception:
+        log.exception("admin authorization check failed uid=%s", uid)
+        return False
+
+
 def _partner_markup(B, UI, uid):
     rows = [
         ["➕ شارژ حساب", "🏛 حل مشکل سامانه دولت من"],
         ["🔎 پیگیری کد", "📋 سوابق"],
         ["💰 موجودی", "🎫 تیکت به مدیریت"],
+    ]
+    # Admin access is deliberately decided at render time so a normal partner
+    # never receives a management button and an admin does not lose it after
+    # entering the partner panel.
+    if _is_admin(B, uid):
+        rows.append([ADMIN_PANEL])
+    rows.extend([
         ["🚪 خروج از پنل"],
         [CANCEL],
-    ]
+    ])
     try:
         return UI.inline(rows, B, uid)
     except Exception:
@@ -98,7 +114,7 @@ async def _open_partner_from_callback(update, context, B, UI):
 
 
 async def _open_partner_from_message(update, context, B, UI):
-    """Hard-lock B.partner so legacy ik/reply keyboards cannot call a broken wrapper."""
+    """Hard-lock B.partner so legacy reply keyboards cannot call a broken wrapper."""
     uid = int(update.effective_user.id)
     st = B.S.setdefault(uid, {})
     message = update.effective_message or update.message
@@ -153,6 +169,8 @@ def install():
     original_dispatch = UI._dispatch
 
     async def guarded_dispatch(update, context, bot_obj, label):
+        # Admin panel is already implemented by the canonical UI dispatcher.
+        # Keep that route intact; only the partner-entry label is hard-locked here.
         if str(label or "").strip() == PARTNER:
             return await _open_partner_from_callback(update, context, bot_obj, UI)
         return await original_dispatch(update, context, bot_obj, label)
@@ -173,7 +191,7 @@ def install():
         return _cancel_markup(B, UI, uid)
 
     # These assignments are intentionally last: they prevent older layers from
-    # replacing the entry handler after this guard has been installed.
+    # replacing the partner entry or partner keyboard after this guard is installed.
     B.partner = lambda update, context: _open_partner_from_message(update, context, B, UI)
     B.partner_kb = safe_partner_kb
     B.cancel_kb = safe_cancel_kb
@@ -184,4 +202,4 @@ def install():
     except Exception:
         log.exception("could not lock legacy partner keyboard")
 
-    log.info("Telegram partner router guard v5 installed")
+    log.info("Telegram partner router guard v6 installed")
