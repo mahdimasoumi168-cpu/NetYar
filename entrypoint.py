@@ -10,9 +10,9 @@ bale_bootstrap.install(server)
 
 @server.api.on_event("startup")
 async def _install_final_telegram_patches():
-    # Final Telegram reliability stack. High-priority guards are loaded first
-    # so logout/login and communication buttons cannot be swallowed by legacy routers.
-    for module_name in (
+    """Install compatibility layers, then restore one canonical Telegram UI."""
+    log = logging.getLogger("netyar.entrypoint")
+    modules = (
         "telegram_partner_logout_fix",
         "telegram_language_consistency",
         "telegram_cancel_policy",
@@ -26,21 +26,43 @@ async def _install_final_telegram_patches():
         "telegram_final_admin_menu_fix",
         "telegram_final_ops_overlay",
         "telegram_button_stability_final",
-    ):
+    )
+
+    for module_name in modules:
         try:
-            module=__import__(module_name)
+            module = __import__(module_name)
             import bot as B
-            if module_name in {"telegram_partner_logout_fix","telegram_language_consistency","telegram_cancel_policy"}:
+            if module_name in {
+                "telegram_partner_logout_fix",
+                "telegram_language_consistency",
+                "telegram_cancel_policy",
+            }:
                 module.install(B)
             else:
-                module.install(server.telegram_app,B)
-            logging.getLogger("netyar.entrypoint").info("%s installed",module_name)
+                module.install(server.telegram_app, B)
+            log.info("telegram layer installed: %s", module_name)
         except Exception:
-            logging.getLogger("netyar.entrypoint").exception("%s unavailable",module_name)
+            # A legacy/optional layer must not bring down the complete bot.
+            log.exception("telegram layer unavailable: %s", module_name)
+
+    # One authoritative UI/router is installed last. This prevents older
+    # overlays from replacing B.main/B.partner_kb/B.kb after startup.
+    try:
+        import telegram_ui_policy_v2 as UI
+        import bot as B
+        UI.install(server.telegram_app, B)
+        log.info("telegram canonical UI installed last")
+    except Exception:
+        log.exception("telegram canonical UI unavailable")
 
 
 def main():
-    uvicorn.run(server.api,host="0.0.0.0",port=int(os.getenv("PORT","8000")),lifespan="on")
+    uvicorn.run(
+        server.api,
+        host="0.0.0.0",
+        port=int(os.getenv("PORT", "8000")),
+        lifespan="on",
+    )
 
 
 if __name__ == "__main__":
