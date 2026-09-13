@@ -5,6 +5,9 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler, Mess
 import bot as B
 log=logging.getLogger("netyar.telegram_runtime")
 
+_LANGS={"fa","en","ar"}
+_STATUSES={"foreign","iranian"}
+
 async def _safe_call(fn, update, context):
     try:
         result=fn(update,context)
@@ -34,30 +37,68 @@ async def _start(update, context):
           "به سامانه خدمات آنلاین بات، کمک یار مهاجر خوش آمدید. 🌟\n\n"
           "لطفاً خدمت موردنظر خود را از منوی زیر انتخاب کنید تا در سریع‌ترین زمان راهنمایی شوید.\n\n"
           "🚀 بات، کمک یار مهاجر؛ خدماتی برای شما، درآمدی برای همه.\n\n"
-          "لطفاً زبان را انتخاب کنید:")
+          "لطفاً زبان را انتخاب کنید.")
     await update.message.reply_text(text,reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🇮🇷 فارسی",callback_data="lang:fa"),InlineKeyboardButton("🇬🇧 English",callback_data="lang:en"),InlineKeyboardButton("🇸🇦 العربية",callback_data="lang:ar")]]))
 
 async def _lang_select(update,context):
     q=update.callback_query
     if not q:return
     await q.answer();uid=q.from_user.id;lang=str(q.data or "").split(":",1)[-1]
-    if lang not in {"fa","en","ar"}:lang="fa"
+    if lang not in _LANGS:lang="fa"
     old=B.S.get(uid,{})
     B.S[uid]={k:old[k] for k in ("partner_id","partner_active","admin","phone") if k in old};B.S[uid]["lang"]=lang
     texts={"fa":"آیا اتباع هستید یا ایرانی؟","en":"Are you a foreign national or Iranian?","ar":"هل أنت أجنبي أم إيراني؟"}
     labels={"fa":("🪪 اتباع هستم","🇮🇷 ایرانی هستم"),"en":("🪪 Foreign national","🇮🇷 Iranian"),"ar":("🪪 أجنبي","🇮🇷 إيراني")}[lang]
-    await q.message.reply_text(texts[lang],reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(labels[0],callback_data="st:foreign"),InlineKeyboardButton(labels[1],callback_data="st:iranian")]]))
+    await q.message.reply_text(texts[lang],reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(labels[0],callback_data="startup:foreign"),InlineKeyboardButton(labels[1],callback_data="startup:iranian")]]))
     raise ApplicationHandlerStop
 
 async def _status_select(update,context):
     q=update.callback_query
     if not q:return
     await q.answer();uid=q.from_user.id;status=str(q.data or "").split(":",1)[-1];st=B.S.setdefault(uid,{})
-    if status not in {"foreign","iranian"}: raise ApplicationHandlerStop
-    st["status"]=status;st.pop("mode",None);lang=st.get("lang","fa")
+    if status not in _STATUSES: raise ApplicationHandlerStop
+    st["status"]=status;st["citizenship"]=status;st.pop("mode",None);lang=st.get("lang","fa")
     text={"fa":"منوی خدمات کمک یار مهاجر 👇","en":"Mohajer Helper services 👇","ar":"قائمة خدمات المهاجرين 👇"}[lang] if status=="foreign" else {"fa":"🇮🇷 منوی خدمات ایرانی 👇","en":"🇮🇷 Iranian user menu 👇","ar":"🇮🇷 قائمة المستخدم الإيراني 👇"}[lang]
     await q.message.reply_text(text,reply_markup=B.main(uid))
     raise ApplicationHandlerStop
+
+async def _absolute_startup_callback(update,context):
+    """Last-resort, absolute-priority startup router.
+
+    This deliberately lives in the runtime instead of a feature module so no
+    later-installed legacy CallbackQueryHandler can consume startup callbacks.
+    It supports both the new startup:* namespace and legacy lang:/st: buttons.
+    """
+    q=getattr(update,"callback_query",None)
+    if not q:return
+    data=str(q.data or "").strip()
+    if data in {"lang:fa","lang:en","lang:ar","language:fa","language:en","language:ar"}:
+        lang=data.split(":",1)[1]
+        log.info("Telegram startup language callback handled: %r",data)
+        await q.answer()
+        uid=q.from_user.id
+        old=B.S.get(uid,{})
+        B.S[uid]={k:old[k] for k in ("partner_id","partner_active","admin","phone") if k in old}
+        B.S[uid]["lang"]=lang
+        texts={"fa":"آیا اتباع هستید یا ایرانی؟","en":"Are you a foreign national or Iranian?","ar":"هل أنت أجنبي أم إيراني؟"}
+        labels={"fa":("🪪 اتباع هستم","🇮🇷 ایرانی هستم"),"en":("🪪 Foreign national","🇮🇷 Iranian"),"ar":("🪪 أجنبي","🇮🇷 إيراني")}[lang]
+        await q.message.reply_text(texts[lang],reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(labels[0],callback_data="startup:foreign"),InlineKeyboardButton(labels[1],callback_data="startup:iranian")]]))
+        raise ApplicationHandlerStop
+    if data in {"foreign","iranian","st:foreign","st:iranian","startup:foreign","startup:iranian","status:foreign","status:iranian"}:
+        status=data.split(":",1)[1] if ":" in data else data
+        log.info("Telegram startup citizenship callback handled: %r -> %s",data,status)
+        await q.answer()
+        uid=q.from_user.id
+        st=B.S.setdefault(uid,{})
+        st["status"]=status;st["citizenship"]=status;st.pop("mode",None)
+        lang=st.get("lang","fa")
+        if lang not in _LANGS:lang="fa"
+        if status=="foreign":
+            text={"fa":"منوی خدمات کمک یار مهاجر 👇","en":"Mohajer Helper services 👇","ar":"قائمة خدمات المهاجرين 👇"}[lang]
+        else:
+            text={"fa":"🇮🇷 منوی خدمات ایرانی 👇","en":"🇮🇷 Iranian user menu 👇","ar":"🇮🇷 قائمة المستخدم الإيراني 👇"}[lang]
+        await q.message.reply_text(text,reply_markup=B.main(uid))
+        raise ApplicationHandlerStop
 
 def _install_features(app):
     B.start=_start
@@ -117,12 +158,15 @@ def _install_features(app):
         import telegram_partner_application_gate as PAG;PAG.install(app,B)
     except Exception:log.exception("partner application gate unavailable")
     B.start=_start;B.langcb=_lang_select;B.statuscb=_status_select
-    log.info("Telegram feature layers installed")
+    # Install absolute-priority startup routing LAST. PTB evaluates lower group
+    # numbers first, so this wins over every legacy handler in this application.
+    app.add_handler(TypeHandler(Update,_absolute_startup_callback),group=-1000000)
+    log.info("Telegram feature layers installed; absolute startup router installed")
 
 def build():
     token=os.getenv("BOT_TOKEN","").strip() or os.getenv("TELEGRAM_BOT_TOKEN","").strip() or os.getenv("TELEGRAM_TOKEN","").strip()
     if not token:raise RuntimeError("Telegram bot token is missing")
-    app=Application.builder().token(token).build();app.add_handler(TypeHandler(Update,_diagnostic),group=-1000);_install_features(app)
+    app=Application.builder().token(token).build();app.add_handler(TypeHandler(Update,_diagnostic),group=-1000001);_install_features(app)
     app.add_handler(CommandHandler(["start","srart"],_start),group=0)
     app.add_handler(CommandHandler("addpartner",lambda u,c:_safe_call(B.addpartner,u,c)),group=0)
     app.add_handler(MessageHandler(filters.Regex(r"^/Admin2025$"),lambda u,c:_safe_call(B.admin_command,u,c)),group=0)
