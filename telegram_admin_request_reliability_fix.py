@@ -1,6 +1,7 @@
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import CallbackQueryHandler, MessageHandler, ApplicationHandlerStop, filters
 
+
 def install(app,B):
     if getattr(B,'_admin_request_reliability_fix',False): return True
     try:
@@ -13,8 +14,17 @@ def install(app,B):
             return InlineKeyboardMarkup(rows)
         A._admin_menu=menu; B.amenu=menu
     except Exception: pass
+
     def kb(rid):
-        return InlineKeyboardMarkup([[InlineKeyboardButton('🔎 مشاهده اطلاعات کامل',callback_data=f'req:v:{rid}')],[InlineKeyboardButton('✅ تأیید خدمت',callback_data=f'req:a:{rid}'),InlineKeyboardButton('❌ رد خدمت',callback_data=f'req:x:{rid}')],[InlineKeyboardButton('🔐 درخواست کد از همکار',callback_data=f'req:p:{rid}')],[InlineKeyboardButton('🧩 درخواست کپچا',callback_data=f'req:captcha:{rid}'),InlineKeyboardButton('📝 درخواست نوشتار چکاپ',callback_data=f'req:checkup:{rid}')],[InlineKeyboardButton('💬 ارتباط با همکار',callback_data=f'req:chat:{rid}'),InlineKeyboardButton('📌 انتقال به آخر چت',callback_data=f'req:bottom:{rid}')],[InlineKeyboardButton('✉️ پاسخ',callback_data=f'req:r:{rid}')]])
+        return InlineKeyboardMarkup([
+            [InlineKeyboardButton('🔎 مشاهده اطلاعات کامل',callback_data=f'req:v:{rid}')],
+            [InlineKeyboardButton('✅ تأیید خدمت',callback_data=f'req:a:{rid}'),InlineKeyboardButton('❌ رد خدمت',callback_data=f'req:x:{rid}')],
+            [InlineKeyboardButton('🔐 درخواست کد از همکار',callback_data=f'req:p:{rid}')],
+            [InlineKeyboardButton('🧩 درخواست کپچا',callback_data=f'req:captcha:{rid}'),InlineKeyboardButton('📝 درخواست نوشتار چکاپ',callback_data=f'req:checkup:{rid}')],
+            [InlineKeyboardButton('💬 ارتباط با همکار',callback_data=f'req:chat:{rid}'),InlineKeyboardButton('📌 انتقال به آخر چت',callback_data=f'req:bottom:{rid}')],
+            [InlineKeyboardButton('✉️ پاسخ',callback_data=f'req:r:{rid}')]
+        ])
+
     def request_target(r):
         target=None
         try:
@@ -27,10 +37,35 @@ def install(app,B):
         if not target:
             try:
                 p=B.db.conn.execute("SELECT phone FROM partners WHERE id=? LIMIT 1",(r['user_id'],)).fetchone()
-                if p:
-                    target=int(B.db.setting(f"partner_chat_{p['phone']}",'') or 0) or None
+                if p: target=int(B.db.setting(f"partner_chat_{p['phone']}",'') or 0) or None
+            except Exception: pass
+        if not target:
+            try:
+                pid=B.db.setting(f"request_partner_{r['id']}",'')
+                if str(pid).isdigit():
+                    p=B.db.conn.execute("SELECT phone FROM partners WHERE id=? LIMIT 1",(int(pid),)).fetchone()
+                    if p: target=int(B.db.setting(f"partner_chat_{p['phone']}",'') or 0) or None
             except Exception: pass
         return target
+
+    def details(r):
+        vals=[]
+        for key,label in (
+            ('tracking_code','🎫 کد پیگیری'),('service_key','🛠 خدمت'),('status','📌 وضعیت'),
+            ('amount','💰 مبلغ'),('payment_status','💳 وضعیت پرداخت'),('payment_method','روش پرداخت'),
+            ('created_at','🕐 تاریخ ثبت'),('updated_at','🕐 آخرین تغییر'),('user_id','👤 شناسه کاربر')
+        ):
+            try:
+                value=r[key]
+            except Exception:
+                value='-'
+            if value is None or value=='': value='-'
+            if key=='amount':
+                try: value=f"{int(value):,} تومان"
+                except Exception: pass
+            vals.append(f"{label}: {value}")
+        return "🔎 اطلاعات کامل درخواست\n\n"+"\n".join(vals)
+
     async def cb(update,context):
         q=update.callback_query
         if not q or not B.admin(q.from_user.id): return
@@ -43,40 +78,71 @@ def install(app,B):
         if not d.startswith('req:'): return
         parts=d.split(':')
         if len(parts)<3:return
-        try: rid=int(parts[2])
-        except Exception:return
+        try: rid=int(parts[-1])
+        except Exception:
+            await q.answer('درخواست نامعتبر است',show_alert=True); raise ApplicationHandlerStop
         r=B.db.conn.execute('SELECT * FROM requests WHERE id=?',(rid,)).fetchone()
         if not r:
             await q.answer('درخواست پیدا نشد',show_alert=True); raise ApplicationHandlerStop
         action=parts[1]
+        target=request_target(r)
+
+        if action=='v':
+            await q.answer('اطلاعات آماده شد')
+            await q.message.reply_text(details(r),reply_markup=kb(rid))
+            raise ApplicationHandlerStop
+
         if action=='r':
-            target=request_target(r)
             if not target:
                 await q.answer('گیرنده این درخواست پیدا نشد',show_alert=True); raise ApplicationHandlerStop
             B.S.setdefault(q.from_user.id,{}).update(mode='admin_reply_request',reply_target=target,reply_request_id=rid)
-            await q.answer('آماده پاسخ'); await q.message.reply_text(f"✉️ پاسخ به درخواست {r['tracking_code']}\n\nمتن پاسخ را ارسال کنید.")
+            await q.answer('آماده پاسخ'); await q.message.reply_text(f"✉️ پاسخ به درخواست {r['tracking_code']}\n\nمتن پاسخ را ارسال کنید.",reply_markup=kb(rid))
             raise ApplicationHandlerStop
+
         if action in {'a','x'}:
             status='completed' if action=='a' else 'rejected'
             B.db.conn.execute("UPDATE requests SET status=?,updated_at=? WHERE id=?",(status,B.now(),rid)); B.db.conn.commit()
-            target=request_target(r)
             text='✅ درخواست شما تأیید و انجام شد.' if action=='a' else '❌ درخواست شما توسط مدیریت رد شد.'
             if target:
-                try: await context.bot.send_message(chat_id=target,text=text)
+                try: await context.bot.send_message(chat_id=target,text=text,reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('⬅️ بازگشت به پنل همکاران',callback_data='chat:back')]]))
                 except Exception: pass
             await q.answer('درخواست تأیید شد' if action=='a' else 'درخواست رد شد')
             await q.message.reply_text(('✅ درخواست انجام شد.' if action=='a' else '❌ درخواست رد شد.'),reply_markup=kb(rid))
             raise ApplicationHandlerStop
+
+        if action in {'p','captcha','checkup'}:
+            if not target:
+                await q.answer('همکار این درخواست مشخص نیست',show_alert=True); raise ApplicationHandlerStop
+            messages={
+                'p':'🔐 مدیریت از شما کد موردنیاز را درخواست کرده است. لطفاً کد را ارسال کنید.',
+                'captcha':'🧩 مدیریت از شما خواسته است کپچا را ارسال کنید. لطفاً تصویر کپچا را ارسال کنید.',
+                'checkup':'📝 مدیریت از شما خواسته است نوشتار چکاپ را ارسال کنید. لطفاً متن/تصویر موردنیاز را ارسال کنید.',
+            }
+            await context.bot.send_message(chat_id=target,text=messages[action],reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('✉️ پاسخ دادن',callback_data='chat:reply')],[InlineKeyboardButton('⬅️ بازگشت به پنل همکاران',callback_data='chat:back')]]))
+            await q.answer('درخواست برای همکار ارسال شد')
+            await q.message.reply_text(f"✅ {messages[action]}\n\nدرخواست برای همکار ارسال شد.",reply_markup=kb(rid))
+            raise ApplicationHandlerStop
+
+        if action=='bottom':
+            await q.answer('به آخر چت منتقل شد')
+            await q.message.reply_text(f"📌 درخواست {r['tracking_code']} در انتهای چت قرار گرفت.",reply_markup=kb(rid))
+            raise ApplicationHandlerStop
+
+        await q.answer('این گزینه پشتیبانی شد اما عملیات آن تعریف نشده است.',show_alert=True)
+        raise ApplicationHandlerStop
+
     async def text(update,context):
         m=update.effective_message
         if not m or not B.admin(update.effective_user.id) or not m.text:return
         st=B.S.setdefault(update.effective_user.id,{})
         if st.get('mode')!='admin_reply_request':return
         try:
-            await context.bot.send_message(chat_id=int(st['reply_target']),text='👔 پاسخ مدیریت\n\n'+m.text.strip())
-            await m.reply_text('✅ پاسخ برای درخواست ارسال شد.',reply_markup=B.amenu())
-        except Exception: await m.reply_text('❌ ارسال پاسخ انجام نشد.',reply_markup=B.amenu())
-        st['mode']=None; raise ApplicationHandlerStop
+            await context.bot.send_message(chat_id=int(st['reply_target']),text='👔 پاسخ مدیریت\n\n'+m.text.strip(),reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('✉️ پاسخ دادن',callback_data='chat:reply')],[InlineKeyboardButton('⬅️ بازگشت به پنل همکاران',callback_data='chat:back')]]))
+            await m.reply_text('✅ پاسخ برای درخواست ارسال شد.',reply_markup=kb(st.get('reply_request_id')) if st.get('reply_request_id') else B.amenu())
+        except Exception:
+            await m.reply_text('❌ ارسال پاسخ انجام نشد. لطفاً دوباره همین گزینه را بزنید.',reply_markup=B.amenu())
+        st['mode']=None; st.pop('reply_target',None); st.pop('reply_request_id',None); raise ApplicationHandlerStop
+
     async def normalize(update,context):
         q=update.callback_query
         if not q or not B.admin(q.from_user.id) or not str(q.data or '').startswith('req:'):return
@@ -84,6 +150,7 @@ def install(app,B):
         except Exception:return
         try: await q.message.edit_reply_markup(reply_markup=kb(rid))
         except Exception: pass
+
     app.add_handler(CallbackQueryHandler(cb,pattern=r'^(adm:partnerchat|req:)'),group=-50000)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,text),group=-49999)
     app.add_handler(CallbackQueryHandler(normalize,pattern=r'^req:'),group=-49998)
