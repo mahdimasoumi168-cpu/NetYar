@@ -82,6 +82,14 @@ async def _install_final_telegram_patches():
     except Exception:
         log.exception("telegram admin request reliability fix unavailable")
 
+    try:
+        import telegram_partner_chat_reliability as PCR
+        import bot as B
+        PCR.install(server.telegram_app, B)
+        log.info("telegram partner chat reliability installed last")
+    except Exception:
+        log.exception("telegram partner chat reliability unavailable")
+
 
 def main():
     uvicorn.run(
