@@ -5,6 +5,12 @@ from telegram.ext import ApplicationHandlerStop, MessageHandler, filters
 
 log = logging.getLogger("netyar.telegram.ticket_reliability")
 
+_CONTROL_MESSAGES = {
+    "❌ انصراف", "انصراف", "لغو", "Cancel", "cancel", "إلغاء",
+    "🔄 شروع مجدد", "شروع مجدد", "/start", "start",
+    "🔄 شروع مجدد با به‌روزرسانی",
+}
+
 
 def _button(pid):
     return InlineKeyboardMarkup([[InlineKeyboardButton("↩️ پاسخ پیام", callback_data=f"ticket:reply:{pid}")]])
@@ -58,6 +64,14 @@ async def _media_or_text(update, context, B):
         return
 
     caption = (message.caption or message.text or "").strip()
+
+    # Navigation/control buttons are never ticket content. Return normally so
+    # the canonical restart/cancel handlers can process them afterwards.
+    # Thus these controls are never counted, forwarded, or stored as messages.
+    if not any((message.photo, message.video, message.voice, message.audio, message.document, message.animation)):
+        if caption in _CONTROL_MESSAGES:
+            return
+
     try:
         if mode == "partner_message":
             pid = st.get("partner_id")
@@ -85,11 +99,7 @@ async def _media_or_text(update, context, B):
             text = f"👔 پیام مدیریت\n\n{caption or 'پیام بدون متن'}"
             await _send(context.bot, chat_id, message, text, _button(pid))
             B.db.set_setting(f"ticket_admin_{pid}", str(user.id))
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text="🔄 ربات به‌روزرسانی شد\n\nبرای دریافت منوی به‌روز و شروع دوباره، دکمه زیر را بزنید.",
-                reply_markup=_update_button(),
-            )
+            await context.bot.send_message(chat_id=chat_id, text="🔄 ربات به‌روزرسانی شد\n\nبرای دریافت منوی به‌روز و شروع دوباره، دکمه زیر را بزنید.", reply_markup=_update_button())
             await message.reply_text("✅ پیام برای همکار ارسال شد.\nمی‌توانید پیام بعدی را هم بفرستید.")
             raise ApplicationHandlerStop
 
@@ -116,10 +126,4 @@ async def _media_or_text(update, context, B):
 
 
 def install(app, B):
-    app.add_handler(
-        MessageHandler(
-            filters.ALL & ~filters.COMMAND,
-            lambda u, c: _media_or_text(u, c, B),
-        ),
-        group=-92,
-    )
+    app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, lambda u, c: _media_or_text(u, c, B)), group=-92)
