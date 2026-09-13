@@ -1,7 +1,7 @@
 """Deterministic Telegram entry routing for partner/admin panels.
 
-Installed last in the Telegram runtime so the two main panel buttons cannot
-fall through legacy callback layers and produce the generic UI error.
+This guard is intentionally small: it only owns the two panel-entry labels.
+All other callbacks remain with the canonical Telegram router.
 """
 import logging
 
@@ -11,19 +11,11 @@ ADMIN_PANEL = "🛠 پنل مدیریت بات"
 CANCEL = "❌ انصراف"
 
 
-def _cancel_markup(B, UI, uid):
-    try:
-        return UI.inline([[CANCEL]], B, uid)
-    except Exception:
-        log.exception("cancel markup failed")
-        return None
-
-
 def _is_admin(B, uid):
     try:
         return bool(B.admin(uid))
     except Exception:
-        log.exception("admin authorization check failed uid=%s", uid)
+        log.exception("admin authorization check failed")
         return False
 
 
@@ -43,11 +35,15 @@ def _partner_markup(B, UI, uid):
         return None
 
 
-async def _login_prompt_message(message, B, UI, uid, st):
+async def _login(message, B, UI, uid, st):
     st["mode"] = "p_phone"
     st.pop("phone", None)
     st.pop("partner_active", None)
-    markup = _cancel_markup(B, UI, uid)
+    markup = None
+    try:
+        markup = UI.inline([[CANCEL]], B, uid)
+    except Exception:
+        pass
     kwargs = {"reply_markup": markup} if markup is not None else {}
     return await message.reply_text(
         "👥 ورود به پنل همکاران\n\n📱 لطفاً شماره موبایل اختصاصی همکار را وارد کنید:",
@@ -56,82 +52,11 @@ async def _login_prompt_message(message, B, UI, uid, st):
 
 
 async def _open_partner(update, context, B, UI):
-    q = getattr(update, "callback_query", None)
-    if q is None or q.message is None:
-        return None
+    q = update.callback_query
+    if not q or not q.message:
+        return
     uid = int(q.from_user.id)
     st = B.S.setdefault(uid, {})
-    try:
-        if st.get("partner_logged_out"):
-            st.pop("partner_id", None)
-            st.pop("partner_active", None)
-        pid = st.get("partner_id")
-        if pid and st.get("partner_active", True):
-            try:
-                p = B.db.conn.execute(
-                    "SELECT * FROM partners WHERE id=? AND active=1 LIMIT 1", (pid,)
-                ).fetchone()
-            except Exception:
-                log.exception("partner lookup failed")
-                p = None
-            if p:
-                st["partner_active"] = True
-                st["partner_logged_out"] = False
-                st["mode"] = None
-                try:
-                    name = p["name"] or "-"
-                    phone = p["phone"] or "-"
-                    balance = int(p["balance"] or 0)
-                except Exception:
-                    name = phone = "-"
-                    balance = 0
-                markup = _partner_markup(B, UI, uid)
-                kwargs = {"reply_markup": markup} if markup is not None else {}
-                return await q.message.reply_text(
-                    f"👥 پنل همکاران\n👤 {name}\n📱 {phone}\n💰 اعتبار: {balance:,} تومان",
-                    **kwargs,
-                )
-        return await _login_prompt_message(q.message, B, UI, uid, st)
-    except Exception:
-        log.exception("partner entry failed; forcing simple login prompt")
-        # Keep the entry point usable even if a legacy DB/keyboard helper fails.
-        st["mode"] = "p_phone"
-        try:
-            return await q.message.reply_text(
-                "👥 ورود به پنل همکاران\n\n📱 لطفاً شماره موبایل اختصاصی همکار را وارد کنید:"
-            )
-        except Exception:
-            return None
-
-
-async def _open_admin(update, context, B, UI):
-    q = getattr(update, "callback_query", None)
-    if q is None or q.message is None:
-        return None
-    uid = int(q.from_user.id)
-    if not _is_admin(B, uid):
-        return await q.message.reply_text("❌ دسترسی مدیریت ندارید.")
-    try:
-        import telegram_admin_plus as A
-        markup = A._admin_menu()
-        return await q.message.reply_text(
-            "🛠 پنل مدیریت کامل\n\nاز منوی زیر بخش موردنظر را انتخاب کنید:",
-            reply_markup=markup,
-        )
-    except Exception:
-        log.exception("admin entry failed; using minimal safe menu")
-        try:
-            return await q.message.reply_text("🛠 پنل مدیریت کامل\n\nپنل مدیریت آماده است.")
-        except Exception:
-            return None
-
-
-async def _open_partner_from_message(update, context, B, UI):
-    uid = int(update.effective_user.id)
-    st = B.S.setdefault(uid, {})
-    message = update.effective_message or update.message
-    if message is None:
-        return None
     try:
         if st.get("partner_logged_out"):
             st.pop("partner_id", None)
@@ -150,63 +75,94 @@ async def _open_partner_from_message(update, context, B, UI):
                     phone = row["phone"] or "-"
                     balance = int(row["balance"] or 0)
                 except Exception:
-                    name = phone = "-"
-                    balance = 0
+                    name, phone, balance = "-", "-", 0
                 markup = _partner_markup(B, UI, uid)
                 kwargs = {"reply_markup": markup} if markup is not None else {}
-                return await message.reply_text(
+                return await q.message.reply_text(
                     f"👥 پنل همکاران\n👤 {name}\n📱 {phone}\n💰 اعتبار: {balance:,} تومان",
                     **kwargs,
                 )
-        return await _login_prompt_message(message, B, UI, uid, st)
+        return await _login(q.message, B, UI, uid, st)
     except Exception:
-        log.exception("partner message entry failed")
+        log.exception("partner entry failed")
         st["mode"] = "p_phone"
-        return await message.reply_text(
+        return await q.message.reply_text(
             "👥 ورود به پنل همکاران\n\n📱 لطفاً شماره موبایل اختصاصی همکار را وارد کنید:"
         )
+
+
+async def _open_admin(update, context, B):
+    q = update.callback_query
+    if not q or not q.message:
+        return
+    uid = int(q.from_user.id)
+    if not _is_admin(B, uid):
+        return await q.message.reply_text("❌ دسترسی مدیریت ندارید.")
+    try:
+        import telegram_admin_plus as A
+        return await q.message.reply_text(
+            "🛠 پنل مدیریت کامل\n\nاز منوی زیر بخش موردنظر را انتخاب کنید:",
+            reply_markup=A._admin_menu(),
+        )
+    except Exception:
+        log.exception("admin entry failed")
+        return await q.message.reply_text("🛠 پنل مدیریت در حال آماده‌سازی است. لطفاً دوباره تلاش کنید.")
 
 
 def install():
     import bot as B
     import telegram_ui_policy_v2 as UI
 
-    original_dispatch = getattr(UI, "_partner_guard_original_dispatch", None)
-    if original_dispatch is None:
-        original_dispatch = UI._dispatch
-        UI._partner_guard_original_dispatch = original_dispatch
+    original = getattr(UI, "_entry_router_original_dispatch", None)
+    if original is None:
+        original = UI._dispatch
+        UI._entry_router_original_dispatch = original
 
-    async def guarded_dispatch(update, context, bot_obj, label):
-        normalized = str(label or "").strip()
-        if normalized == PARTNER:
+    async def dispatch(update, context, bot_obj, label):
+        label = str(label or "").strip()
+        if label == PARTNER:
             return await _open_partner(update, context, bot_obj, UI)
-        if normalized == ADMIN_PANEL:
-            return await _open_admin(update, context, bot_obj, UI)
-        return await original_dispatch(update, context, bot_obj, label)
+        if label == ADMIN_PANEL:
+            return await _open_admin(update, context, bot_obj)
+        return await original(update, context, bot_obj, label)
 
-    UI._dispatch = guarded_dispatch
-    UI._partner_router_guard_v8 = True
+    UI._dispatch = dispatch
 
-    def safe_partner_kb(lang="fa"):
-        uid = UI._uid()
-        if uid is None:
-            uid = getattr(B, "_ui_current_uid", None) or 0
+    def partner_kb(lang="fa"):
+        uid = UI._uid() or getattr(B, "_ui_current_uid", None) or 0
         return _partner_markup(B, UI, uid)
 
-    def safe_cancel_kb(lang="fa"):
-        uid = UI._uid()
-        if uid is None:
-            uid = getattr(B, "_ui_current_uid", None) or 0
-        return _cancel_markup(B, UI, uid)
-
+    B.partner_kb = partner_kb
+    B.cancel_kb = lambda lang="fa": UI.inline([[CANCEL]], B, UI._uid() or 0)
     B.partner = lambda update, context: _open_partner_from_message(update, context, B, UI)
-    B.partner_kb = safe_partner_kb
-    B.cancel_kb = safe_cancel_kb
 
+    log.info("Telegram entry router guard installed")
+
+
+async def _open_partner_from_message(update, context, B, UI):
+    message = getattr(update, "effective_message", None) or getattr(update, "message", None)
+    if message is None:
+        return
+    uid = int(update.effective_user.id)
+    st = B.S.setdefault(uid, {})
     try:
-        import telegram_business_features as F
-        F._partner_kb = lambda: safe_partner_kb()
+        if st.get("partner_logged_out"):
+            st.pop("partner_id", None)
+            st.pop("partner_active", None)
+        pid = st.get("partner_id")
+        if pid and st.get("partner_active", True):
+            row = B.db.conn.execute("SELECT * FROM partners WHERE id=? AND active=1 LIMIT 1", (pid,)).fetchone()
+            if row:
+                st["partner_active"] = True
+                st["mode"] = None
+                markup = _partner_markup(B, UI, uid)
+                kwargs = {"reply_markup": markup} if markup is not None else {}
+                return await message.reply_text(
+                    f"👥 پنل همکاران\n👤 {row['name'] or '-'}\n📱 {row['phone'] or '-'}\n💰 اعتبار: {int(row['balance'] or 0):,} تومان",
+                    **kwargs,
+                )
+        return await _login(message, B, UI, uid, st)
     except Exception:
-        log.exception("could not lock legacy partner keyboard")
-
-    log.info("Telegram entry router guard v8 installed")
+        log.exception("partner message entry failed")
+        st["mode"] = "p_phone"
+        return await message.reply_text("👥 ورود به پنل همکاران\n\n📱 لطفاً شماره موبایل اختصاصی همکار را وارد کنید:")
