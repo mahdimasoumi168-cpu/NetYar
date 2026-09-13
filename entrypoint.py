@@ -10,8 +10,9 @@ bale_bootstrap.install(server)
 
 @server.api.on_event("startup")
 async def _install_final_telegram_patches():
-    # Final Telegram reliability stack. Keep this list last-loaded so the
-    # final request/communication routing owns Telegram's high-priority paths.
+    # Final Telegram reliability stack. Keep the last stability layer at the
+    # highest handler priority so legacy duplicate routers cannot consume the
+    # same button/message first.
     for module_name in (
         "telegram_partner_logout_fix",
         "telegram_language_consistency",
@@ -23,6 +24,7 @@ async def _install_final_telegram_patches():
         "telegram_offhours_partner_gate_v2",
         "telegram_final_admin_menu_fix",
         "telegram_final_ops_overlay",
+        "telegram_button_stability_final",
     ):
         try:
             module=__import__(module_name)
