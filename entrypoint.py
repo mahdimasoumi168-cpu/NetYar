@@ -30,6 +30,8 @@ async def _install_final_telegram_patches():
         "telegram_button_stability_final",
         "telegram_service_billing_v3_fix",
         "telegram_partner_ui_fix",
+        "telegram_request_control_v2",
+        "telegram_government_family_code_fix",
     )
 
     for module_name in modules:
