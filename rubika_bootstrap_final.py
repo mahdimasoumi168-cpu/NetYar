@@ -40,6 +40,37 @@ def _install_layers(rb):
             log.exception("Rubika compatibility layer failed: %s", name)
 
 
+def _install_send_boundary_guard(rb):
+    """Normalise every legacy row shape before the final sender sees it."""
+    if getattr(rb, "_netyar_send_boundary_guard", False):
+        return
+    original_send = rb.send
+
+    def normalise(rows):
+        out = []
+        for row in rows or []:
+            if isinstance(row, (tuple, list)) and len(row) == 2 and not isinstance(row[0], (tuple, list, dict)):
+                out.append([(str(row[0]), str(row[1]))])
+                continue
+            fixed = []
+            for item in row or []:
+                if isinstance(item, dict):
+                    fixed.append(item)
+                elif isinstance(item, (tuple, list)) and len(item) >= 2:
+                    fixed.append((str(item[0]), str(item[1])))
+                else:
+                    fixed.append((str(len(fixed)), str(item)))
+            out.append(fixed)
+        return out
+
+    def guarded_send(chat, text, rows=None):
+        return original_send(chat, text, normalise(rows) if rows else rows)
+
+    rb.send = guarded_send
+    rb._netyar_send_boundary_guard = True
+    log.info("Rubika send boundary guard installed")
+
+
 def install(server_module):
     if getattr(server_module, "_netyar_rubika_bootstrap_final", False):
         return
@@ -52,6 +83,7 @@ def install(server_module):
         try:
             import rubika_v2 as rb
             _install_layers(rb)
+            _install_send_boundary_guard(rb)
 
             endpoint = server_module.public_url("/rubika/update")
             result = rb.call(
