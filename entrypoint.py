@@ -10,9 +10,8 @@ bale_bootstrap.install(server)
 
 @server.api.on_event("startup")
 async def _install_final_telegram_patches():
-    # Order matters: the final navigation layer is installed last in this
-    # startup sequence but uses a much earlier handler group (-20000), so its
-    # owned callbacks cannot be stolen by legacy routers.
+    # Order matters. The final loader installs its handlers at groups earlier
+    # than the legacy routers, preventing old callbacks from stealing buttons.
     for module_name in (
         "telegram_partner_logout_fix",
         "telegram_language_consistency",
@@ -20,7 +19,7 @@ async def _install_final_telegram_patches():
         "final_stability_overlay",
         "final_government_payment_overlay",
         "telegram_price_dedup_guard",
-        "telegram_final_admin_navigation_v3",
+        "telegram_final_layer_loader",
     ):
         try:
             module=__import__(module_name)
