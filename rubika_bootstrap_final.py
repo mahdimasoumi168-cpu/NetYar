@@ -76,6 +76,19 @@ def _install_send_boundary_guard(rb):
     log.info("Rubika send boundary guard installed")
 
 
+async def _run_rubika_serialized(update, rb, user_id, server_module):
+    """Process one user's updates sequentially while preserving normalization."""
+    key = str(user_id or "unknown")
+    lock = _RB_LOCKS.setdefault(key, asyncio.Lock())
+    async with lock:
+        try:
+            normalized = server_module._normalize_rubika_button(update, rb)
+            await asyncio.to_thread(rb.process, normalized)
+            log.info("Rubika update processed: user=%s", key)
+        except Exception:
+            log.exception("Rubika background update processing failed: user=%s", key)
+
+
 def _telegram_initializer(server_module):
     async def initialize_telegram_only():
         server_module.telegram_ready = False
@@ -101,17 +114,6 @@ def _telegram_initializer(server_module):
     return initialize_telegram_only
 
 
-async def _run_rubika_serialized(update, rb, user_id):
-    key = str(user_id or "unknown")
-    lock = _RB_LOCKS.setdefault(key, asyncio.Lock())
-    async with lock:
-        try:
-            await asyncio.to_thread(rb.process, update)
-            log.info("Rubika update processed: user=%s", key)
-        except Exception:
-            log.exception("Rubika background update processing failed: user=%s", key)
-
-
 def install(server_module):
     if getattr(server_module, "_netyar_rubika_bootstrap_final", False):
         return
@@ -133,6 +135,17 @@ def install(server_module):
             )
             server_module.rubika_ready = True
             log.info("Rubika webhook registered exactly once: %s", result)
+
+            # Replace the old unconstrained background runner. Multiple rapid
+            # keypad presses from the same user must not race STATE mutations.
+            async def serialized_runner(update, rb_module):
+                await _run_rubika_serialized(
+                    update,
+                    rb_module,
+                    server_module._rubika_user(update),
+                    server_module,
+                )
+            server_module._run_rubika = serialized_runner
         except Exception:
             server_module.rubika_ready = False
             log.exception("Rubika startup failed; Telegram remains active")
