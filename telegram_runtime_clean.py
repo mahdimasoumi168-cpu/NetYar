@@ -4,6 +4,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, MessageHandler, TypeHandler, filters
 import bot as B
 log=logging.getLogger("netyar.telegram_runtime")
+_CALLBACK_SEEN=set()
 
 
 def _diagnostic(update, context):
@@ -12,8 +13,7 @@ def _diagnostic(update, context):
             log.info("Telegram update id=%s user=%s text=%r", update.update_id, getattr(update.effective_user,"id",None), update.message.text)
         elif update.callback_query is not None:
             log.info("Telegram callback id=%s user=%s data=%r", update.update_id, getattr(update.effective_user,"id",None), update.callback_query.data)
-    except Exception:
-        log.exception("Telegram diagnostic failed")
+    except Exception:log.exception("Telegram diagnostic failed")
 
 
 async def _start(update, context):
@@ -25,6 +25,52 @@ async def _start(update, context):
     old=B.S.get(uid,{})
     B.S[uid]={k:old[k] for k in ("partner_id","partner_active","admin","lang","status","phone") if k in old}
     await update.message.reply_text("سلام و خوش آمدید 🌷\nلطفاً زبان را انتخاب کنید:",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🇮🇷 فارسی",callback_data="lang:fa"),InlineKeyboardButton("🇬🇧 English",callback_data="lang:en"),InlineKeyboardButton("🇸🇦 العربية",callback_data="lang:ar")]]))
+
+
+def _claim(q):
+    cid=getattr(q,"id",None)
+    if not cid:return True
+    if cid in _CALLBACK_SEEN:return False
+    _CALLBACK_SEEN.add(cid)
+    if len(_CALLBACK_SEEN)>2000:_CALLBACK_SEEN.clear();_CALLBACK_SEEN.add(cid)
+    return True
+
+
+async def _lang_select(update,context):
+    q=update.callback_query
+    if not q:return
+    if not _claim(q):
+        try:await q.answer()
+        except Exception:pass
+        return
+    await q.answer()
+    uid=q.from_user.id;lang=str(q.data or "").split(":",1)[-1]
+    if lang not in {"fa","en","ar"}:lang="fa"
+    old=B.S.get(uid,{})
+    B.S[uid]={k:old[k] for k in ("partner_id","partner_active","admin","phone") if k in old}
+    B.S[uid]["lang"]=lang
+    texts={"fa":"آیا اتباع هستید یا ایرانی؟","en":"Are you a foreign national or Iranian?","ar":"هل أنت أجنبي أم إيراني؟"}
+    labels={"fa":("🪪 اتباع هستم","🇮🇷 ایرانی هستم"),"en":("🪪 Foreign national","🇮🇷 Iranian"),"ar":("🪪 أجنبي","🇮🇷 إيراني")}[lang]
+    return await q.message.reply_text(texts[lang],reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(labels[0],callback_data="st:foreign"),InlineKeyboardButton(labels[1],callback_data="st:iranian")]]))
+
+
+async def _status_select(update,context):
+    q=update.callback_query
+    if not q:return
+    if not _claim(q):
+        try:await q.answer()
+        except Exception:pass
+        return
+    await q.answer()
+    uid=q.from_user.id;status=str(q.data or "").split(":",1)[-1]
+    st=B.S.setdefault(uid,{})
+    st["status"]=status;st.pop("mode",None)
+    lang=st.get("lang","fa")
+    if status=="iranian":
+        text={"fa":"🇮🇷 منوی خدمات ایرانی 👇","en":"🇮🇷 Iranian user menu 👇","ar":"🇮🇷 قائمة المستخدم الإيراني 👇"}.get(lang,"🇮🇷 منوی خدمات ایرانی 👇")
+    else:
+        text={"fa":"منوی خدمات کمک یار مهاجر 👇","en":"Mohajer Helper services 👇","ar":"قائمة خدمات المهاجرين 👇"}.get(lang,"منوی خدمات کمک یار مهاجر 👇")
+    return await q.message.reply_text(text,reply_markup=B.main(uid))
 
 
 def _install_features(app):
@@ -46,15 +92,12 @@ def _install_features(app):
         TI.install(B)
         if getattr(B,"_topup_invoice_install_app",None): B._topup_invoice_install_app(app)
     except Exception: log.exception("topup invoice unavailable")
-
     import telegram_admin_plus as A
     app.add_handler(CallbackQueryHandler(lambda u,c:A._callback(u,c,B),pattern=r'^adm:'),group=-20)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,lambda u,c:A._text(u,c,B)),group=-19)
     try:
         import telegram_admin_entry as AE; AE.install(app,B)
     except Exception: log.exception("admin entry unavailable")
-    # telegram_government_flow_v2 is a legacy duplicate of the runtime-fix flow.
-    # Do not install both: the runtime-fix flow is the canonical government flow.
     try:
         import telegram_government_flow_runtime_fix as GF; GF.install(app,B)
     except Exception: log.exception("government flow runtime fix unavailable")
@@ -76,6 +119,10 @@ def _install_features(app):
     try:
         import telegram_partner_visibility_fix as PV; PV.install(app,B)
     except Exception: log.exception("partner visibility fix unavailable")
+    # Final canonical entry points: no legacy wrapper is allowed to replace these.
+    B.start=_start
+    B.langcb=_lang_select
+    B.statuscb=_status_select
     log.info("Telegram feature layers installed")
 
 
