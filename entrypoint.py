@@ -47,6 +47,19 @@ async def _install_partner_logout_fix():
         import logging
         logging.getLogger("netyar.entrypoint").exception("cancel policy unavailable")
 
+    # Final business/stability overlay MUST be last. It restores missing
+    # partner services, fixes temporary-card family-code collection, and adds
+    # the exact per-partner/per-service price workflow without replacing the
+    # canonical callback router or touching /data.
+    try:
+        import final_stability_overlay as final_overlay
+        import bot as B
+        final_overlay.install(server.telegram_app, B)
+        logging.getLogger("netyar.entrypoint").info("final Telegram stability overlay installed")
+    except Exception:
+        import logging
+        logging.getLogger("netyar.entrypoint").exception("final Telegram stability overlay unavailable")
+
 
 def main():
     uvicorn.run(
