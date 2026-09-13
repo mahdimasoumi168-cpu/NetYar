@@ -7,7 +7,7 @@ import logging
 
 log = logging.getLogger("netyar.rubika.bootstrap")
 
-
+# Keep Rubika deployment changes observable as a single, deterministic layer.
 _RUBIKA_LAYERS = (
     "rubika_fix",
     "rubika_core_compat",
@@ -36,7 +36,6 @@ def _install_layers(rb):
         except ModuleNotFoundError:
             log.warning("Rubika optional layer not found: %s", name)
         except Exception:
-            # One compatibility shim must never prevent the bot from starting.
             log.exception("Rubika compatibility layer failed: %s", name)
 
 
@@ -94,7 +93,6 @@ def install(server_module):
             log.info("Rubika final webhook registered: %s", result)
         except Exception:
             server_module.rubika_ready = False
-            # Rubika failure is isolated; do not change Telegram state.
             log.exception("Rubika final bootstrap failed; Telegram was left untouched")
 
     server_module._initialize_integrations = initialize_with_rubika
