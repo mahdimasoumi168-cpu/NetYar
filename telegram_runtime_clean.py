@@ -56,9 +56,10 @@ async def _status_select(update,context):
 
 def _install_features(app):
     B.start=_start
-    # Priority startup routing: these callbacks must not be swallowed by legacy routers.
-    app.add_handler(CallbackQueryHandler(_lang_select,pattern=r'^lang:(fa|en|ar)$'),group=-110)
-    app.add_handler(CallbackQueryHandler(_status_select,pattern=r'^st:(foreign|iranian)$'),group=-109)
+    # Absolute-priority startup/citizenship firewall handles current and legacy button payloads.
+    try:
+        import telegram_startup_button_firewall as SBF; SBF.install(app,B)
+    except Exception:log.exception("startup button firewall unavailable")
     import telegram_business_features as F;F.install(app,B)
     import telegram_ui_policy_v2 as UI;UI.install(app,B)
     try:
@@ -111,6 +112,7 @@ def _install_features(app):
     try:
         import telegram_partner_application_gate as PAG;PAG.install(app,B)
     except Exception:log.exception("partner application gate unavailable")
+    # Keep the canonical callbacks available to any legacy code that calls B.statuscb directly.
     B.start=_start;B.langcb=_lang_select;B.statuscb=_status_select
     log.info("Telegram feature layers installed")
 
@@ -121,7 +123,7 @@ def build():
     app.add_handler(CommandHandler(["start","srart"],_start),group=0)
     app.add_handler(CommandHandler("addpartner",lambda u,c:_safe_call(B.addpartner,u,c)),group=0)
     app.add_handler(MessageHandler(filters.Regex(r"^/Admin2025$"),lambda u,c:_safe_call(B.admin_command,u,c)),group=0)
-    # lang/st are already installed at high priority above; avoid duplicate handlers here.
+    # lang/st are handled by the firewall at higher priority; do not register competing handlers here.
     app.add_handler(CallbackQueryHandler(lambda u,c:_safe_call(B.admin_cb,u,c),pattern=r'^(tu|pay|req|admin):'),group=0)
     app.add_handler(MessageHandler(filters.PHOTO|filters.Document.ALL,lambda u,c:_safe_call(B.media,u,c)),group=1)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,lambda u,c:_safe_call(B.router,u,c)),group=1)
