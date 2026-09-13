@@ -18,21 +18,23 @@ def install():
    p=B.db.conn.execute("SELECT * FROM partners WHERE id=?",(pid,)).fetchone()
    if not p:return await u.message.reply_text("❌ حساب همکار پیدا نشد.",reply_markup=B.partner_kb(st.get("lang","fa")))
 
-   # A government-service charge is made only once per unique ID for the
-   # same partner.  A later request for the same person reuses the previous
-   # payment even if the previous request was approved or rejected.
+   # Reuse a previous paid government request when either identity key
+   # identifies the same person. A repeat submission therefore does not
+   # deduct the partner balance a second time.
    unique_id=str(st.get("gov_unique") or "").translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩","01234567890123456789")).strip()
+   special_id=str(st.get("gov_special") or "").translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩","01234567890123456789")).strip()
    previous=None
-   if unique_id:
+   if unique_id or special_id:
     previous=B.db.conn.execute(
-     """SELECT r.id,r.tracking_code,r.status,r.amount
+     """SELECT r.id,r.tracking_code,r.status,r.amount,a.field_key
         FROM requests r
         JOIN request_answers a ON a.request_id=r.id
         WHERE r.user_id=? AND r.service_key='government'
-          AND a.field_key='unique_id' AND a.answer=?
           AND r.payment_status='paid'
+          AND ((a.field_key='unique_id' AND a.answer=? AND ?!='')
+               OR (a.field_key='special_id' AND a.answer=? AND ?!=''))
         ORDER BY r.id DESC LIMIT 1""",
-     (pid,unique_id),
+     (pid,unique_id,unique_id,special_id,special_id),
     ).fetchone()
 
    bal=int(p["balance"] or 0)
@@ -40,18 +42,20 @@ def install():
     return await u.message.reply_text(f"❌ اعتبار کافی نیست. هزینه: {amount:,} تومان | اعتبار: {bal:,} تومان",reply_markup=B.partner_kb(st.get("lang","fa")))
 
    rid,code=B.db.create_request(pid,"government","telegram",amount)
-   vals=[("doc_type",st.get("gov_doc_type")),("phone",st.get("gov_phone")),("dob",st.get("dob")),("unique_id",unique_id),("special_id",st.get("gov_special")),("postal_code",t)]
+   vals=[("doc_type",st.get("gov_doc_type")),("phone",st.get("gov_phone")),("dob",st.get("dob")),("unique_id",unique_id),("special_id",special_id),("postal_code",t)]
    if st.get("gov_doc_type")=="passport": vals.append(("passport",st.get("gov_passport")))
    for k,v in vals:
     if v:B.db.answer(rid,k,answer=v)
    if st.get("gov_document"):B.db.answer(rid,"document",file_id=st["gov_document"])
 
    if previous:
+    matched_key="شناسه یکتا" if previous["field_key"]=="unique_id" else "شناسه اختصاصی"
+    matched_value=unique_id if previous["field_key"]=="unique_id" else special_id
     B.db.conn.execute(
      """UPDATE requests
         SET status='submitted',payment_status='paid',payment_method='previous_government_request',
             payment_note=?,updated_at=? WHERE id=?""",
-     (f"هزینه قبلاً برای شناسه یکتا {unique_id} در درخواست {previous['tracking_code']} پرداخت شده است؛ درخواست مجدد بدون کسر موجودی ثبت شد.",B.now(),rid),
+     (f"هزینه قبلاً برای {matched_key} {matched_value} در درخواست {previous['tracking_code']} پرداخت شده است؛ درخواست مجدد بدون کسر موجودی ثبت شد.",B.now(),rid),
     )
     B.db.conn.commit()
     left=bal
@@ -64,8 +68,8 @@ def install():
     charged=amount
 
    st["mode"]=None
-   reuse_note=(f"\n♻️ این شناسه یکتا قبلاً هزینه‌اش پرداخت شده است.\n💰 کسر از اعتبار این درخواست: ۰ تومان\n📌 درخواست قبلی: {previous['tracking_code']}" if previous else f"\n💰 کسر از اعتبار: {amount:,} تومان")
-   msg=f"🆕 درخواست دولت من\n🎫 کد: {code}\n👥 همکار: {p['name']}\n📱 موبایل: {st.get('gov_phone','-')}\n🎂 تولد: {st.get('dob','-')}\n🆔 شناسه یکتا: {st.get('gov_unique','-')}\n🔖 شناسه اختصاصی: {st.get('gov_special','-')}\n📍 کد پستی منزل: {t}\n💰 کسر از اعتبار: {charged:,} تومان\n💳 اعتبار باقی‌مانده: {left:,} تومان" + (f"\n♻️ پرداخت قبلی شناسه یکتا: {previous['tracking_code']}" if previous else "")
+   reuse_note=(f"\n♻️ این شناسه قبلاً هزینه‌اش پرداخت شده است.\n💰 کسر از اعتبار این درخواست: ۰ تومان\n📌 درخواست قبلی: {previous['tracking_code']}" if previous else f"\n💰 کسر از اعتبار: {amount:,} تومان")
+   msg=f"🆕 درخواست دولت من\n🎫 کد: {code}\n👥 همکار: {p['name']}\n📱 موبایل: {st.get('gov_phone','-')}\n🎂 تولد: {st.get('dob','-')}\n🆔 شناسه یکتا: {st.get('gov_unique','-')}\n🔖 شناسه اختصاصی: {st.get('gov_special','-')}\n📍 کد پستی منزل: {t}\n💰 کسر از اعتبار: {charged:,} تومان\n💳 اعتبار باقی‌مانده: {left:,} تومان" + (f"\n♻️ پرداخت قبلی: {previous['tracking_code']} ({matched_key})" if previous else "")
    try: await B.notify_admins(c.application,msg,rid)
    except Exception: log.exception("admin notify")
    return await u.message.reply_text(f"✅ درخواست ثبت شد.\n🎫 {code}" + reuse_note + f"\n💳 اعتبار باقی‌مانده: {left:,} تومان",reply_markup=B.partner_kb(st.get("lang","fa")))
