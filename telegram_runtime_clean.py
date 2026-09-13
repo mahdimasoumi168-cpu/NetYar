@@ -12,8 +12,7 @@ def _diagnostic(update, context):
             log.info("Telegram update id=%s user=%s text=%r", update.update_id, getattr(update.effective_user,"id",None), update.message.text)
         elif update.callback_query is not None:
             log.info("Telegram callback id=%s user=%s data=%r", update.update_id, getattr(update.effective_user,"id",None), update.callback_query.data)
-    except Exception:
-        log.exception("Telegram diagnostic failed")
+    except Exception: log.exception("Telegram diagnostic failed")
 
 
 async def _start(update, context):
@@ -31,54 +30,41 @@ def _install_features(app):
     B.start=_start
     import telegram_business_features as F; F.install(app,B)
     import telegram_ui_policy_v2 as UI; UI.install(app,B)
-    try:
-        import telegram_partner_ui_fix as PUI; PUI.install(app,B)
+    try: import telegram_partner_ui_fix as PUI; PUI.install(app,B)
     except Exception: log.exception("partner UI fix unavailable")
     import telegram_status_ui as SU; SU.install(app,B)
-    try:
-        import telegram_public_tracking as PT; PT.install(app,B)
+    try: import telegram_public_tracking as PT; PT.install(app,B)
     except Exception: log.exception("public tracking unavailable")
-    try:
-        import telegram_sim_service_v2 as SIM; SIM.install(app,B)
+    try: import telegram_sim_service_v2 as SIM; SIM.install(app,B)
     except Exception: log.exception("SIM service unavailable")
     try:
         import telegram_topup_invoice as TI
         TI.install(B)
         if getattr(B,"_topup_invoice_install_app",None): B._topup_invoice_install_app(app)
     except Exception: log.exception("topup invoice unavailable")
-
     import telegram_admin_plus as A
     app.add_handler(CallbackQueryHandler(lambda u,c:A._callback(u,c,B),pattern=r'^adm:'),group=-20)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,lambda u,c:A._text(u,c,B)),group=-19)
-    try:
-        import telegram_admin_entry as AE; AE.install(app,B)
+    try: import telegram_admin_entry as AE; AE.install(app,B)
     except Exception: log.exception("admin entry unavailable")
     import telegram_government_flow_v2 as G; G.install(app,B)
-    try:
-        import telegram_government_flow_runtime_fix as GF; GF.install(app,B)
+    try: import telegram_government_flow_runtime_fix as GF; GF.install(app,B)
     except Exception: log.exception("government flow runtime fix unavailable")
     import partner_pricing as P; P.install_telegram(app,B)
     import telegram_service_pricing as SP; SP.install(app,B)
     import telegram_night_shift_v2 as N; N.install(app,B)
     import telegram_admin_menu_v2 as AM; AM.install(B)
     import telegram_request_control_v2 as RC; RC.install(app,B)
-    try:
-        import telegram_legacy_callback_bridge as LCB; LCB.install(app,B)
+    try: import telegram_legacy_callback_bridge as LCB; LCB.install(app,B)
     except Exception: log.exception("legacy callback bridge unavailable")
-    try:
-        import telegram_partner_code_reliable as PCR; PCR.install(app,B)
+    try: import telegram_partner_code_reliable as PCR; PCR.install(app,B)
     except Exception: log.exception("partner code handler unavailable")
-    try:
-        import telegram_request_resend_fa as RFA; RFA.install(app,B)
+    try: import telegram_request_resend_fa as RFA; RFA.install(app,B)
     except Exception: log.exception("request resend handler unavailable")
     import telegram_access_hardening as AH; AH.install(app,B)
-    try:
-        import telegram_partner_visibility_fix as PV; PV.install(app,B)
+    try: import telegram_partner_visibility_fix as PV; PV.install(app,B)
     except Exception: log.exception("partner visibility fix unavailable")
-    # telegram_ui_policy_v2 historically wrapped start to send a second
-    # "دسترسی سریع" message. The canonical start flow stays single-shot.
     B.start=_start
-    log.info("Telegram feature layers installed")
 
 
 def build():
@@ -88,12 +74,24 @@ def build():
     app.add_handler(TypeHandler(Update,_diagnostic),group=-1000)
     _install_features(app)
 
-    # Consume every canonical ui2 callback after the UI dispatcher has handled
-    # it so no later compatibility handler can execute the same button again.
     async def stop_ui2(update, context):
         if update.callback_query and str(update.callback_query.data or "").startswith("ui2:"):
             raise ApplicationHandlerStop
     app.add_handler(CallbackQueryHandler(stop_ui2,pattern=r'^ui2:'),group=-9)
+
+    # Card-to-card invoice receipt button. The existing Government receipt
+    # media handler receives the next photo/document once this state is set.
+    async def invoice_receipt(update,context):
+        q=update.callback_query
+        if not q or q.data!="invoice:receipt":return
+        await q.answer()
+        st=B.S.setdefault(q.from_user.id,{})
+        if not st.get("request_id"):
+            await q.message.reply_text("❌ درخواست پرداخت پیدا نشد.",reply_markup=B.main(q.from_user.id)); raise ApplicationHandlerStop
+        st["mode"]="invoice_pending"
+        await q.message.reply_text("📸 تصویر رسید کارت‌به‌کارت را ارسال کنید.",reply_markup=B.cancel_kb(st.get("lang","fa")))
+        raise ApplicationHandlerStop
+    app.add_handler(CallbackQueryHandler(invoice_receipt,pattern=r'^invoice:receipt$'),group=-68)
 
     app.add_handler(CommandHandler(["start","srart"],B.start),group=0)
     app.add_handler(CommandHandler("addpartner",B.addpartner),group=0)
@@ -101,9 +99,6 @@ def build():
     app.add_handler(CallbackQueryHandler(B.langcb,pattern=r'^lang:'),group=0)
     app.add_handler(CallbackQueryHandler(B.statuscb,pattern=r'^st:'),group=0)
     app.add_handler(CallbackQueryHandler(B.admin_cb,pattern=r'^(tu|pay|req|admin):'),group=0)
-    # Keep the legacy text/media fallback for states not owned by a feature
-    # module (notably partner top-up amount entry), but it is reached only when
-    # no earlier specialized handler has consumed the update.
     app.add_handler(MessageHandler(filters.PHOTO|filters.Document.ALL,B.media),group=1)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,B.router),group=1)
     log.info("Canonical Telegram handlers installed with single-dispatch UI guard")
