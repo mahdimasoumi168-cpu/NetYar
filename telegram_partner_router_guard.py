@@ -1,8 +1,7 @@
 """Deterministic Telegram partner-panel entry owner.
 
-This module is installed LAST because the production bot contains legacy layers
-that can replace B.partner, B.partner_kb, and B.cancel_kb. Both inline-callback
-entry and legacy reply/inline keyboards therefore converge on one safe handler.
+This module is installed LAST so the partner entry and partner keyboard cannot
+fall back to legacy handlers that produce the generic UI execution error.
 """
 import logging
 
@@ -34,15 +33,9 @@ def _partner_markup(B, UI, uid):
         ["🔎 پیگیری کد", "📋 سوابق"],
         ["💰 موجودی", "🎫 تیکت به مدیریت"],
     ]
-    # Admin access is deliberately decided at render time so a normal partner
-    # never receives a management button and an admin does not lose it after
-    # entering the partner panel.
     if _is_admin(B, uid):
         rows.append([ADMIN_PANEL])
-    rows.extend([
-        ["🚪 خروج از پنل"],
-        [CANCEL],
-    ])
+    rows.extend([["🚪 خروج از پنل"], [CANCEL]])
     try:
         return UI.inline(rows, B, uid)
     except Exception:
@@ -64,6 +57,8 @@ async def _login_prompt_message(message, B, UI, uid, st):
 
 async def _open_partner_from_callback(update, context, B, UI):
     q = update.callback_query
+    if q is None or q.message is None:
+        return None
     uid = int(q.from_user.id)
     st = B.S.setdefault(uid, {})
 
@@ -76,8 +71,7 @@ async def _open_partner_from_callback(update, context, B, UI):
         if pid and st.get("partner_active", True):
             try:
                 p = B.db.conn.execute(
-                    "SELECT * FROM partners WHERE id=? AND active=1 LIMIT 1",
-                    (pid,),
+                    "SELECT * FROM partners WHERE id=? AND active=1 LIMIT 1", (pid,)
                 ).fetchone()
             except Exception:
                 log.exception("partner lookup failed")
@@ -85,8 +79,8 @@ async def _open_partner_from_callback(update, context, B, UI):
 
             if p:
                 st["partner_active"] = True
-                st["mode"] = None
                 st["partner_logged_out"] = False
+                st["mode"] = None
                 try:
                     name = p["name"] or "-"
                     phone = p["phone"] or "-"
@@ -104,6 +98,8 @@ async def _open_partner_from_callback(update, context, B, UI):
         return await _login_prompt_message(q.message, B, UI, uid, st)
     except Exception:
         log.exception("partner callback guard failed; forcing login flow")
+        # Never allow this entry point to bubble an exception into ui2's generic
+        # error message. Even if the database is unavailable, show the login form.
         try:
             return await _login_prompt_message(q.message, B, UI, uid, st)
         except Exception:
@@ -114,18 +110,15 @@ async def _open_partner_from_callback(update, context, B, UI):
 
 
 async def _open_partner_from_message(update, context, B, UI):
-    """Hard-lock B.partner so legacy reply keyboards cannot call a broken wrapper."""
     uid = int(update.effective_user.id)
     st = B.S.setdefault(uid, {})
     message = update.effective_message or update.message
     if message is None:
         return None
-
     try:
         if st.get("partner_logged_out"):
             st.pop("partner_id", None)
             st.pop("partner_active", None)
-
         pid = st.get("partner_id")
         if pid and st.get("partner_active", True):
             row = B.db.conn.execute(
@@ -163,20 +156,23 @@ def install():
     import bot as B
     import telegram_ui_policy_v2 as UI
 
-    if getattr(UI, "_partner_router_guard_v5", False):
-        return
-
-    original_dispatch = UI._dispatch
+    # Do not use a stale one-time marker here. Runtime layers may import this
+    # module before the final UI dispatcher is fully installed. Re-wrapping is
+    # intentionally idempotent through our own marker and always points at the
+    # current dispatcher.
+    original_dispatch = getattr(UI, "_partner_guard_original_dispatch", None)
+    if original_dispatch is None:
+        original_dispatch = UI._dispatch
+        UI._partner_guard_original_dispatch = original_dispatch
 
     async def guarded_dispatch(update, context, bot_obj, label):
-        # Admin panel is already implemented by the canonical UI dispatcher.
-        # Keep that route intact; only the partner-entry label is hard-locked here.
-        if str(label or "").strip() == PARTNER:
+        normalized = str(label or "").strip()
+        if normalized == PARTNER:
             return await _open_partner_from_callback(update, context, bot_obj, UI)
         return await original_dispatch(update, context, bot_obj, label)
 
     UI._dispatch = guarded_dispatch
-    UI._partner_router_guard_v5 = True
+    UI._partner_router_guard_v6 = True
 
     def safe_partner_kb(lang="fa"):
         uid = UI._uid()
@@ -190,8 +186,6 @@ def install():
             uid = getattr(B, "_ui_current_uid", None) or 0
         return _cancel_markup(B, UI, uid)
 
-    # These assignments are intentionally last: they prevent older layers from
-    # replacing the partner entry or partner keyboard after this guard is installed.
     B.partner = lambda update, context: _open_partner_from_message(update, context, B, UI)
     B.partner_kb = safe_partner_kb
     B.cancel_kb = safe_cancel_kb
@@ -202,4 +196,4 @@ def install():
     except Exception:
         log.exception("could not lock legacy partner keyboard")
 
-    log.info("Telegram partner router guard v6 installed")
+    log.info("Telegram partner router guard v7 installed")
