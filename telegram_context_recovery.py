@@ -1,9 +1,11 @@
 """Context-preserving Telegram error recovery.
 
-Never throws a user who is inside a service/partner flow back to the public
-main menu after a transient routing/handler failure. The current per-user
-state remains intact and the user receives the keyboard appropriate to the
-current context.
+The important rule here is: a router returning ``None`` is NOT an error.
+It means another handler still has a chance to own the update.  The previous
+implementation turned that normal routing state into a visible error message,
+which produced the user's bad UX: an error followed immediately by the real
+prompt/success message.  This module now reports only genuine exceptions and
+otherwise leaves routing alone.
 """
 import logging
 from telegram.ext import ApplicationHandlerStop
@@ -18,8 +20,6 @@ def _context_markup(B, uid, st):
     except Exception:
         log.exception("partner context keyboard failed")
     try:
-        # During a service flow, keep the user in that flow. Cancel is safer
-        # than rebuilding the public main menu and losing the active step.
         if st.get("mode"):
             return B.cancel_kb(st.get("lang", "fa"))
     except Exception:
@@ -39,6 +39,10 @@ async def _recover_message(update, B, text="❌ یک خطای موقت رخ دا
 
 
 async def _error_handler(update, context, B):
+    # Genuine handler exceptions are handled here exactly once.  Normal
+    # ApplicationHandlerStop / routing fall-through never reaches this path.
+    if isinstance(context.error, ApplicationHandlerStop):
+        return
     log.exception("Telegram unhandled update error", exc_info=context.error)
     try:
         await _recover_message(update, B)
@@ -58,14 +62,10 @@ def install(app, B):
                 result = old_router(update, context)
                 if hasattr(result, "__await__"):
                     result = await result
-                # A None result means the legacy router did not own the action.
-                # Keep the current service/partner context instead of allowing
-                # the absolute callback guard to fall back to B.main().
-                if result is None and uid is not None:
-                    st = B.S.setdefault(uid, {})
-                    if st.get("partner_id") or st.get("mode"):
-                        await _recover_message(update, B, "⛔ این گزینه فعلاً اجرا نشد. مرحله فعلی شما حفظ شده؛ لطفاً دوباره تلاش کنید.")
-                        return True
+                # IMPORTANT: None is a normal routing result.  Do not emit an
+                # error here; the caller may legitimately continue to ptext,
+                # service_text, or another feature handler.  Emitting a message
+                # here was the root of the "error + prompt/success" duplicate UX.
                 return result
             except ApplicationHandlerStop:
                 raise
@@ -76,9 +76,11 @@ def install(app, B):
                         await _recover_message(update, B)
                     except Exception:
                         pass
+                # Consume this failed route so older fallback routers cannot
+                # execute the same action a second time after an exception.
                 return True
         B.router = guarded_router
 
     app.add_error_handler(lambda update, context: _error_handler(update, context, B))
     B._context_recovery_installed = True
-    log.info("Telegram context-preserving error recovery installed")
+    log.info("Telegram context-preserving error recovery installed (no None-result error replies)")
