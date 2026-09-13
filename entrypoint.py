@@ -9,13 +9,11 @@ import production_stability
 
 bale_bootstrap.install(server)
 rubika_bootstrap_final.install(server)
-# One deterministic serialization layer for both messengers. This prevents
-# concurrent updates from one user from overwriting another user's state.
 production_stability.install()
 
 
 def _install_before_telegram_start(app, B, log):
-    """Install the final Telegram ownership layers before polling starts."""
+    """Install final Telegram ownership layers before polling starts."""
     pre_app_modules = (
         "telegram_partner_logout_fix",
         "telegram_language_consistency",
@@ -30,14 +28,13 @@ def _install_before_telegram_start(app, B, log):
             log.exception("telegram pre-build layer unavailable: %s", module_name)
 
     app_modules = (
+        # Highest-priority deterministic owner for partner login and management
+        # communication. It must run before every legacy text router.
+        "telegram_universal_partner_guard",
         "final_stability_overlay",
         "final_government_payment_overlay",
         "telegram_price_dedup_guard",
         "telegram_final_layer_loader",
-        # This is the single deterministic owner for the Government access
-        # flow. It must be installed before legacy text handlers so a phone
-        # number is consumed exactly once and cannot also advance the next
-        # state (for example phone -> transient error -> DOB).
         "telegram_government_flow_runtime_fix",
         "telegram_night_logout_final",
         "telegram_partner_login_fix",
@@ -85,15 +82,6 @@ try:
         _telegram_runtime._netyar_pre_polling_wrapper = True
 except Exception:
     logging.getLogger("netyar.entrypoint").exception("Telegram pre-polling bootstrap wrapper unavailable")
-
-
-# IMPORTANT: Do not install Telegram application handlers from a FastAPI
-# startup event. At that point server.telegram_app is still None; Telegram
-# creates and fully configures its Application inside telegram_runtime.build().
-# Re-installing handlers here caused every partner/admin callback layer to
-# fail with "NoneType has no attribute add_handler" and left buttons broken.
-# The deterministic pre-polling wrapper above is the single owner for these
-# application-level layers.
 
 
 def main():
