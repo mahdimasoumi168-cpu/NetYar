@@ -10,10 +10,8 @@ bale_bootstrap.install(server)
 
 @server.api.on_event("startup")
 async def _install_final_telegram_patches():
-    # Order matters. The final loader installs its handlers at groups earlier
-    # than the legacy routers, preventing old callbacks from stealing buttons.
-    # The off-hours gate is installed last so its two entry buttons remain
-    # available even when legacy business-hours handlers are active.
+    # Final reliability layers are installed after legacy patches. Their
+    # handlers use higher priority groups so legacy routers cannot steal them.
     for module_name in (
         "telegram_partner_logout_fix",
         "telegram_language_consistency",
@@ -23,6 +21,7 @@ async def _install_final_telegram_patches():
         "telegram_price_dedup_guard",
         "telegram_final_layer_loader",
         "telegram_offhours_partner_gate_v2",
+        "telegram_final_admin_menu_fix",
     ):
         try:
             module=__import__(module_name)
