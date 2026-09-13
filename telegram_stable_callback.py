@@ -75,7 +75,10 @@ async def handle(update, context, B, label):
                     reply_markup=B.partner_kb(st.get("lang", "fa")),
                 )
         st["mode"] = "p_phone"
+        st["step"] = "partner_phone"
         st.pop("phone", None)
+        st.pop("partner_phone", None)
+        st.pop("partner_id", None)
         st.pop("partner_active", None)
         return await q.message.reply_text(
             "👥 ورود به پنل همکاران\n\n📱 لطفاً شماره موبایل اختصاصی همکار را وارد کنید:",
@@ -86,6 +89,34 @@ async def handle(update, context, B, label):
         if not B.admin(uid):
             return await q.message.reply_text("❌ دسترسی مدیریت ندارید.", reply_markup=B.main(uid))
         return await q.message.reply_text("🛠 پنل مدیریت کامل\n\nاز منوی زیر بخش موردنظر را انتخاب کنید:", reply_markup=_admin_menu(B))
+
+    # Direct owner for partner/admin communication. Do not route this label
+    # through the legacy B.router: that path used to return None and trigger
+    # the generic "این گزینه فعلاً اجرا نشد" recovery message.
+    if label in {"💬 ارتباط با مدیریت", "💬 Contact management", "💬 التواصل مع الإدارة"}:
+        pid = st.get("partner_id")
+        if not pid or not st.get("partner_active", True):
+            return await q.message.reply_text(
+                "⛔ ابتدا وارد پنل همکاران شوید.",
+                reply_markup=B.main(uid),
+            )
+        row = B.db.conn.execute("SELECT * FROM partners WHERE id=? AND active=1 LIMIT 1", (int(pid),)).fetchone()
+        if not row:
+            st.pop("partner_id", None)
+            st["partner_active"] = False
+            st["mode"] = None
+            return await q.message.reply_text("⛔ حساب همکار فعال نیست. لطفاً دوباره وارد شوید.", reply_markup=B.main(uid))
+        try:
+            B.db.set_setting(f"partner_chat_{pid}", str(uid))
+            if row["phone"]:
+                B.db.set_setting(f"partner_chat_{row['phone']}", str(uid))
+        except Exception:
+            pass
+        st.update(mode="final_partner_chat", final_chat_admin=None, final_chat_partner_id=int(pid))
+        return await q.message.reply_text(
+            "💬 ارتباط با مدیریت فعال شد.\n\nپیام، عکس، فایل، ویس یا ویدیو را ارسال کنید.\nهمه پیام‌ها برای مدیریت ارسال می‌شوند.\n\nبرای خروج، «❌ انصراف» را بزنید.",
+            reply_markup=B.cancel_kb(st.get("lang", "fa")),
+        )
 
     routes = {
         "➕ شارژ حساب": "topup",
@@ -100,6 +131,10 @@ async def handle(update, context, B, label):
         fn = getattr(B, routes[label], None)
         if fn:
             return await fn(fake, context)
+        # Never bounce a partner to the public main menu because a feature
+        # method is missing. Preserve the current panel/service context.
+        if st.get("partner_id") and st.get("partner_active", True):
+            return await q.message.reply_text("❌ این خدمت فعلاً در دسترس نیست. پنل همکاران شما حفظ شد.", reply_markup=B.partner_kb(st.get("lang", "fa")))
         return await q.message.reply_text("❌ این خدمت فعلاً در دسترس نیست.", reply_markup=B.main(uid))
 
     if label == "💰 موجودی":
@@ -148,4 +183,10 @@ async def handle(update, context, B, label):
     result = await B.router(fake, context)
     if result is not None:
         return result
-    return await q.message.reply_text("❌ این گزینه فعلاً در دسترس نیست.", reply_markup=B.main(uid))
+    # Unknown/stale callback: keep the current context instead of forcing the
+    # public main menu. This is the universal fallback for transient UI drift.
+    if st.get("partner_id") and st.get("partner_active", True):
+        return await q.message.reply_text("⛔ این گزینه فعلاً اجرا نشد؛ پنل همکاران شما حفظ شد. لطفاً دوباره تلاش کنید.", reply_markup=B.partner_kb(st.get("lang", "fa")))
+    if st.get("mode"):
+        return await q.message.reply_text("⛔ این گزینه فعلاً اجرا نشد؛ مرحله فعلی شما حفظ شد. لطفاً دوباره تلاش کنید.", reply_markup=B.cancel_kb(st.get("lang", "fa")))
+    return await q.message.reply_text("⛔ این گزینه فعلاً اجرا نشد. لطفاً /start را بزنید.", reply_markup=B.main(uid))
