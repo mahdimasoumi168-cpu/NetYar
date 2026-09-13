@@ -1,7 +1,7 @@
 """Canonical Telegram runtime with one Application and deterministic feature installation."""
 import logging, os
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import Application, CallbackQueryHandler, CommandHandler, MessageHandler, TypeHandler, filters
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, MessageHandler, TypeHandler, filters, ApplicationHandlerStop
 import bot as B
 log=logging.getLogger("netyar.telegram_runtime")
 
@@ -76,7 +76,7 @@ def _install_features(app):
         import telegram_partner_visibility_fix as PV; PV.install(app,B)
     except Exception: log.exception("partner visibility fix unavailable")
     # telegram_ui_policy_v2 historically wrapped start to send a second
-    # "دسترسی سریع" message. The canonical start flow must stay single-shot.
+    # "دسترسی سریع" message. The canonical start flow stays single-shot.
     B.start=_start
     log.info("Telegram feature layers installed")
 
@@ -87,15 +87,24 @@ def build():
     app=Application.builder().token(token).build()
     app.add_handler(TypeHandler(Update,_diagnostic),group=-1000)
     _install_features(app)
+
+    # Consume every canonical ui2 callback after the UI dispatcher has handled
+    # it so no later compatibility handler can execute the same button again.
+    async def stop_ui2(update, context):
+        if update.callback_query and str(update.callback_query.data or "").startswith("ui2:"):
+            raise ApplicationHandlerStop
+    app.add_handler(CallbackQueryHandler(stop_ui2,pattern=r'^ui2:'),group=-9)
+
     app.add_handler(CommandHandler(["start","srart"],B.start),group=0)
     app.add_handler(CommandHandler("addpartner",B.addpartner),group=0)
     app.add_handler(MessageHandler(filters.Regex(r"^/Admin2025$"),B.admin_command),group=0)
     app.add_handler(CallbackQueryHandler(B.langcb,pattern=r'^lang:'),group=0)
     app.add_handler(CallbackQueryHandler(B.statuscb,pattern=r'^st:'),group=0)
     app.add_handler(CallbackQueryHandler(B.admin_cb,pattern=r'^(tu|pay|req|admin):'),group=0)
-    # Generic B.media/B.router handlers were running after specialized feature
-    # handlers and could execute the same action a second time. Feature modules
-    # now own their respective message/media states; do not register the legacy
-    # catch-all handlers here.
-    log.info("Canonical Telegram handlers installed without legacy catch-all router")
+    # Keep the legacy text/media fallback for states not owned by a feature
+    # module (notably partner top-up amount entry), but it is reached only when
+    # no earlier specialized handler has consumed the update.
+    app.add_handler(MessageHandler(filters.PHOTO|filters.Document.ALL,B.media),group=1)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,B.router),group=1)
+    log.info("Canonical Telegram handlers installed with single-dispatch UI guard")
     return app
