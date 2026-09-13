@@ -23,8 +23,6 @@ async def _install_final_telegram_patches():
         "telegram_night_logout_final",
         "telegram_partner_login_fix",
         "telegram_offhours_partner_gate_v2",
-        # Admin menu owners must be installed explicitly; the menu-fix layer
-        # alone only changes the keyboard and does not own all callbacks/text.
         "telegram_admin_plus",
         "telegram_admin_power",
         "telegram_final_admin_menu_fix",
@@ -65,6 +63,14 @@ async def _install_final_telegram_patches():
         log.info("telegram absolute operational router installed last")
     except Exception:
         log.exception("telegram absolute operational router unavailable")
+
+    try:
+        import telegram_operational_continuation_guard as OC
+        import bot as B
+        OC.install(server.telegram_app, B)
+        log.info("telegram operational continuation guard installed last")
+    except Exception:
+        log.exception("telegram operational continuation guard unavailable")
 
 
 def main():
