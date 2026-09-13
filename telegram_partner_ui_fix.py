@@ -40,6 +40,7 @@ def install(app, B):
     def partner_inline(uid=None):
         return UI.inline([
             ["➕ شارژ حساب", "🏛 حل مشکل سامانه دولت من"],
+            ["🪪 فیدای غیر حضوری", "📱 خدمات سیم کارت"],
             ["🔎 پیگیری کد", "📋 سوابق"],
             ["💰 موجودی", "🎫 تیکت به مدیریت"],
             ["🚪 خروج از پنل"],
@@ -78,4 +79,9 @@ def install(app, B):
         TLC.install(B)
     except Exception:
         log.exception("Telegram language lock re-apply unavailable")
+    try:
+        import telegram_final_admin_partner_fix as FAP
+        FAP.install(app, B)
+    except Exception:
+        log.exception("Final admin/partner stability layer unavailable")
     B._partner_ui_fix = True
