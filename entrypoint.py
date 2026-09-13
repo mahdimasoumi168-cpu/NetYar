@@ -9,14 +9,7 @@ bale_bootstrap.install(server)
 
 
 def _install_before_telegram_start(app, B, log):
-    """Install the final Telegram ownership layers before polling starts.
-
-    The server creates and starts the PTB application during its own startup
-    handler.  Installing critical routers in a later FastAPI startup handler
-    creates a race and leaves the first updates on legacy handlers.  This
-    function is therefore called from a wrapped telegram_runtime_clean.build()
-    so every final router exists before Application.initialize/start/polling.
-    """
+    """Install the final Telegram ownership layers before polling starts."""
     pre_app_modules = (
         "telegram_partner_logout_fix",
         "telegram_language_consistency",
@@ -53,6 +46,7 @@ def _install_before_telegram_start(app, B, log):
         "telegram_admin_request_reliability_fix",
         "telegram_partner_chat_reliability",
         "telegram_final_notification_reliability",
+        "telegram_final_admin_partner_fix",
     )
     for module_name in app_modules:
         try:
@@ -63,22 +57,16 @@ def _install_before_telegram_start(app, B, log):
             log.exception("telegram pre-polling layer unavailable: %s", module_name)
 
 
-# IMPORTANT: server._initialize_integrations() imports telegram_runtime_clean
-# and calls tg.build() before FastAPI startup handlers registered later in this
-# module. Wrap build at import time so the final Telegram layers are installed
-# before Application.initialize(), Application.start(), and start_polling().
+# Install critical Telegram layers before Application.initialize/start/polling.
 try:
     import telegram_runtime_clean as _telegram_runtime
     import bot as _telegram_bot
-
     if not getattr(_telegram_runtime, "_netyar_pre_polling_wrapper", False):
         _original_telegram_build = _telegram_runtime.build
-
         def _wrapped_telegram_build():
             app = _original_telegram_build()
             _install_before_telegram_start(app, _telegram_bot, logging.getLogger("netyar.entrypoint"))
             return app
-
         _telegram_runtime.build = _wrapped_telegram_build
         _telegram_runtime._netyar_pre_polling_wrapper = True
 except Exception:
@@ -87,7 +75,7 @@ except Exception:
 
 @server.api.on_event("startup")
 async def _install_final_telegram_patches():
-    """Final idempotent verification/re-install for any optional layers."""
+    """Final idempotent verification/re-install for optional Telegram layers."""
     log = logging.getLogger("netyar.entrypoint")
     modules = (
         "telegram_partner_logout_fix",
@@ -115,17 +103,13 @@ async def _install_final_telegram_patches():
         "telegram_admin_request_reliability_fix",
         "telegram_partner_chat_reliability",
         "telegram_final_notification_reliability",
+        "telegram_final_admin_partner_fix",
     )
-
     for module_name in modules:
         try:
             module = __import__(module_name)
             import bot as B
-            if module_name in {
-                "telegram_partner_logout_fix",
-                "telegram_language_consistency",
-                "telegram_cancel_policy",
-            }:
+            if module_name in {"telegram_partner_logout_fix","telegram_language_consistency","telegram_cancel_policy"}:
                 module.install(B)
             else:
                 module.install(server.telegram_app, B)
@@ -135,13 +119,7 @@ async def _install_final_telegram_patches():
 
 
 def main():
-    uvicorn.run(
-        server.api,
-        host="0.0.0.0",
-        port=int(os.getenv("PORT", "8000")),
-        lifespan="on",
-    )
-
+    uvicorn.run(server.api,host="0.0.0.0",port=int(os.getenv("PORT","8000")),lifespan="on")
 
 if __name__ == "__main__":
     main()
