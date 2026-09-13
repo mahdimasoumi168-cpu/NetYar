@@ -22,6 +22,7 @@ async def _install_final_telegram_patches():
         "telegram_final_layer_loader",
         "telegram_offhours_partner_gate_v2",
         "telegram_final_admin_menu_fix",
+        "telegram_final_ops_overlay",
     ):
         try:
             module=__import__(module_name)
