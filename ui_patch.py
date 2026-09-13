@@ -2,6 +2,22 @@
 import logging
 log=logging.getLogger('netyar.ui_patch')
 
+# Guard against duplicate callback handlers from legacy UI layers.
+_SEEN_CALLBACKS = set()
+_MAX_SEEN_CALLBACKS = 1000
+
+def _claim_callback(q):
+    cid = getattr(q, 'id', None)
+    if not cid:
+        return True
+    if cid in _SEEN_CALLBACKS:
+        return False
+    _SEEN_CALLBACKS.add(cid)
+    if len(_SEEN_CALLBACKS) > _MAX_SEEN_CALLBACKS:
+        for _ in range(len(_SEEN_CALLBACKS) - _MAX_SEEN_CALLBACKS):
+            _SEEN_CALLBACKS.pop()
+    return True
+
 def install():
  import bot as B
  if getattr(B,'_netyar_ui_patch_installed',False): return
@@ -13,13 +29,23 @@ def install():
   uid=u.effective_user.id; B.db.user('telegram',uid,u.effective_user.username,u.effective_user.full_name); B.S[uid]={}
   return await u.message.reply_text('سلام و خوش آمدید 🌷\n\nزبان موردنظر را انتخاب کنید:',reply_markup=B.kb([["🇮🇷 فارسی","🇬🇧 English","🇸🇦 العربية"]]))
  async def langcb(u,c):
-  q=u.callback_query; await q.answer(); uid=q.from_user.id; lang=(q.data or '').split(':',1)[-1]
+  q=u.callback_query
+  if not _claim_callback(q):
+   try: await q.answer()
+   except Exception: pass
+   return
+  await q.answer(); uid=q.from_user.id; lang=(q.data or '').split(':',1)[-1]
   if lang not in {'fa','en','ar'}: lang='fa'
   old=B.S.get(uid,{}); B.S[uid]={k:old[k] for k in ('partner_id','partner_active','admin') if k in old}; B.S[uid]['lang']=lang
   text={'fa':'آیا اتباع هستید یا ایرانی؟','en':'Are you a foreign national or Iranian?','ar':'هل أنت أجنبي أم إيراني؟'}[lang]
   return await q.message.reply_text(text,reply_markup=B.kb(citizen_rows(lang)))
  async def statuscb(u,c):
-  q=u.callback_query; await q.answer(); uid=q.from_user.id; status=(q.data or '').split(':',1)[-1]; st=B.S.setdefault(uid,{}); st['status']=status; lang=st.get('lang','fa')
+  q=u.callback_query
+  if not _claim_callback(q):
+   try: await q.answer()
+   except Exception: pass
+   return
+  await q.answer(); uid=q.from_user.id; status=(q.data or '').split(':',1)[-1]; st=B.S.setdefault(uid,{}); st['status']=status; lang=st.get('lang','fa')
   msg={'fa':'منوی خدمات کمک یار مهاجر 👇','en':'Mohajer Helper services 👇','ar':'قائمة خدمات المهاجرين 👇'}[lang] if status=='foreign' else {'fa':'🇮🇷 خدمات ایرانی فعلاً فعال نیست.','en':'🇮🇷 Services for Iranian users are currently unavailable.','ar':'🇮🇷 الخدمات للمستخدمين الإيرانيين غير متاحة حالياً.'}[lang]
   return await q.message.reply_text(msg,reply_markup=B.main(uid))
  B.start=start; B.langcb=langcb; B.statuscb=statuscb
