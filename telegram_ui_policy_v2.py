@@ -89,7 +89,35 @@ async def _dispatch(update,context,B,label):
     q=update.callback_query; uid=q.from_user.id; st=B.S.setdefault(uid,{}); fake=_fake(update,label)
     if label==RESTART:return await B.start(fake,context)
     if label==CANCEL:return await B.cancel(fake,context)
-    if label=="👥 پنل همکاران":_resolve_partner(B,uid);return await B.partner(fake,context)
+    if label=="👥 پنل همکاران":
+        # Partner-panel navigation is deliberately isolated from legacy partner
+        # wrappers. Those wrappers can mutate the same session while processing
+        # an inline callback and were the source of the generic execution error.
+        # A logged-out user must always enter the normal login flow.
+        if st.get("partner_logged_out"):
+            st.pop("partner_id",None); st.pop("partner_active",None)
+        pid=st.get("partner_id")
+        if pid and st.get("partner_active", True):
+            try:
+                p=B.db.conn.execute("SELECT * FROM partners WHERE id=? AND active=1 LIMIT 1",(pid,)).fetchone()
+            except Exception:
+                log.exception("partner panel database lookup failed")
+                p=None
+            if p:
+                st["partner_active"]=True
+                st["mode"]=None
+                st["partner_logged_out"]=False
+                return await q.message.reply_text(
+                    f"👥 پنل همکاران\n👤 {p['name']}\n📱 {p['phone']}\n💰 اعتبار: {int(p['balance'] or 0):,} تومان",
+                    reply_markup=B.partner_kb(st.get("lang","fa")),
+                )
+        st["mode"]="p_phone"
+        st.pop("phone",None)
+        st.pop("partner_active",None)
+        return await q.message.reply_text(
+            "👥 ورود به پنل همکاران\n\n📱 لطفاً شماره موبایل اختصاصی همکار را وارد کنید:",
+            reply_markup=B.cancel_kb(st.get("lang","fa")),
+        )
     if label=="🚪 خروج از پنل":return await B.partner_exit(fake,context)
     if label=="🛠 پنل مدیریت بات":
         if not B.admin(uid): return await q.message.reply_text("❌ دسترسی مدیریت ندارید.",reply_markup=B.main(uid))
