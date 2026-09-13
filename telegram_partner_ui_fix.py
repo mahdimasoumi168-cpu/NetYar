@@ -81,4 +81,19 @@ def install(app, B):
         return await old_partner(update, context)
 
     B.partner = partner
+
+    # Install the canonical callback owner here so every inline button has one
+    # deterministic execution path. The language lock is re-applied afterwards
+    # because the callback owner also exposes legacy menu builders.
+    try:
+        import telegram_absolute_fix as AF
+        AF.install(app, B)
+    except Exception:
+        log.exception("canonical Telegram callback router unavailable")
+    try:
+        import telegram_language_consistency as TLC
+        TLC.install(B)
+    except Exception:
+        log.exception("Telegram language lock re-apply unavailable")
+
     B._partner_ui_fix = True
