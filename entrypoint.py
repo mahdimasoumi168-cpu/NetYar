@@ -8,9 +8,86 @@ import bale_bootstrap
 bale_bootstrap.install(server)
 
 
+def _install_before_telegram_start(app, B, log):
+    """Install the final Telegram ownership layers before polling starts.
+
+    The server creates and starts the PTB application during its own startup
+    handler.  Installing critical routers in a later FastAPI startup handler
+    creates a race and leaves the first updates on legacy handlers.  This
+    function is therefore called from a wrapped telegram_runtime_clean.build()
+    so every final router exists before Application.initialize/start/polling.
+    """
+    pre_app_modules = (
+        "telegram_partner_logout_fix",
+        "telegram_language_consistency",
+        "telegram_cancel_policy",
+    )
+    for module_name in pre_app_modules:
+        try:
+            module = __import__(module_name)
+            module.install(B)
+            log.info("telegram pre-build layer installed: %s", module_name)
+        except Exception:
+            log.exception("telegram pre-build layer unavailable: %s", module_name)
+
+    app_modules = (
+        "final_stability_overlay",
+        "final_government_payment_overlay",
+        "telegram_price_dedup_guard",
+        "telegram_final_layer_loader",
+        "telegram_night_logout_final",
+        "telegram_partner_login_fix",
+        "telegram_offhours_partner_gate_v2",
+        "telegram_admin_plus",
+        "telegram_admin_power",
+        "telegram_final_admin_menu_fix",
+        "telegram_final_ops_overlay",
+        "telegram_button_stability_final",
+        "telegram_service_billing_v3_fix",
+        "telegram_partner_ui_fix",
+        "telegram_request_control_v2",
+        "telegram_government_family_code_fix",
+        "telegram_ui_policy_v2",
+        "telegram_absolute_fix",
+        "telegram_operational_continuation_guard",
+        "telegram_admin_request_reliability_fix",
+        "telegram_partner_chat_reliability",
+        "telegram_final_notification_reliability",
+    )
+    for module_name in app_modules:
+        try:
+            module = __import__(module_name)
+            module.install(app, B)
+            log.info("telegram pre-polling layer installed: %s", module_name)
+        except Exception:
+            log.exception("telegram pre-polling layer unavailable: %s", module_name)
+
+
+# IMPORTANT: server._initialize_integrations() imports telegram_runtime_clean
+# and calls tg.build() before FastAPI startup handlers registered later in this
+# module. Wrap build at import time so the final Telegram layers are installed
+# before Application.initialize(), Application.start(), and start_polling().
+try:
+    import telegram_runtime_clean as _telegram_runtime
+    import bot as _telegram_bot
+
+    if not getattr(_telegram_runtime, "_netyar_pre_polling_wrapper", False):
+        _original_telegram_build = _telegram_runtime.build
+
+        def _wrapped_telegram_build():
+            app = _original_telegram_build()
+            _install_before_telegram_start(app, _telegram_bot, logging.getLogger("netyar.entrypoint"))
+            return app
+
+        _telegram_runtime.build = _wrapped_telegram_build
+        _telegram_runtime._netyar_pre_polling_wrapper = True
+except Exception:
+    logging.getLogger("netyar.entrypoint").exception("Telegram pre-polling bootstrap wrapper unavailable")
+
+
 @server.api.on_event("startup")
 async def _install_final_telegram_patches():
-    """Install operational layers in a deliberate order so every menu has a live owner."""
+    """Final idempotent verification/re-install for any optional layers."""
     log = logging.getLogger("netyar.entrypoint")
     modules = (
         "telegram_partner_logout_fix",
@@ -32,6 +109,12 @@ async def _install_final_telegram_patches():
         "telegram_partner_ui_fix",
         "telegram_request_control_v2",
         "telegram_government_family_code_fix",
+        "telegram_ui_policy_v2",
+        "telegram_absolute_fix",
+        "telegram_operational_continuation_guard",
+        "telegram_admin_request_reliability_fix",
+        "telegram_partner_chat_reliability",
+        "telegram_final_notification_reliability",
     )
 
     for module_name in modules:
@@ -46,25 +129,9 @@ async def _install_final_telegram_patches():
                 module.install(B)
             else:
                 module.install(server.telegram_app, B)
-            log.info("telegram layer installed: %s", module_name)
+            log.info("telegram layer verified: %s", module_name)
         except Exception:
-            log.exception("telegram layer unavailable: %s", module_name)
-
-    for module_name, label in (
-        ("telegram_ui_policy_v2", "telegram canonical UI installed"),
-        ("telegram_absolute_fix", "telegram absolute operational router installed last"),
-        ("telegram_operational_continuation_guard", "telegram operational continuation guard installed last"),
-        ("telegram_admin_request_reliability_fix", "telegram admin request reliability fix installed last"),
-        ("telegram_partner_chat_reliability", "telegram partner chat reliability installed last"),
-        ("telegram_final_notification_reliability", "telegram final notification reliability installed last"),
-    ):
-        try:
-            module = __import__(module_name)
-            import bot as B
-            module.install(server.telegram_app, B)
-            log.info(label)
-        except Exception:
-            log.exception("telegram layer unavailable: %s", module_name)
+            log.exception("telegram layer unavailable during verification: %s", module_name)
 
 
 def main():
