@@ -28,6 +28,9 @@ def _install_before_telegram_start(app, B, log):
             log.exception("telegram pre-build layer unavailable: %s", module_name)
 
     app_modules = (
+        "telegram_partner_session_persistence",
+        "telegram_management_destination_guard",
+        "telegram_global_admin_guard",
         "telegram_universal_partner_guard",
         "final_stability_overlay",
         "final_government_payment_overlay",
@@ -55,8 +58,6 @@ def _install_before_telegram_start(app, B, log):
         "telegram_final_notification_reliability",
         "telegram_final_admin_partner_fix",
         "telegram_final_menu_dedup_guard",
-        # Last Telegram state owner: it patches the already-installed UI/router
-        # layers and restores authenticated partner sessions after inactivity.
         "telegram_final_user_state_guard",
     )
     for module_name in app_modules:
