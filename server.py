@@ -250,17 +250,32 @@ async def _initialize_integrations():
         log.exception("Telegram startup failed")
         telegram_ready=False
 
+    # Rubika is isolated from Telegram: a Rubika startup failure must never
+    # prevent Telegram from reaching ready state. Prefer webhook mode because
+    # Railway is an HTTP service and the Rubika Bot API delivers updates there.
     try:
-        use_webhook=os.getenv("RUBIKA_USE_WEBHOOK","0").strip().lower() in {"1","true","yes","on"}
-        if use_webhook:
-            import rubika_v2 as rb
-            endpoint=public_url("/rubika/receiveUpdate")
-            result=rb.call("updateBotEndpoints",{"url":endpoint,"type":"ReceiveUpdate"})
-            log.info("Rubika webhook endpoint registration: %s",result)
-            rubika_ready=True
-        else:
-            rubika_ready=False
-            log.info("Rubika webhook registration skipped; polling mode is active")
+        import rubika_v2 as rb
+        for module_name in (
+            "rubika_fix", "rubika_core_compat", "rubika_runtime_fix",
+            "rubika_final_router", "rubika_button_guard", "rubika_dispatch_fix",
+            "rubika_stability_fix", "rubika_final_hardening", "rubika_final_stability",
+        ):
+            try:
+                module=__import__(module_name)
+                installer=getattr(module,"install",None)
+                if callable(installer):
+                    try: installer()
+                    except TypeError: installer(rb)
+                    log.info("Rubika compatibility layer installed: %s",module_name)
+            except ModuleNotFoundError:
+                continue
+            except Exception:
+                log.exception("Rubika compatibility layer failed: %s",module_name)
+
+        endpoint=public_url("/rubika/update")
+        result=rb.call("updateBotEndpoints",{"url":endpoint,"type":"ReceiveUpdate"})
+        log.info("Rubika webhook endpoint registration: %s",result)
+        rubika_ready=True
     except Exception:
         log.exception("Rubika startup failed; Telegram remains active")
         rubika_ready=False
