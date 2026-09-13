@@ -10,7 +10,7 @@ bale_bootstrap.install(server)
 
 @server.api.on_event("startup")
 async def _install_final_telegram_patches():
-    """Install compatibility layers, then restore one canonical Telegram UI."""
+    """Install operational layers in a deliberate order so every menu has a live owner."""
     log = logging.getLogger("netyar.entrypoint")
     modules = (
         "telegram_partner_logout_fix",
@@ -23,6 +23,10 @@ async def _install_final_telegram_patches():
         "telegram_night_logout_final",
         "telegram_partner_login_fix",
         "telegram_offhours_partner_gate_v2",
+        # Admin menu owners must be installed explicitly; the menu-fix layer
+        # alone only changes the keyboard and does not own all callbacks/text.
+        "telegram_admin_plus",
+        "telegram_admin_power",
         "telegram_final_admin_menu_fix",
         "telegram_final_ops_overlay",
         "telegram_button_stability_final",
@@ -46,8 +50,6 @@ async def _install_final_telegram_patches():
         except Exception:
             log.exception("telegram layer unavailable: %s", module_name)
 
-    # Canonical UI first, then the final operational router owns partner
-    # buttons and their follow-up messages without legacy collisions.
     try:
         import telegram_ui_policy_v2 as UI
         import bot as B
