@@ -63,8 +63,7 @@ async def _status_select(update,context):
         return
     await q.answer();uid=q.from_user.id;status=str(q.data or "").split(":",1)[-1];st=B.S.setdefault(uid,{})
     st["status"]=status;st.pop("mode",None);lang=st.get("lang","fa")
-    if status=="iranian":text={"fa":"🇮🇷 منوی خدمات ایرانی 👇","en":"🇮🇷 Iranian user menu 👇","ar":"🇮🇷 قائمة المستخدم الإيراني 👇"}.get(lang,"🇮🇷 منوی خدمات ایرانی 👇")
-    else:text={"fa":"منوی خدمات کمک یار مهاجر 👇","en":"Mohajer Helper services 👇","ar":"قائمة خدمات المهاجرين 👇"}.get(lang,"منوی خدمات کمک یار مهاجر 👇")
+    text={"fa":"منوی خدمات کمک یار مهاجر 👇","en":"Mohajer Helper services 👇","ar":"قائمة خدمات المهاجرين 👇"}.get(lang,"منوی خدمات کمک یار مهاجر 👇") if status!="iranian" else {"fa":"🇮🇷 منوی خدمات ایرانی 👇","en":"🇮🇷 Iranian user menu 👇","ar":"🇮🇷 قائمة المستخدم الإيراني 👇"}.get(lang,"🇮🇷 منوی خدمات ایرانی 👇")
     return await q.message.reply_text(text,reply_markup=B.main(uid))
 
 def _install_features(app):
@@ -87,8 +86,8 @@ def _install_features(app):
         if getattr(B,"_topup_invoice_install_app",None):B._topup_invoice_install_app(app)
     except Exception:log.exception("topup invoice unavailable")
     import telegram_admin_plus as A
-    app.add_handler(CallbackQueryHandler(lambda u,c:A._callback(u,c,B),pattern=r'^adm:'),group=-20)
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,lambda u,c:A._text(u,c,B)),group=-19)
+    app.add_handler(CallbackQueryHandler(lambda u,c:_safe_call(A._callback,u,c,B),pattern=r'^adm:'),group=-20)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,lambda u,c:_safe_call(A._text,u,c,B)),group=-19)
     try:
         import telegram_admin_entry as AE;AE.install(app,B)
     except Exception:log.exception("admin entry unavailable")
