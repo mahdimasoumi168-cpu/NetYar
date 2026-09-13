@@ -1,11 +1,11 @@
-"""Deterministic Telegram partner-panel entry owner.
+"""Deterministic Telegram entry routing for partner/admin panels.
 
-This module is installed LAST so the partner entry and partner keyboard cannot
-fall back to legacy handlers that produce the generic UI execution error.
+Installed last in the Telegram runtime so the two main panel buttons cannot
+fall through legacy callback layers and produce the generic UI error.
 """
 import logging
 
-log = logging.getLogger("netyar.telegram.partner_router_guard")
+log = logging.getLogger("netyar.telegram.entry_router_guard")
 PARTNER = "👥 پنل همکاران"
 ADMIN_PANEL = "🛠 پنل مدیریت بات"
 CANCEL = "❌ انصراف"
@@ -15,7 +15,7 @@ def _cancel_markup(B, UI, uid):
     try:
         return UI.inline([[CANCEL]], B, uid)
     except Exception:
-        log.exception("partner cancel markup failed")
+        log.exception("cancel markup failed")
         return None
 
 
@@ -55,18 +55,16 @@ async def _login_prompt_message(message, B, UI, uid, st):
     )
 
 
-async def _open_partner_from_callback(update, context, B, UI):
-    q = update.callback_query
+async def _open_partner(update, context, B, UI):
+    q = getattr(update, "callback_query", None)
     if q is None or q.message is None:
         return None
     uid = int(q.from_user.id)
     st = B.S.setdefault(uid, {})
-
     try:
         if st.get("partner_logged_out"):
             st.pop("partner_id", None)
             st.pop("partner_active", None)
-
         pid = st.get("partner_id")
         if pid and st.get("partner_active", True):
             try:
@@ -76,7 +74,6 @@ async def _open_partner_from_callback(update, context, B, UI):
             except Exception:
                 log.exception("partner lookup failed")
                 p = None
-
             if p:
                 st["partner_active"] = True
                 st["partner_logged_out"] = False
@@ -94,19 +91,39 @@ async def _open_partner_from_callback(update, context, B, UI):
                     f"👥 پنل همکاران\n👤 {name}\n📱 {phone}\n💰 اعتبار: {balance:,} تومان",
                     **kwargs,
                 )
-
         return await _login_prompt_message(q.message, B, UI, uid, st)
     except Exception:
-        log.exception("partner callback guard failed; forcing login flow")
-        # Never allow this entry point to bubble an exception into ui2's generic
-        # error message. Even if the database is unavailable, show the login form.
+        log.exception("partner entry failed; forcing simple login prompt")
+        # Keep the entry point usable even if a legacy DB/keyboard helper fails.
+        st["mode"] = "p_phone"
         try:
-            return await _login_prompt_message(q.message, B, UI, uid, st)
-        except Exception:
-            log.exception("partner callback fallback failed")
             return await q.message.reply_text(
                 "👥 ورود به پنل همکاران\n\n📱 لطفاً شماره موبایل اختصاصی همکار را وارد کنید:"
             )
+        except Exception:
+            return None
+
+
+async def _open_admin(update, context, B, UI):
+    q = getattr(update, "callback_query", None)
+    if q is None or q.message is None:
+        return None
+    uid = int(q.from_user.id)
+    if not _is_admin(B, uid):
+        return await q.message.reply_text("❌ دسترسی مدیریت ندارید.")
+    try:
+        import telegram_admin_plus as A
+        markup = A._admin_menu()
+        return await q.message.reply_text(
+            "🛠 پنل مدیریت کامل\n\nاز منوی زیر بخش موردنظر را انتخاب کنید:",
+            reply_markup=markup,
+        )
+    except Exception:
+        log.exception("admin entry failed; using minimal safe menu")
+        try:
+            return await q.message.reply_text("🛠 پنل مدیریت کامل\n\nپنل مدیریت آماده است.")
+        except Exception:
+            return None
 
 
 async def _open_partner_from_message(update, context, B, UI):
@@ -143,23 +160,17 @@ async def _open_partner_from_message(update, context, B, UI):
                 )
         return await _login_prompt_message(message, B, UI, uid, st)
     except Exception:
-        log.exception("partner message entry failed; forcing login prompt")
-        try:
-            return await _login_prompt_message(message, B, UI, uid, st)
-        except Exception:
-            return await message.reply_text(
-                "👥 ورود به پنل همکاران\n\n📱 لطفاً شماره موبایل اختصاصی همکار را وارد کنید:"
-            )
+        log.exception("partner message entry failed")
+        st["mode"] = "p_phone"
+        return await message.reply_text(
+            "👥 ورود به پنل همکاران\n\n📱 لطفاً شماره موبایل اختصاصی همکار را وارد کنید:"
+        )
 
 
 def install():
     import bot as B
     import telegram_ui_policy_v2 as UI
 
-    # Do not use a stale one-time marker here. Runtime layers may import this
-    # module before the final UI dispatcher is fully installed. Re-wrapping is
-    # intentionally idempotent through our own marker and always points at the
-    # current dispatcher.
     original_dispatch = getattr(UI, "_partner_guard_original_dispatch", None)
     if original_dispatch is None:
         original_dispatch = UI._dispatch
@@ -168,11 +179,13 @@ def install():
     async def guarded_dispatch(update, context, bot_obj, label):
         normalized = str(label or "").strip()
         if normalized == PARTNER:
-            return await _open_partner_from_callback(update, context, bot_obj, UI)
+            return await _open_partner(update, context, bot_obj, UI)
+        if normalized == ADMIN_PANEL:
+            return await _open_admin(update, context, bot_obj, UI)
         return await original_dispatch(update, context, bot_obj, label)
 
     UI._dispatch = guarded_dispatch
-    UI._partner_router_guard_v6 = True
+    UI._partner_router_guard_v8 = True
 
     def safe_partner_kb(lang="fa"):
         uid = UI._uid()
@@ -196,4 +209,4 @@ def install():
     except Exception:
         log.exception("could not lock legacy partner keyboard")
 
-    log.info("Telegram partner router guard v7 installed")
+    log.info("Telegram entry router guard v8 installed")
