@@ -176,6 +176,13 @@ def install():
         if app is not None:
             app.add_handler(CallbackQueryHandler(lambda u, c: _stable_ui2(u, c, B), pattern=r"^ui2:"), group=-11)
             B._stable_ui2_handler = True
+    # Final administrative/navigation layer. It is intentionally installed from
+    # this last router so no older menu mutation can replace it afterwards.
+    try:
+        import telegram_admin_power as AP
+        AP.install(app, B)
+    except Exception:
+        log.exception("Telegram admin power layer unavailable")
     log.info("Telegram entry router guard installed")
 
 
