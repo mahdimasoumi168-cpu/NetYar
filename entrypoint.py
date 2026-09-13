@@ -26,6 +26,16 @@ async def _install_partner_logout_fix():
         import logging
         logging.getLogger("netyar.entrypoint").exception("partner logout fix unavailable")
 
+    # Apply the contextual Cancel policy after all Telegram feature layers
+    # have installed/replaced their keyboard helpers.
+    try:
+        import telegram_cancel_policy as cancel_policy
+        import bot as B
+        cancel_policy.install(B)
+    except Exception:
+        import logging
+        logging.getLogger("netyar.entrypoint").exception("cancel policy unavailable")
+
 
 def main():
     uvicorn.run(
