@@ -10,19 +10,23 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationHandlerStop, MessageHandler, filters
 
 
-_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "0123456789")
+# Persian + Arabic-Indic digits -> ASCII digits.
+_DIGITS = str.maketrans(
+    "۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩",
+    "01234567890123456789",
+)
 _PHONE_RE = re.compile(r"09\d{9}")
 
 
 def _normalize_phone(value: str) -> str:
     value = str(value or "").translate(_DIGITS)
     value = re.sub(r"[\s\-()]+", "", value)
-    if value.startswith("0098"):
+    if value.startswith("+98"):
+        value = "0" + value[3:]
+    elif value.startswith("0098"):
         value = "0" + value[4:]
     elif value.startswith("98"):
         value = "0" + value[2:]
-    elif value.startswith("+98"):
-        value = "0" + value[3:]
     return re.sub(r"\D", "", value)
 
 
