@@ -1,12 +1,12 @@
 """Final Telegram routing repair.
 
-Runs before legacy catch-all handlers so start, admin-menu entry, and partner
-login inputs cannot be swallowed by older UI layers.
+Runs before legacy catch-all handlers so admin-menu entry and partner login
+inputs cannot be swallowed by older UI layers. The canonical /start handler
+remains owned by telegram_runtime_clean to keep one welcome flow only.
 """
 import logging
 import re
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import MessageHandler, CommandHandler, ApplicationHandlerStop, filters
+from telegram.ext import MessageHandler, filters, ApplicationHandlerStop
 
 log = logging.getLogger("netyar.telegram.final_repair")
 
@@ -27,20 +27,6 @@ def _phone(v):
 def install(app, B):
     if getattr(B, "_final_repair_installed", False):
         return
-
-    async def start(update, context):
-        uid = update.effective_user.id
-        B.S.setdefault(uid, {}).clear()
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🇮🇷 فارسی", callback_data="lang:fa"),
-             InlineKeyboardButton("🇬🇧 English", callback_data="lang:en")],
-            [InlineKeyboardButton("🇸🇦 العربية", callback_data="lang:ar")],
-        ])
-        await update.effective_message.reply_text(
-            "سلام و خوش آمدید 🌷\nبه بات «کمک یار مهاجر» خوش آمدید.\n\n🌐 لطفاً زبان را انتخاب کنید:",
-            reply_markup=kb,
-        )
-        raise ApplicationHandlerStop
 
     async def admin_entry(update, context):
         if not update.effective_user or not update.message or not B.admin(update.effective_user.id):
@@ -103,7 +89,7 @@ def install(app, B):
                 log.exception("partner password verification failed")
             if not ok:
                 st["mode"] = "p_pass"; st["step"] = "partner_pass"
-                await update.message.reply_text("❌ رمز عبور نادرست است.\n\n🔐 رمز عبور همکار را دوباره وارد کنید:")
+                await update.message.reply_text("❌ رمز عبور نادرست است.\n\n🔐 رمز عبور پنل همکاران را دوباره وارد کنید:")
                 raise ApplicationHandlerStop
             st.update(partner=phone, partner_phone=phone, partner_id=partner["id"], partner_active=True, partner_logged_out=False, mode="partner", step="partner")
             try:
@@ -122,8 +108,9 @@ def install(app, B):
             )
             raise ApplicationHandlerStop
 
-    # Very early groups intentionally precede all generic text routers.
-    app.add_handler(CommandHandler("start", start), group=-1000000)
+    # Do not register another /start handler here. The canonical runtime owns
+    # /start and the multilingual welcome text; duplicate /start handlers were
+    # causing the welcome message to change and sometimes duplicate.
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, admin_entry), group=-999999)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, partner_entry), group=-999998)
     B._final_repair_installed = True
