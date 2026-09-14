@@ -8,7 +8,7 @@ import bale_bootstrap
 import rubika_bootstrap_final
 import production_stability
 
-NETYAR_TELEGRAM_BUILD = "2026-09-14-irancell-partner-service"
+NETYAR_TELEGRAM_BUILD = "2026-09-14-subscriber-phone-stability"
 
 bale_bootstrap.install(server)
 rubika_bootstrap_final.install(server)
@@ -41,6 +41,7 @@ def _install_before_telegram_start(app, B, log):
         install_module(module_name, pre=True)
 
     app_modules = (
+        "telegram_phone_registry_and_stability",
         "telegram_final_hotfix_20260914",
         "telegram_fast_response_layer",
         "telegram_critical_input_logout_fix","telegram_idle_session_reset","telegram_input_continuation_guard",
