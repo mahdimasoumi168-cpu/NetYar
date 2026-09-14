@@ -1,8 +1,4 @@
-"""Deterministic final owner for conversational information entry.
-
-This layer runs before legacy text routers so an active information-gathering
-state cannot be swallowed by a menu, night-shift, or fallback handler.
-"""
+"""Deterministic final owner for conversational information entry."""
 import re
 from telegram.ext import MessageHandler, filters, ApplicationHandlerStop
 
@@ -36,9 +32,26 @@ def install(app, B):
         t = msg.text.strip()
         d = _digits(t)
 
-        # Partner login is handled before every legacy text router. This makes
-        # the password step deterministic instead of allowing an unrelated
-        # service/admin handler to consume the password and remain silent.
+        # Government service phone ownership is based on the active government
+        # workflow state as well as its nominal mode. Some older navigation layers
+        # can rewrite mode while leaving gov_doc_type set; in that case the phone
+        # must still be consumed here instead of falling through silently.
+        gov_phone_modes = {"govv2_phone", "gov_phone", "government_phone", "gov_phone_input"}
+        if mode in gov_phone_modes or (
+            st.get("gov_doc_type")
+            and not st.get("gov_phone")
+            and mode not in {"govv2_photo", "govv2_passport_photo1", "govv2_passport_photo2", "govv2_passport_photo3", "invoice_pending"}
+        ):
+            phone = _normalize_phone(t)
+            if not re.fullmatch(r"09\d{9}", phone):
+                await msg.reply_text("❌ شماره موبایل باید ۱۱ رقم و با ۰۹ شروع شود.\n\n📱 لطفاً شماره موبایل مشترک را دوباره وارد کنید:")
+            else:
+                st["gov_phone"] = phone
+                st["mode"] = "govv2_dob"
+                await msg.reply_text("🎂 تاریخ تولد مشترک را وارد کنید:")
+            raise ApplicationHandlerStop
+
+        # Partner login is handled before every legacy text router.
         if mode == "p_phone" or st.get("step") == "partner_phone":
             phone = _normalize_phone(t)
             if not re.fullmatch(r"09\d{9}", phone):
