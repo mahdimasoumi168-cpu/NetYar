@@ -1,9 +1,4 @@
-"""Partner request receipt/ticket UX and Rubika->Telegram admin bridge.
-
-Adds a confirmation message to partners after a request is created, with
-edit/restart and ticket-to-admin actions. Also mirrors Rubika requests to the
-Telegram admins configured in ADMIN_IDS using TELEGRAM_BOT_TOKEN.
-"""
+"""Partner request UX and cross-platform admin bridge with language preservation."""
 import os
 import re
 import logging
@@ -30,6 +25,34 @@ def _service_name(key):
     }.get(str(key), str(key or "خدمت"))
 
 
+def _request_lang(request_row):
+    """Resolve the language from the request owner's current selected state."""
+    try:
+        platform = str(request_row["platform"] or "").lower()
+        import bot as B
+        u = B.db.conn.execute("SELECT external_id FROM users WHERE id=?", (request_row["user_id"],)).fetchone()
+        ext = str(u["external_id"] or "") if u else ""
+        if platform == "rubika":
+            import rubika_v2 as R
+            value = str(R.STATE.get(ext, {}).get("lang", "fa"))
+        else:
+            st = getattr(B, "S", {}).get(int(ext), {}) if ext.isdigit() else {}
+            value = str(st.get("lang", "fa"))
+        return value if value in {"fa", "en", "ar"} else "fa"
+    except Exception:
+        return "fa"
+
+
+def _localize(text, lang):
+    if lang == "fa":
+        return str(text)
+    try:
+        from telegram_notification_guard import _localize_text
+        return _localize_text(text, lang)
+    except Exception:
+        return str(text)
+
+
 def _telegram_admin_ids():
     raw = os.getenv("ADMIN_IDS", "")
     return [x.strip() for x in re.split(r"[;,\s]+", raw) if x.strip() and x.strip().isdigit()]
@@ -41,7 +64,8 @@ def _mirror_rubika_to_telegram(text, request_row=None):
     if not token or not admins:
         log.warning("Rubika->Telegram bridge skipped: Telegram token/admin ids are not configured")
         return
-    payload_text = "📥 درخواست جدید از روبیکا\n\n" + str(text)
+    lang = _request_lang(request_row) if request_row else "fa"
+    payload_text = _localize("📥 درخواست جدید از روبیکا\n\n", lang) + _localize(str(text), lang)
     if request_row:
         payload_text += f"\n\n🆔 شناسه داخلی درخواست: {request_row['id']}"
     url = f"https://api.telegram.org/bot{token}/sendMessage"
@@ -76,18 +100,19 @@ def install():
         if partner_id:
             row = _last_request(B.db, partner_id, before)
             if row:
-                text = (
+                lang = str(st.get("lang", "fa")) if str(st.get("lang", "fa")) in {"fa", "en", "ar"} else "fa"
+                text = _localize(
                     "📋 درخواست شما ثبت شد.\n\n"
                     f"🛠 خدمت: {_service_name(row['service_key'])}\n"
                     f"🎫 کد پیگیری: {row['tracking_code']}\n"
                     f"💰 مبلغ: {int(row['amount'] or 0):,} تومان\n"
                     f"📌 وضعیت: {row['status']}\n\n"
-                    "از گزینه‌های زیر استفاده کنید:"
-                )
+                    "از گزینه‌های زیر استفاده کنید:", lang)
                 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+                labels = {"fa": ("✏️ ویرایش درخواست", "✉️ ارسال تیکت به مدیریت بات"), "en": ("✏️ Edit request", "✉️ Send ticket to bot management"), "ar": ("✏️ تعديل الطلب", "✉️ إرسال تذكرة إلى الإدارة")}[lang]
                 markup = InlineKeyboardMarkup([
-                    [InlineKeyboardButton("✏️ ویرایش درخواست", callback_data=f"pr:self:edit:{row['id']}")],
-                    [InlineKeyboardButton("✉️ ارسال تیکت به مدیریت بات", callback_data=f"pr:self:ticket:{row['id']}")],
+                    [InlineKeyboardButton(labels[0], callback_data=f"pr:self:edit:{row['id']}")],
+                    [InlineKeyboardButton(labels[1], callback_data=f"pr:self:ticket:{row['id']}")],
                 ])
                 try:
                     await update.effective_chat.send_message(text=text, reply_markup=markup)
@@ -111,22 +136,22 @@ def install():
             return await q.message.reply_text("❌ درخواست پیدا نشد.")
         uid = int(q.from_user.id)
         st = B.S.setdefault(uid, {})
+        lang = str(st.get("lang", "fa")) if str(st.get("lang", "fa")) in {"fa", "en", "ar"} else "fa"
         if int(st.get("partner_id") or -1) != int(row["user_id"]):
-            return await q.message.reply_text("❌ این درخواست متعلق به شما نیست.")
+            return await q.message.reply_text(_localize("❌ این درخواست متعلق به شما نیست.", lang))
         if parts[2] == "ticket":
-            text = (
+            text = _localize(
                 "✉️ تیکت همکار\n"
                 f"🎫 {row['tracking_code']}\n"
                 f"🛠 {_service_name(row['service_key'])}\n"
                 f"💰 {int(row['amount'] or 0):,} تومان\n"
-                "📌 درخواست پشتیبانی/بررسی همکار"
-            )
+                "📌 درخواست پشتیبانی/بررسی همکار", lang)
             try:
                 await B.notify_admins(context.application, text, request_id=rid)
-                return await q.message.reply_text("✅ تیکت شما برای مدیریت بات ارسال شد.")
+                return await q.message.reply_text(_localize("✅ تیکت شما برای مدیریت بات ارسال شد.", lang))
             except Exception:
                 log.exception("partner ticket failed")
-                return await q.message.reply_text("❌ ارسال تیکت انجام نشد؛ دوباره تلاش کنید.")
+                return await q.message.reply_text(_localize("❌ ارسال تیکت انجام نشد؛ دوباره تلاش کنید.", lang))
         if parts[2] == "edit":
             key = str(row["service_key"])
             st["mode"] = None
@@ -140,7 +165,7 @@ def install():
                     return await B.gov(update, context)
             except Exception:
                 log.exception("partner edit flow failed")
-            return await q.message.reply_text("✏️ ویرایش این خدمت از ابتدا شروع می‌شود. لطفاً دوباره اطلاعات را وارد کنید.")
+            return await q.message.reply_text(_localize("✏️ ویرایش این خدمت از ابتدا شروع می‌شود. لطفاً دوباره اطلاعات را وارد کنید.", lang))
 
     old_build = TG.build
     def build_with_partner_actions():
@@ -167,13 +192,13 @@ def install():
         if partner_id:
             row = _last_request(R.db, partner_id, before)
             if row:
-                text = (
+                lang = str(st_before.get("lang", "fa")) if str(st_before.get("lang", "fa")) in {"fa", "en", "ar"} else "fa"
+                text = _localize(
                     "📋 درخواست شما ثبت شد.\n"
                     f"🛠 خدمت: {_service_name(row['service_key'])}\n"
                     f"🎫 کد پیگیری: {row['tracking_code']}\n"
                     f"💰 مبلغ: {int(row['amount'] or 0):,} تومان\n"
-                    f"📌 وضعیت: {row['status']}"
-                )
+                    f"📌 وضعیت: {row['status']}", lang)
                 try:
                     R.send(chat, text, [["✏️ ویرایش درخواست"], ["✉️ ارسال تیکت به مدیریت بات"]])
                 except Exception:
@@ -187,17 +212,16 @@ def install():
     def handle_actions(uid, chat, x, u):
         st = R.STATE.setdefault(str(uid), {})
         rid = st.get("last_partner_request_id")
+        lang = str(st.get("lang", "fa")) if str(st.get("lang", "fa")) in {"fa", "en", "ar"} else "fa"
         if rid and x in {"✉️ ارسال تیکت به مدیریت بات", "ارسال تیکت به مدیریت بات"}:
             row = R.db.conn.execute("SELECT * FROM requests WHERE id=?", (rid,)).fetchone()
             if row:
-                _mirror_rubika_to_telegram(
+                _mirror_rubika_to_telegram(_localize(
                     "✉️ تیکت همکار از روبیکا\n"
                     f"🎫 {row['tracking_code']}\n"
                     f"🛠 {_service_name(row['service_key'])}\n"
-                    f"💰 {int(row['amount'] or 0):,} تومان",
-                    row,
-                )
-                R.send(chat, "✅ تیکت برای مدیریت بات ارسال شد.", R.partner_rows())
+                    f"💰 {int(row['amount'] or 0):,} تومان", lang), row)
+                R.send(chat, _localize("✅ تیکت برای مدیریت بات ارسال شد.", lang), R.partner_rows())
                 return
         if rid and x in {"✏️ ویرایش درخواست", "ویرایش درخواست"}:
             row = R.db.conn.execute("SELECT * FROM requests WHERE id=?", (rid,)).fetchone()
@@ -216,4 +240,4 @@ def install():
     R.handle = handle_actions
 
     B._partner_request_patch_installed = True
-    log.info("partner request UX and Rubika->Telegram bridge installed")
+    log.info("partner request UX and Rubika->Telegram bridge installed with language preservation")
