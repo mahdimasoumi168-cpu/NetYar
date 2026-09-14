@@ -32,20 +32,18 @@ def is_open(B):
 
 
 def night_worker(B, uid):
+    """Return true only after a real, active partner session is authenticated."""
     try:
         st = B.S.get(uid, {}) or {}
         pid = st.get("partner_id")
-        if pid and st.get("partner_active") and not st.get("partner_logged_out"):
-            row = B.db.conn.execute("SELECT id FROM partners WHERE id=? AND active=1 LIMIT 1", (int(pid),)).fetchone()
-            return bool(row and str(B.db.setting("night_worker:" + str(row["id"]), "0")) == "1")
-        phone = st.get("phone") or st.get("partner_phone")
-        if phone:
-            digits = str(phone).translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")).replace("+98", "0", 1)
-            row = B.db.conn.execute("SELECT id FROM partners WHERE phone=? AND active=1 LIMIT 1", (digits,)).fetchone()
-            return bool(row and str(B.db.setting("night_worker:" + str(row["id"]), "0")) == "1")
+        if not pid or not st.get("partner_active") or st.get("partner_logged_out"):
+            return False
+        row = B.db.conn.execute(
+            "SELECT id FROM partners WHERE id=? AND active=1 LIMIT 1", (int(pid),)
+        ).fetchone()
+        return bool(row and str(B.db.setting("night_worker:" + str(row["id"]), "0")) == "1")
     except Exception:
         return False
-    return False
 
 
 def closed_text(B):
@@ -75,8 +73,8 @@ def install(app, B):
         if not msg:
             return
         st = B.S.get(uid, {}) or {}
-        # Allow only the credential collection that was explicitly opened by
-        # the off-hours partner button. It still verifies night-worker status.
+        # Credential collection is handled by the dedicated night-shift layer.
+        # It must still validate the partner as a night worker before success.
         if st.get("mode") in {"night_phone", "night_pass"}:
             return
         txt = str(getattr(msg, "text", "") or "").strip()
@@ -95,7 +93,6 @@ def install(app, B):
         if B.admin(uid) or night_worker(B, uid):
             return
         data = str(q.data or "")
-        # These are handled by the dedicated off-hours/night-worker gate.
         if data in {"off:restart", "off:partner"}:
             return
         try:
@@ -105,8 +102,6 @@ def install(app, B):
         await q.message.reply_text(closed_text(B), reply_markup=markup())
         raise ApplicationHandlerStop
 
-    # TypeHandler is intentionally the earliest possible guard, before the
-    # canonical startup callback can open a menu while the bot is closed.
     async def update_gate(update, context):
         if is_open(B):
             return
