@@ -21,6 +21,7 @@ _RUBIKA_LAYERS = (
     "rubika_stability_fix",
     "rubika_final_hardening",
     "rubika_final_stability",
+    "rubika_language_global",
 )
 
 _RB_LOCKS = {}
@@ -52,8 +53,6 @@ def _install_send_boundary_guard(rb):
     def normalise(rows):
         out = []
         for row in rows or []:
-            # Legacy callers sometimes pass [button_id, label] instead of
-            # [(button_id, label)]. Treat that as one button, not two buttons.
             if isinstance(row, (tuple, list)) and len(row) == 2 and not isinstance(row[0], (tuple, list, dict)):
                 out.append([(str(row[0]), str(row[1]))])
                 continue
@@ -77,7 +76,6 @@ def _install_send_boundary_guard(rb):
 
 
 async def _run_rubika_serialized(update, rb, user_id, server_module):
-    """Process one user's updates sequentially while preserving normalization."""
     key = str(user_id or "unknown")
     lock = _RB_LOCKS.setdefault(key, asyncio.Lock())
     async with lock:
@@ -119,32 +117,18 @@ def install(server_module):
         return
 
     async def initialize_with_single_owner():
-        # Telegram is initialized exactly once here. We intentionally do not
-        # call the old server initializer because it also initializes Rubika.
         await _telegram_initializer(server_module)()
-
         try:
             import rubika_v2 as rb
             _install_layers(rb)
             _install_send_boundary_guard(rb)
-
             endpoint = server_module.public_url("/rubika/update")
-            result = rb.call(
-                "updateBotEndpoints",
-                {"url": endpoint, "type": "ReceiveUpdate"},
-            )
+            result = rb.call("updateBotEndpoints", {"url": endpoint, "type": "ReceiveUpdate"})
             server_module.rubika_ready = True
             log.info("Rubika webhook registered exactly once: %s", result)
 
-            # Replace the old unconstrained background runner. Multiple rapid
-            # keypad presses from the same user must not race STATE mutations.
             async def serialized_runner(update, rb_module):
-                await _run_rubika_serialized(
-                    update,
-                    rb_module,
-                    server_module._rubika_user(update),
-                    server_module,
-                )
+                await _run_rubika_serialized(update, rb_module, server_module._rubika_user(update), server_module)
             server_module._run_rubika = serialized_runner
         except Exception:
             server_module.rubika_ready = False
