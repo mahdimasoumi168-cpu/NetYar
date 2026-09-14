@@ -32,6 +32,7 @@ def _install_before_telegram_start(app, B, log):
             log.exception("telegram pre-build layer unavailable: %s", module_name)
 
     app_modules = (
+        "telegram_critical_input_logout_fix",
         "telegram_idle_session_reset",
         "telegram_input_continuation_guard",
         "telegram_admin_button_guard",
