@@ -6,6 +6,7 @@ import bot as B
 log=logging.getLogger("netyar.telegram_runtime")
 _LANGS={"fa","en","ar"}
 _STATUSES={"foreign","iranian"}
+WELCOME="سلام و خوش آمدید 🌷\n\nلطفاً زبان موردنظر را انتخاب کنید / Choose your language / اختر اللغة:"
 async def _safe_call(fn, update, context):
     try:
         result=fn(update,context)
@@ -21,7 +22,7 @@ async def _start(update, context):
     except Exception:log.exception("user persistence")
     old=B.S.get(uid,{})
     B.S[uid]={k:old[k] for k in ("partner_id","partner_active","admin","lang","status","phone") if k in old}
-    await update.message.reply_text("سلام و خوش آمدید 🌷\n\nزبان موردنظر را انتخاب کنید:",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🇮🇷 فارسی",callback_data="lang:fa"),InlineKeyboardButton("🇬🇧 English",callback_data="lang:en"),InlineKeyboardButton("🇸🇦 العربية",callback_data="lang:ar")]]))
+    await update.message.reply_text(WELCOME,reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🇮🇷 فارسی",callback_data="lang:fa"),InlineKeyboardButton("🇬🇧 English",callback_data="lang:en"),InlineKeyboardButton("🇸🇦 العربية",callback_data="lang:ar")]]))
 async def _absolute_startup_callback(update,context):
     q=getattr(update,"callback_query",None)
     if not q:return
