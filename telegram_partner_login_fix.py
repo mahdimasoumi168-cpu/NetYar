@@ -1,4 +1,4 @@
-"""Reliable Telegram partner-panel login flow and phone normalization."""
+"""Reliable Telegram partner-panel login flow and robust phone normalization."""
 import re
 import logging
 from telegram.ext import MessageHandler, ApplicationHandlerStop, filters
@@ -8,12 +8,25 @@ log = logging.getLogger("netyar.telegram_partner_login_fix")
 
 def normalize_phone(value):
     s = str(value or "").strip().translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789"))
-    s = re.sub(r"[\s\-()]+", "", s)
-    if s.startswith("+98"):
-        s = "0" + s[3:]
-    elif s.startswith("0098"):
+    s = re.sub(r"[^0-9]+", "", s)
+    if s.startswith("0098"):
         s = "0" + s[4:]
+    elif s.startswith("98"):
+        s = "0" + s[2:]
     return s
+
+
+def _phone_variants(value):
+    p = normalize_phone(value)
+    if not p:
+        return set()
+    variants = {p}
+    if p.startswith("0") and len(p) == 11:
+        variants.update({p[1:], "98" + p[1:], "+98" + p[1:], "0098" + p[1:]})
+    elif p.startswith("98") and len(p) == 12:
+        local = "0" + p[2:]
+        variants.update({local, p, "+" + p, "00" + p})
+    return variants
 
 
 def install(app=None, B=None):
@@ -29,18 +42,28 @@ def install(app=None, B=None):
 
     def partner_fixed(phone):
         normalized = normalize_phone(phone)
-        row = original_partner(normalized)
-        if row:
-            return row
         if not re.fullmatch(r"09\d{9}", normalized):
             return None
+        # First use the canonical DB lookup.
+        try:
+            row = original_partner(normalized)
+            if row:
+                return row
+        except Exception:
+            log.exception("canonical partner lookup failed")
+        # Then compare normalized values against every active partner. This
+        # handles legacy records stored as +98..., 0098..., Persian digits,
+        # or with spaces/dashes without requiring migration of existing rows.
         try:
             rows = B.db.conn.execute("SELECT * FROM partners WHERE active=1 ORDER BY id DESC").fetchall()
             for candidate in rows:
-                if normalize_phone(candidate["phone"]) == normalized:
+                stored = candidate["phone"] if "phone" in candidate.keys() else ""
+                if normalize_phone(stored) == normalized:
+                    return candidate
+                if _phone_variants(stored) & _phone_variants(normalized):
                     return candidate
         except Exception:
-            log.exception("partner fallback lookup failed")
+            log.exception("partner normalized lookup failed")
         return None
 
     B.db.partner = partner_fixed
@@ -57,10 +80,6 @@ def install(app=None, B=None):
         if not text:
             return
 
-        # This handler is the single deterministic owner of normal partner
-        # phone/password entry. It runs before legacy routers so a valid phone
-        # cannot be consumed by an unrelated service handler and turned into
-        # the generic "temporary error" recovery message.
         if mode == "p_phone" or step == "partner_phone":
             phone = normalize_phone(text)
             if not re.fullmatch(r"09\d{9}", phone):
@@ -73,13 +92,15 @@ def install(app=None, B=None):
                 await update.message.reply_text("❌ این شماره به همکار فعال اختصاص ندارد.\n\n📱 شماره را دوباره وارد کنید:")
                 raise ApplicationHandlerStop
             st["partner_phone"] = phone
+            st["phone"] = phone
             st["partner_id"] = partner["id"] if "id" in partner.keys() else None
+            st["pending_partner_id"] = st["partner_id"]
             st["mode"] = "p_pass"; st["step"] = "partner_pass"
-            await update.message.reply_text("🔐 رمز عبور همکار را وارد کنید:")
+            await update.message.reply_text("🔐 رمز عبور پنل همکاران را وارد کنید:")
             raise ApplicationHandlerStop
 
         if mode == "p_pass" or step == "partner_pass":
-            phone = normalize_phone(st.get("partner_phone"))
+            phone = normalize_phone(st.get("partner_phone") or st.get("phone"))
             partner = partner_fixed(phone) if phone else None
             ok = False
             try:
@@ -116,14 +137,12 @@ def install(app=None, B=None):
             raise ApplicationHandlerStop
 
         if mode == "partner" and text == "🚪 خروج از پنل":
-            for key in ("partner", "partner_id", "partner_phone"):
+            for key in ("partner", "partner_id", "partner_phone", "pending_partner_id"):
                 st.pop(key, None)
             st["mode"] = None; st["step"] = None
             await update.message.reply_text("✅ از پنل همکاران خارج شدید.", reply_markup=B.main(uid))
             raise ApplicationHandlerStop
 
-    # Highest-priority normal-message owner for partner authentication.
-    # Lower group number runs before legacy service/text handlers.
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, partner_login), group=-10001)
     B._telegram_partner_login_fix_installed = True
     log.info("Telegram partner login fix installed")
