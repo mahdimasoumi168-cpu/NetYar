@@ -1,6 +1,7 @@
 """Production entrypoint for Railway and local execution."""
 import os
 import logging
+import inspect
 import uvicorn
 import server
 import bale_bootstrap
@@ -20,13 +21,33 @@ def _install_before_telegram_start(app, B, log):
         "telegram_language_consistency",
         "telegram_cancel_policy",
     )
-    for module_name in pre_app_modules:
+
+    def install_module(module_name, *, pre=False):
         try:
             module = __import__(module_name)
-            if module_name == "request_language_actions": module.install(app, B)
-            else: module.install(B)
-            log.info("telegram pre-build layer installed: %s", module_name)
-        except Exception: log.exception("telegram pre-build layer unavailable: %s", module_name)
+            installer = getattr(module, "install", None)
+            if not callable(installer):
+                raise AttributeError("install() not found")
+
+            # The project contains both install() and install(app, B) modules.
+            # The old bootstrap called several app-aware modules without their
+            # arguments, silently disabling the highest-priority input guards.
+            sig = inspect.signature(installer)
+            positional = [
+                p for p in sig.parameters.values()
+                if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+            ]
+            required = [p for p in positional if p.default is inspect.Parameter.empty]
+            if len(required) >= 2 or len(positional) >= 2:
+                installer(app, B)
+            else:
+                installer()
+            log.info("telegram %s layer installed: %s", "pre-build" if pre else "pre-polling", module_name)
+        except Exception:
+            log.exception("telegram %s layer unavailable: %s", "pre-build" if pre else "pre-polling", module_name)
+
+    for module_name in pre_app_modules:
+        install_module(module_name, pre=True)
 
     app_modules = (
         "telegram_critical_input_logout_fix","telegram_idle_session_reset","telegram_input_continuation_guard",
@@ -46,17 +67,15 @@ def _install_before_telegram_start(app, B, log):
         "production_final_patch","telegram_announcement_media","government_balance_postal_fix",
     )
     for module_name in app_modules:
-        try:
-            module=__import__(module_name)
-            module.install(app,B) if module_name=="telegram_announcement_media" else module.install()
-            log.info("telegram pre-polling layer installed: %s",module_name)
-        except Exception: log.exception("telegram pre-polling layer unavailable: %s",module_name)
+        install_module(module_name)
 
     try:
         from telegram_request_full_details_patch import finalize
         finalize(B)
         log.info("telegram complete-request notification finalizer installed")
-    except Exception: log.exception("telegram complete-request notification finalizer unavailable")
+    except Exception:
+        log.exception("telegram complete-request notification finalizer unavailable")
+
 
 try:
     import telegram_runtime_clean as _telegram_runtime
@@ -69,9 +88,13 @@ try:
             return app
         _telegram_runtime.build=_wrapped_telegram_build
         _telegram_runtime._netyar_pre_polling_wrapper=True
-except Exception: logging.getLogger("netyar.entrypoint").exception("Telegram pre-polling bootstrap wrapper unavailable")
+except Exception:
+    logging.getLogger("netyar.entrypoint").exception("Telegram pre-polling bootstrap wrapper unavailable")
+
 
 def main():
     uvicorn.run(server.api,host="0.0.0.0",port=int(os.getenv("PORT","8000")),lifespan="on")
 
-if __name__=="__main__": main()
+
+if __name__=="__main__":
+    main()
