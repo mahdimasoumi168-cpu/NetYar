@@ -15,18 +15,21 @@ def install(app,B):
         A._admin_menu=menu; B.amenu=menu
     except Exception: pass
 
-    # All request actions use the same rq:* callback contract as the central
-    # request controller. This prevents legacy req:* buttons from landing in
-    # a different handler and makes every request action operate on its exact rid.
     def kb(rid, paid=False):
-        return InlineKeyboardMarkup([
+        rows=[
             [InlineKeyboardButton('🔎 مشاهده اطلاعات کامل',callback_data=f'rq:detail:{rid}')],
             [InlineKeyboardButton('📨 درخواست کد از همکار',callback_data=f'rq:ask:{rid}')],
-            [InlineKeyboardButton('💰 تأیید دریافت وجه',callback_data=f'rq:payconfirm:{rid}'), InlineKeyboardButton('⏳ بررسی اولیه',callback_data=f'rq:review:{rid}')],
+        ]
+        if paid:
+            rows.append([InlineKeyboardButton('⏳ بررسی اولیه',callback_data=f'rq:review:{rid}'),InlineKeyboardButton('✅ انجام شد',callback_data=f'rq:approve:{rid}')])
+        else:
+            rows.append([InlineKeyboardButton('💰 تأیید دریافت وجه',callback_data=f'rq:payconfirm:{rid}'),InlineKeyboardButton('⏳ بررسی اولیه',callback_data=f'rq:review:{rid}')])
+        rows.extend([
             [InlineKeyboardButton('❌ رد درخواست',callback_data=f'rq:reject:{rid}')],
             [InlineKeyboardButton('💬 ارتباط با همکار',callback_data=f'req:chat:{rid}')],
-            [InlineKeyboardButton('📌 انتقال به آخر چت',callback_data=f'req:bottom:{rid}'), InlineKeyboardButton('✉️ پاسخ',callback_data=f'req:r:{rid}')],
+            [InlineKeyboardButton('📌 انتقال به آخر چت',callback_data=f'req:bottom:{rid}'),InlineKeyboardButton('✉️ پاسخ',callback_data=f'req:r:{rid}')],
         ])
+        return InlineKeyboardMarkup(rows)
 
     def request_target(r):
         target=None
@@ -62,21 +65,18 @@ def install(app,B):
         await q.answer()
         action=parts[1]
         if action=='chat':
-            # Delegate the actual two-way relay to the reliable partner-chat handler.
-            try:
-                import telegram_partner_chat_reliability as P
-                # Its handler is registered at a higher priority; this branch is only
-                # a safe fallback for environments where callback ordering differs.
-            except Exception: pass
-            return
+            # The dedicated reliable partner-chat handler is registered at higher priority.
+            # If this fallback receives the callback, report a deterministic error instead of silently doing nothing.
+            await q.answer('ارتباط با همکار را دوباره بزنید؛ اتصال همکار در حال آماده‌سازی است.',show_alert=True)
+            raise ApplicationHandlerStop
         if action=='r':
             target=request_target(r)
             if not target:
                 await q.answer('گیرنده این درخواست پیدا نشد',show_alert=True); raise ApplicationHandlerStop
             B.S.setdefault(q.from_user.id,{}).update(mode='admin_reply_request',reply_target=target,reply_request_id=rid)
-            await q.message.reply_text(f"✉️ پاسخ به درخواست {r['tracking_code']}\n\nمتن پاسخ را ارسال کنید.",reply_markup=kb(rid)); raise ApplicationHandlerStop
+            await q.message.reply_text(f"✉️ پاسخ به درخواست {r['tracking_code']}\n\nمتن پاسخ را ارسال کنید.",reply_markup=kb(rid,str(r['payment_status'] or '').lower()=='paid')); raise ApplicationHandlerStop
         if action=='bottom':
-            await q.message.reply_text(f"📌 درخواست {r['tracking_code']} در انتهای چت قرار گرفت.",reply_markup=kb(rid)); raise ApplicationHandlerStop
+            await q.message.reply_text(f"📌 درخواست {r['tracking_code']} در انتهای چت قرار گرفت.",reply_markup=kb(rid,str(r['payment_status'] or '').lower()=='paid')); raise ApplicationHandlerStop
         return
 
     async def text(update,context):
@@ -86,7 +86,7 @@ def install(app,B):
         if st.get('mode')!='admin_reply_request':return
         try:
             await context.bot.send_message(chat_id=int(st['reply_target']),text='👔 پاسخ مدیریت\n\n'+m.text.strip(),reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('✉️ پاسخ دادن',callback_data='chat:reply')],[InlineKeyboardButton('⬅️ بازگشت به پنل مدیریت',callback_data='chat:back')]]))
-            await m.reply_text('✅ پاسخ برای درخواست ارسال شد.',reply_markup=kb(st.get('reply_request_id')) if st.get('reply_request_id') else B.amenu())
+            await m.reply_text('✅ پاسخ برای درخواست ارسال شد.',reply_markup=kb(st.get('reply_request_id'),False) if st.get('reply_request_id') else B.amenu())
         except Exception:
             await m.reply_text('❌ ارسال پاسخ انجام نشد. لطفاً دوباره همین گزینه را بزنید.',reply_markup=B.amenu())
         st['mode']=None; st.pop('reply_target',None); st.pop('reply_request_id',None); raise ApplicationHandlerStop
