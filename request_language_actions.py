@@ -1,21 +1,27 @@
-"""Persist the user's selected language on each request and localize manager UX."""
+"""Persist request language and provide localized admin request controls/details."""
 import logging
 log = logging.getLogger("netyar.request_language")
 
 LABELS = {
-    "fa": {"new":"🆕 درخواست جدید","details":"📋 جزئیات کامل درخواست","tracking":"🎫 کد پیگیری","service":"🧾 خدمت","status":"📌 وضعیت","amount":"💰 مبلغ","payment":"💳 وضعیت پرداخت","method":"💵 روش پرداخت","time":"🕐 زمان ثبت","info":"📋 اطلاعات ثبت‌شده","files":"📎 فایل پیوست دارد","none":"• اطلاعات تکمیلی ثبت نشده است.","ask":"📨 درخواست کد از همکار","resend":"📤 آوردن درخواست به آخر چت","view":"🔎 مشاهده کامل درخواست","review":"⏳ در حال بررسی","done":"✅ انجام شد","reject":"❌ رد درخواست","reply":"✉️ پاسخ به مشترک","captcha":"🔐 کد تصویر","captcha_hint":"📷 تصویر امنیتی را ارسال کنید و کدی را که روی تصویر می‌بینید وارد کنید."},
-    "en": {"new":"🆕 New Request","details":"📋 Full Request Details","tracking":"🎫 Tracking Code","service":"🧾 Service","status":"📌 Status","amount":"💰 Amount","payment":"💳 Payment Status","method":"💵 Payment Method","time":"🕐 Created At","info":"📋 Submitted Information","files":"📎 Attachment included","none":"• No additional information was submitted.","ask":"📨 Request Code from Partner","resend":"📤 Bring Request to Chat","view":"🔎 View Full Request","review":"⏳ Under Review","done":"✅ Completed","reject":"❌ Reject Request","reply":"✉️ Reply to Customer","captcha":"🔐 Image Code","captcha_hint":"📷 Send the security image, then enter the code shown in the image."},
-    "ar": {"new":"🆕 طلب جديد","details":"📋 تفاصيل الطلب كاملة","tracking":"🎫 رمز التتبع","service":"🧾 الخدمة","status":"📌 الحالة","amount":"💰 المبلغ","payment":"💳 حالة الدفع","method":"💵 طريقة الدفع","time":"🕐 وقت التسجيل","info":"📋 المعلومات المسجلة","files":"📎 يوجد ملف مرفق","none":"• لم يتم تسجيل معلومات إضافية.","ask":"📨 طلب الرمز من الشريك","resend":"📤 إحضار الطلب إلى آخر المحادثة","view":"🔎 عرض الطلب الكامل","review":"⏳ قيد المراجعة","done":"✅ تم الإنجاز","reject":"❌ رفض الطلب","reply":"✉️ الرد على المشترك","captcha":"🔐 رمز الصورة","captcha_hint":"📷 أرسل صورة الأمان ثم أدخل الرمز الظاهر في الصورة."},
+    "fa": {"new":"🆕 درخواست جدید","details":"📋 جزئیات کامل درخواست","tracking":"🎫 کد پیگیری","service":"🧾 خدمت","status":"📌 وضعیت","amount":"💰 مبلغ","payment":"💳 وضعیت پرداخت","method":"💵 روش پرداخت","time":"🕐 زمان ثبت","info":"📋 اطلاعات ثبت‌شده","files":"📎 فایل پیوست دارد","none":"• اطلاعات تکمیلی ثبت نشده است.","ask":"📨 درخواست کد از همکار","resend":"📤 انتقال به آخر چت","view":"🔎 مشاهده اطلاعات کامل","review":"⏳ در حال بررسی","done":"✅ انجام شد","reject":"❌ رد درخواست","reply":"✉️ پاسخ به مشترک"},
+    "en": {"new":"🆕 New Request","details":"📋 Full Request Details","tracking":"🎫 Tracking Code","service":"🧾 Service","status":"📌 Status","amount":"💰 Amount","payment":"💳 Payment Status","method":"💵 Payment Method","time":"🕐 Created At","info":"📋 Submitted Information","files":"📎 Attachment included","none":"• No additional information was submitted.","ask":"📨 Request Code from Partner","resend":"📤 Move to End of Chat","view":"🔎 View Full Information","review":"⏳ Under Review","done":"✅ Completed","reject":"❌ Reject Request","reply":"✉️ Reply to Customer"},
+    "ar": {"new":"🆕 طلب جديد","details":"📋 تفاصيل الطلب كاملة","tracking":"🎫 رمز التتبع","service":"🧾 الخدمة","status":"📌 الحالة","amount":"💳 المبلغ","payment":"💳 حالة الدفع","method":"💵 طريقة الدفع","time":"🕐 وقت التسجيل","info":"📋 المعلومات المسجلة","files":"📎 يوجد ملف مرفق","none":"• لم يتم تسجيل معلومات إضافية.","ask":"📨 طلب الرمز من الشريك","resend":"📤 نقل إلى آخر المحادثة","view":"🔎 عرض المعلومات الكاملة","review":"⏳ قيد المراجعة","done":"✅ تم الإنجاز","reject":"❌ رفض الطلب","reply":"✉️ الرد على المشترك"},
 }
 SERVICE = {
     "fa":{"fida":"🪪 فیدای غیر حضوری","print":"🖨 خدمات چاپ","government":"🏛 حل مشکل ورود اتباع سامانه دولت من","sim_card":"📱 خدمات سیم‌کارت"},
     "en":{"fida":"🪪 Remote FIDA","print":"🖨 Printing Services","government":"🏛 Government My Portal Login Issue","sim_card":"📱 SIM Card Services"},
     "ar":{"fida":"🪪 فيدا عن بُعد","print":"🖨 خدمات الطباعة","government":"🏛 حل مشكلة الدخول إلى بوابة الحكومة","sim_card":"📱 خدمات شرائح الهاتف"},
 }
+FIELD_LABELS = {
+    "fa":{"phone":"📱 شماره موبایل مشترک","mobile":"📱 شماره موبایل مشترک","amount":"💰 مبلغ","payment_status":"💳 وضعیت پرداخت","payment_method":"💵 روش پرداخت","doc_type":"🪪 نوع مدرک","unique_id":"🆔 شناسه یکتا","special_id":"🔖 شناسه اختصاصی","family_code":"👨‍👩‍👧‍👦 کد خانوار","postal_code":"📮 کد پستی","passport":"🛂 شماره/اطلاعات پاسپورت","gov_passport":"🛂 اطلاعات پاسپورت","name":"👤 نام و نام خانوادگی","first_name":"👤 نام","last_name":"👤 نام خانوادگی","national_code":"🆔 کد ملی","address":"🏠 نشانی","document":"📎 مدرک"},
+    "en":{"phone":"📱 Customer Mobile","mobile":"📱 Customer Mobile","amount":"💰 Amount","payment_status":"💳 Payment Status","payment_method":"💵 Payment Method","doc_type":"🪪 Document Type","unique_id":"🆔 Unique ID","special_id":"🔖 Special ID","family_code":"👨‍👩‍👧‍👦 Family Code","postal_code":"📮 Postal Code","passport":"🛂 Passport Number/Information","gov_passport":"🛂 Passport Information","name":"👤 Full Name","first_name":"👤 First Name","last_name":"👤 Last Name","national_code":"🆔 National ID","address":"🏠 Address","document":"📎 Document"},
+    "ar":{"phone":"📱 هاتف المشترك","mobile":"📱 هاتف المشترك","amount":"💰 المبلغ","payment_status":"💳 حالة الدفع","payment_method":"💵 طريقة الدفع","doc_type":"🪪 نوع الوثيقة","unique_id":"🆔 المعرّف الفريد","special_id":"🔖 المعرّف الخاص","family_code":"👨‍👩‍👧‍👦 رمز الأسرة","postal_code":"📮 الرمز البريدي","passport":"🛂 رقم/معلومات جواز السفر","gov_passport":"🛂 معلومات جواز السفر","name":"👤 الاسم الكامل","first_name":"👤 الاسم","last_name":"👤 اسم العائلة","national_code":"🆔 الرقم الوطني","address":"🏠 العنوان","document":"📎 الوثيقة"},
+}
 
 def normalize_lang(value):
     value=str(value or "fa").lower().strip(); return value if value in LABELS else "fa"
 def labels(lang): return LABELS[normalize_lang(lang)]
+def field_label(key,lang): return FIELD_LABELS.get(normalize_lang(lang),FIELD_LABELS["fa"]).get(str(key),f"📋 {str(key).replace('_',' ')}")
 def service_name(key,lang): return SERVICE.get(normalize_lang(lang),SERVICE["fa"]).get(str(key),str(key or "-"))
 
 def _ensure_column(db):
@@ -61,7 +67,17 @@ def request_language(db,rid):
         return normalize_lang(r["language"] if r else "fa")
     except Exception: return "fa"
 
-def admin_markup(rid,lang):
+def admin_markup(rid,lang,include_view=True):
     from telegram import InlineKeyboardMarkup, InlineKeyboardButton
-    l=labels(lang)
-    return InlineKeyboardMarkup([[InlineKeyboardButton(l["ask"],callback_data=f"panel:askcode:{rid}")],[InlineKeyboardButton(l["resend"],callback_data=f"panel:resend:{rid}")],[InlineKeyboardButton(l["view"],callback_data=f"panel:req:{rid}")],[InlineKeyboardButton(l["review"],callback_data=f"panel:review:{rid}"),InlineKeyboardButton(l["done"],callback_data=f"panel:approve:{rid}")],[InlineKeyboardButton(l["reject"],callback_data=f"panel:reject:{rid}"),InlineKeyboardButton(l["reply"],callback_data=f"req:r:{rid}")]])
+    l=labels(lang); rows=[]
+    # Initial notification: show full-information action. Detail view: replace it
+    # with the larger/top "move to end of chat" action.
+    if include_view:
+        rows.append([InlineKeyboardButton(l["ask"],callback_data=f"panel:askcode:{rid}")])
+        rows.append([InlineKeyboardButton(l["resend"],callback_data=f"panel:resend:{rid}")])
+        rows.append([InlineKeyboardButton(l["view"],callback_data=f"panel:req:{rid}")])
+    else:
+        rows.append([InlineKeyboardButton(l["resend"],callback_data=f"panel:resend:{rid}")])
+        rows.append([InlineKeyboardButton(l["ask"],callback_data=f"panel:askcode:{rid}")])
+    rows += [[InlineKeyboardButton(l["review"],callback_data=f"panel:review:{rid}"),InlineKeyboardButton(l["done"],callback_data=f"panel:approve:{rid}")],[InlineKeyboardButton(l["reject"],callback_data=f"panel:reject:{rid}"),InlineKeyboardButton(l["reply"],callback_data=f"req:r:{rid}")]]
+    return InlineKeyboardMarkup(rows)
