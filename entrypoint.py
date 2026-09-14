@@ -3,150 +3,46 @@
 The platform bootstraps stay here; feature logic lives in small, focused modules.
 Keep module order stable because several Telegram guards intentionally run early.
 """
-
 import inspect
 import logging
 import os
-
 import uvicorn
-
 import bale_bootstrap
 import production_stability
 import rubika_bootstrap_final
 import server
-
-
-NETYAR_TELEGRAM_BUILD = "2026-09-15-final-partner-panel-v1"
-
+NETYAR_TELEGRAM_BUILD = "2026-09-15-final-integration-v2"
 bale_bootstrap.install(server)
 rubika_bootstrap_final.install(server)
 production_stability.install()
-
-PRE_TELEGRAM_MODULES = (
-    "request_language_actions",
-    "telegram_partner_logout_fix",
-    "telegram_language_consistency",
-    "telegram_cancel_policy",
-)
-
-TELEGRAM_MODULES = (
-    "telegram_absolute_offhours_guard",
-    "telegram_government_phone_final",
-    "telegram_phone_registry_and_stability",
-    "telegram_final_hotfix_20260914",
-    "telegram_fast_response_layer",
-    "telegram_critical_input_logout_fix",
-    "telegram_idle_session_reset",
-    "telegram_input_continuation_guard",
-    "telegram_admin_button_guard",
-    "telegram_partner_pricing_stable",
-    "telegram_partner_session_persistence",
-    "telegram_management_destination_guard",
-    "telegram_global_admin_guard",
-    "telegram_universal_partner_guard",
-    "final_stability_overlay",
-    "final_government_payment_overlay",
-    "telegram_price_dedup_guard",
-    "telegram_government_flow_runtime_fix",
-    "telegram_night_logout_final",
-    "telegram_partner_login_fix",
-    "telegram_offhours_partner_gate_v2",
-    "telegram_admin_plus",
-    "telegram_partner_code_reliable",
-    "telegram_request_full_details_patch",
-    "telegram_request_details_fix",
-    "telegram_final_ops_overlay",
-    "telegram_button_stability_final",
-    "telegram_service_billing_v3_fix",
-    "telegram_partner_ui_fix",
-    "telegram_ux_billing",
-    "telegram_request_control_v2",
-    "telegram_government_family_code_fix",
-    "telegram_ui_policy_v2",
-    "telegram_absolute_fix",
-    "telegram_operational_continuation_guard",
-    "telegram_admin_request_reliability_fix",
-    "telegram_partner_chat_reliability",
-    "telegram_final_notification_reliability",
-    "telegram_final_admin_partner_fix",
-    "telegram_final_menu_dedup_guard",
-    "telegram_final_user_state_guard",
-    "telegram_service_dispatch_final",
-    "telegram_information_input_final",
-    "telegram_input_hardening_v3",
-    "full_admin_control_patch",
-    "production_final_patch",
-    "telegram_announcement_media",
-    "government_balance_postal_fix",
-    "telegram_admin_menu_restore",
-    "telegram_request_workflow_final",
-    "telegram_universal_button_guard",
-    "telegram_final_repair",
-    "telegram_irancell_partner_service",
-    "telegram_government_cancel_fix",
-    "telegram_government_documents_v3",
-    "telegram_government_validation_final",
-    "telegram_management_stability_final",
-    "telegram_final_ui_rebind",
-    # Final owner of partner entry/menu/logout behavior. It intentionally runs
-    # after all legacy UI layers so none can silently replace the partner menu.
-    "telegram_final_partner_panel",
-)
-
-
-def _install_module(module_name, app, bot, logger, *, pre=False):
+PRE_TELEGRAM_MODULES=("request_language_actions","telegram_partner_logout_fix","telegram_language_consistency","telegram_cancel_policy")
+TELEGRAM_MODULES=("telegram_absolute_offhours_guard","telegram_government_phone_final","telegram_phone_registry_and_stability","telegram_final_hotfix_20260914","telegram_fast_response_layer","telegram_critical_input_logout_fix","telegram_idle_session_reset","telegram_input_continuation_guard","telegram_admin_button_guard","telegram_partner_pricing_stable","telegram_partner_session_persistence","telegram_management_destination_guard","telegram_global_admin_guard","telegram_universal_partner_guard","final_stability_overlay","final_government_payment_overlay","telegram_price_dedup_guard","telegram_government_flow_runtime_fix","telegram_night_logout_final","telegram_partner_login_fix","telegram_offhours_partner_gate_v2","telegram_admin_plus","telegram_partner_code_reliable","telegram_request_full_details_patch","telegram_request_details_fix","telegram_final_ops_overlay","telegram_button_stability_final","telegram_service_billing_v3_fix","telegram_partner_ui_fix","telegram_ux_billing","telegram_request_control_v2","telegram_government_family_code_fix","telegram_ui_policy_v2","telegram_absolute_fix","telegram_operational_continuation_guard","telegram_admin_request_reliability_fix","telegram_partner_chat_reliability","telegram_final_notification_reliability","telegram_final_admin_partner_fix","telegram_final_menu_dedup_guard","telegram_final_user_state_guard","telegram_service_dispatch_final","telegram_information_input_final","telegram_input_hardening_v3","full_admin_control_patch","production_final_patch","telegram_announcement_media","government_balance_postal_fix","telegram_admin_menu_restore","telegram_request_workflow_final","telegram_universal_button_guard","telegram_final_repair","telegram_irancell_partner_service","telegram_government_cancel_fix","telegram_government_documents_v3","telegram_government_validation_final","telegram_management_stability_final","telegram_final_ui_rebind","telegram_final_partner_panel","telegram_final_integration_guard")
+def _install_module(module_name,app,bot,logger,*,pre=False):
     try:
-        module = __import__(module_name)
-        installer = getattr(module, "install", None)
-        if not callable(installer):
-            raise AttributeError("install() not found")
-        signature = inspect.signature(installer)
-        positional = [p for p in signature.parameters.values() if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)]
-        required = [p for p in positional if p.default is inspect.Parameter.empty]
-        if len(required) >= 2 or len(positional) >= 2:
-            installer(app, bot)
-        elif len(required) == 1 or len(positional) == 1:
-            installer(bot)
-        else:
-            installer()
-        logger.info("Telegram %s layer installed: %s", "pre-build" if pre else "runtime", module_name)
-    except Exception:
-        logger.exception("Telegram %s layer unavailable: %s", "pre-build" if pre else "runtime", module_name)
-
-
-def _install_telegram_layers(app, bot, logger):
-    for module_name in PRE_TELEGRAM_MODULES:
-        _install_module(module_name, app, bot, logger, pre=True)
-    for module_name in TELEGRAM_MODULES:
-        _install_module(module_name, app, bot, logger)
+        module=__import__(module_name); installer=getattr(module,"install",None)
+        if not callable(installer): raise AttributeError("install() not found")
+        sig=inspect.signature(installer); positional=[p for p in sig.parameters.values() if p.kind in (inspect.Parameter.POSITIONAL_ONLY,inspect.Parameter.POSITIONAL_OR_KEYWORD)]; required=[p for p in positional if p.default is inspect.Parameter.empty]
+        if len(required)>=2 or len(positional)>=2: installer(app,bot)
+        elif len(required)==1 or len(positional)==1: installer(bot)
+        else: installer()
+        logger.info("Telegram %s layer installed: %s","pre-build" if pre else "runtime",module_name)
+    except Exception: logger.exception("Telegram %s layer unavailable: %s","pre-build" if pre else "runtime",module_name)
+def _install_telegram_layers(app,bot,logger):
+    for module_name in PRE_TELEGRAM_MODULES: _install_module(module_name,app,bot,logger,pre=True)
+    for module_name in TELEGRAM_MODULES: _install_module(module_name,app,bot,logger)
     try:
         from telegram_request_full_details_patch import finalize
-        finalize(bot)
-        logger.info("Telegram complete-request notification finalizer installed")
-    except Exception:
-        logger.exception("Telegram complete-request notification finalizer unavailable")
-
-
+        finalize(bot); logger.info("Telegram complete-request notification finalizer installed")
+    except Exception: logger.exception("Telegram complete-request notification finalizer unavailable")
 try:
     import bot as _telegram_bot
     import telegram_runtime_clean as _telegram_runtime
-    if not getattr(_telegram_runtime, "_netyar_pre_polling_wrapper", False):
-        _original_telegram_build = _telegram_runtime.build
+    if not getattr(_telegram_runtime,"_netyar_pre_polling_wrapper",False):
+        _original_telegram_build=_telegram_runtime.build
         def _wrapped_telegram_build():
-            app = _original_telegram_build()
-            _install_telegram_layers(app, _telegram_bot, logging.getLogger("netyar.entrypoint"))
-            return app
-        _telegram_runtime.build = _wrapped_telegram_build
-        _telegram_runtime._netyar_pre_polling_wrapper = True
-except Exception:
-    logging.getLogger("netyar.entrypoint").exception("Telegram pre-polling bootstrap wrapper unavailable")
-
-
+            app=_original_telegram_build(); _install_telegram_layers(app,_telegram_bot,logging.getLogger("netyar.entrypoint")); return app
+        _telegram_runtime.build=_wrapped_telegram_build; _telegram_runtime._netyar_pre_polling_wrapper=True
+except Exception: logging.getLogger("netyar.entrypoint").exception("Telegram pre-polling bootstrap wrapper unavailable")
 def main():
-    logger = logging.getLogger("netyar.entrypoint")
-    logger.info("NetYar Telegram build=%s", NETYAR_TELEGRAM_BUILD)
-    uvicorn.run(server.api, host="0.0.0.0", port=int(os.getenv("PORT", "8000")), lifespan="on")
-
-
-if __name__ == "__main__":
-    main()
+    logger=logging.getLogger("netyar.entrypoint"); logger.info("NetYar Telegram build=%s",NETYAR_TELEGRAM_BUILD); uvicorn.run(server.api,host="0.0.0.0",port=int(os.getenv("PORT","8000")),lifespan="on")
+if __name__=="__main__": main()
