@@ -8,7 +8,7 @@ import bale_bootstrap
 import rubika_bootstrap_final
 import production_stability
 
-NETYAR_TELEGRAM_BUILD = "2026-09-14-final-routing-repair"
+NETYAR_TELEGRAM_BUILD = "2026-09-14-final-responsive-routing"
 
 bale_bootstrap.install(server)
 rubika_bootstrap_final.install(server)
@@ -41,6 +41,7 @@ def _install_before_telegram_start(app, B, log):
         install_module(module_name, pre=True)
 
     app_modules = (
+        "telegram_fast_response_layer",
         "telegram_critical_input_logout_fix","telegram_idle_session_reset","telegram_input_continuation_guard",
         "telegram_admin_button_guard","telegram_partner_pricing_stable","telegram_partner_session_persistence",
         "telegram_management_destination_guard","telegram_global_admin_guard","telegram_universal_partner_guard",
