@@ -1,8 +1,10 @@
 """Final Telegram off-hours gate with persistent night-worker sessions.
 
 Night-shift partners authenticate once. An already authenticated, active partner
-session remains valid while the bot is running; inactivity must not silently
-turn a valid session into a fake "please log in again" state.
+session remains valid while the bot is running. Outside configured working hours,
+ordinary users are hard-blocked: no service flow, input flow, callback or menu
+may continue. Only admins and partners explicitly enabled for night shift may
+operate during the closed period.
 """
 from datetime import datetime, time
 from zoneinfo import ZoneInfo
@@ -11,8 +13,8 @@ from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import CallbackQueryHandler, MessageHandler, ApplicationHandlerStop, filters
 
 TZ = ZoneInfo("Asia/Tehran")
-OPEN = time(7, 0)
-CLOSE = time(19, 0)
+DEFAULT_OPEN = "07:00"
+DEFAULT_CLOSE = "19:00"
 PREFIX = "night_worker:"
 
 
@@ -26,8 +28,27 @@ def normalize_phone(value):
     return s
 
 
-def is_open():
-    return OPEN <= datetime.now(TZ).time() < CLOSE
+def _setting(B, key, default):
+    try:
+        return str(B.db.setting(key, default) or default)
+    except Exception:
+        return default
+
+
+def _is_open(B):
+    """Use the same configurable Tehran work-hours source as the admin panel."""
+    op = _setting(B, "work_open", DEFAULT_OPEN)
+    cl = _setting(B, "work_close", DEFAULT_CLOSE)
+    try:
+        o = time.fromisoformat(op)
+        c = time.fromisoformat(cl)
+        now = datetime.now(TZ).time()
+        # Supports both normal ranges (07:00-19:00) and overnight ranges.
+        return o <= now < c if o < c else (now >= o or now < c)
+    except Exception:
+        # Fail closed if configuration is corrupt; never accidentally expose
+        # customer services outside the configured hours.
+        return False
 
 
 def _partner_by_phone(B, phone):
@@ -58,11 +79,14 @@ def _active_partner_session(B, uid):
 def is_night_worker(B, uid):
     row = _active_partner_session(B, uid)
     if row:
-        return True
+        try:
+            return str(B.db.setting(PREFIX + str(row["id"]), "0")) == "1"
+        except Exception:
+            return False
     st = B.S.get(uid, {}) or {}
     pid = st.get("partner_id")
     try:
-        if pid and B.db.setting(PREFIX + str(pid), "0") == "1":
+        if pid and str(B.db.setting(PREFIX + str(pid), "0")) == "1":
             row = B.db.conn.execute(
                 "SELECT id FROM partners WHERE id=? AND active=1 LIMIT 1", (int(pid),)
             ).fetchone()
@@ -70,7 +94,7 @@ def is_night_worker(B, uid):
         phone = normalize_phone(st.get("phone") or st.get("partner_phone"))
         if phone:
             row = _partner_by_phone(B, phone)
-            return bool(row and B.db.setting(PREFIX + str(row["id"]), "0") == "1")
+            return bool(row and str(B.db.setting(PREFIX + str(row["id"]), "0")) == "1")
     except Exception:
         return False
     return False
@@ -80,34 +104,6 @@ def _allowed_during_closed(B, uid):
     return bool(B.admin(uid) or is_night_worker(B, uid))
 
 
-def _active_input_flow(B, uid):
-    """Do not interrupt a user who is already inside a multi-step service flow.
-
-    This is critical after 19:00: the user may have started a service before
-    closing time and still needs to submit the requested phone, DOB, document
-    data or photos. Blocking that message at an early handler group makes the
-    later dedicated input handlers look completely unresponsive.
-    """
-    try:
-        st = B.S.get(uid, {}) or {}
-        mode = str(st.get("mode") or st.get("step") or "")
-        active_modes = {
-            "govv2_phone", "govv2_dob", "govv2_unique", "govv2_special",
-            "govv2_family", "govv2_identity_number", "govv2_postal", "govv2_photo",
-            "govv2_passport_photo1", "govv2_passport_photo2", "govv2_passport_photo3",
-            "p_phone", "p_pass", "partner_phone", "partner_pass", "final_partner_chat",
-            "partner_message", "night_phone", "night_pass", "topup_amount", "topup_receipt",
-            "public_tracking",
-        }
-        if mode in active_modes or mode.startswith("govv2_"):
-            return True
-        if st.get("mgmt_mode"):
-            return True
-    except Exception:
-        pass
-    return False
-
-
 def _markup():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🔄 شروع مجدد", callback_data="off:restart")],
@@ -115,11 +111,15 @@ def _markup():
     ])
 
 
-def _closed_text():
-    return ("⏰ ربات در حال حاضر خارج از ساعت کاری است.\n\n"
-            "🕖 ساعت کاری عادی: ۷ صبح تا ۷ شب به وقت تهران\n"
-            "🌙 خدمات عادی در این زمان غیرفعال است.\n\n"
-            "فقط همکارانی که برای شیفت شب تعریف شده‌اند می‌توانند وارد پنل همکاران شوند.")
+def _closed_text(B):
+    op = _setting(B, "work_open", DEFAULT_OPEN)
+    cl = _setting(B, "work_close", DEFAULT_CLOSE)
+    return (
+        "⏰ ربات در حال حاضر خارج از ساعت کاری است.\n\n"
+        f"🕖 ساعت کاری: {op} تا {cl} به وقت تهران\n"
+        "🚫 در این زمان هیچ‌یک از خدمات عادی، دریافت اطلاعات یا ادامه درخواست‌ها فعال نیست.\n\n"
+        "فقط همکارانی که در پنل مدیریت برای شیفت شب تعریف شده‌اند می‌توانند از پنل همکاران استفاده کنند."
+    )
 
 
 def _night_login_markup():
@@ -127,7 +127,7 @@ def _night_login_markup():
 
 
 def install(app, B):
-    if getattr(B, "_offhours_partner_gate_v5", False):
+    if getattr(B, "_offhours_partner_gate_v6", False):
         return True
 
     async def cb(update, context):
@@ -144,14 +144,14 @@ def install(app, B):
         uid = q.from_user.id
 
         if data == "off:restart":
-            if not is_open() and not _allowed_during_closed(B, uid):
-                await q.message.reply_text(_closed_text(), reply_markup=_markup())
+            if not _is_open(B) and not _allowed_during_closed(B, uid):
+                await q.message.reply_text(_closed_text(B), reply_markup=_markup())
                 raise ApplicationHandlerStop
             await q.message.reply_text("🔄 شروع مجدد", reply_markup=B.main(uid))
             raise ApplicationHandlerStop
 
         active = _active_partner_session(B, uid)
-        if not is_open() and active:
+        if not _is_open(B) and active and is_night_worker(B, uid):
             try:
                 import telegram_ui_policy_v2 as UI
                 markup = UI.inline([
@@ -166,7 +166,7 @@ def install(app, B):
             await q.message.reply_text("🌙 پنل همکاران شیفت شب فعال است.", reply_markup=markup)
             raise ApplicationHandlerStop
 
-        if not is_open():
+        if not _is_open(B):
             if B.admin(uid):
                 from telegram_partner_router_guard import _open_partner
                 import telegram_ui_policy_v2 as UI
@@ -273,21 +273,21 @@ def install(app, B):
         raise ApplicationHandlerStop
 
     async def callback_gate(update, context):
-        if is_open():
+        if _is_open(B):
             return
         q = getattr(update, "callback_query", None)
         if not q:
             return
         uid = q.from_user.id
         data = str(q.data or "")
-        if data in {"off:restart", "off:partner"} or _allowed_during_closed(B, uid) or _active_input_flow(B, uid):
+        if data in {"off:restart", "off:partner"} or _allowed_during_closed(B, uid):
             return
         try:
             await q.answer("⏰ خارج از ساعت کاری است.", show_alert=True)
         except Exception:
             pass
         try:
-            await q.message.reply_text(_closed_text(), reply_markup=_markup())
+            await q.message.reply_text(_closed_text(B), reply_markup=_markup())
         finally:
             raise ApplicationHandlerStop
 
@@ -295,18 +295,20 @@ def install(app, B):
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, night_login), group=-29999)
     app.add_handler(MessageHandler(filters.ALL, lambda u, c: message_gate(u, c, B)), group=-29998)
     app.add_handler(CallbackQueryHandler(callback_gate), group=-29997)
-    B._offhours_partner_gate_v5 = True
+    B._offhours_partner_gate_v6 = True
     return True
 
 
 async def message_gate(update, context, B):
-    if is_open():
+    if _is_open(B):
         return
     user = getattr(update, "effective_user", None)
     msg = getattr(update, "effective_message", None)
     if not user or not msg:
         return
-    if _allowed_during_closed(B, user.id) or _active_input_flow(B, user.id):
+    # Hard gate: outside working hours there are no exceptions for ordinary
+    # customer flows, including flows that were started before closing.
+    if _allowed_during_closed(B, user.id):
         return
-    await msg.reply_text(_closed_text(), reply_markup=_markup())
+    await msg.reply_text(_closed_text(B), reply_markup=_markup())
     raise ApplicationHandlerStop
