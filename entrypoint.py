@@ -47,6 +47,7 @@ def _install_before_telegram_start(app, B, log):
         "telegram_admin_plus",
         "telegram_admin_power",
         "telegram_final_admin_menu_fix",
+        "telegram_partner_code_reliable",
         "telegram_request_full_details_patch",
         "telegram_request_details_fix",
         "telegram_final_ops_overlay",
