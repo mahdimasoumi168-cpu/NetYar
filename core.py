@@ -5,6 +5,11 @@ _default_db=os.path.join(_mount,"netyar.db") if _mount else "netyar.db"
 DB_PATH=os.getenv("DB_PATH","").strip() or _default_db
 CARD_NUMBER=os.getenv("PAYMENT_CARD","").strip()
 CARD_OWNER=os.getenv("PAYMENT_CARD_OWNER","").strip()
+WELCOME_FA=("👋 سلام!\n\n"
+"به سامانه خدمات آنلاین بات، کمک یار مهاجر خوش آمدید. 🌟\n\n"
+"اینجا تلاش کرده‌ایم خدمات موردنیاز شما را به‌صورت سریع، ساده و آنلاین در اختیارتان قرار دهیم تا بدون سردرگمی بتوانید خدمت موردنظر خود را دریافت یا پیگیری کنید.\n\n"
+"🚀 بات، کمک یار مهاجر؛ خدماتی برای شما، درآمدی برای همه\n\n"
+"📌 لطفاً ابتدا زبان موردنظر خود را انتخاب کنید تا ادامه مراحل به زبان انتخابی شما نمایش داده شود.")
 def now(): return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 def hash_password(p):
     salt=secrets.token_hex(16); digest=hashlib.pbkdf2_hmac("sha256",p.encode(),salt.encode(),120000).hex(); return salt+"$"+digest
@@ -33,8 +38,9 @@ class Database:
         CREATE TABLE IF NOT EXISTS audit_log(id INTEGER PRIMARY KEY AUTOINCREMENT, platform TEXT, actor_id TEXT, action TEXT, target TEXT DEFAULT '', details TEXT DEFAULT '', created_at TEXT);
         CREATE TABLE IF NOT EXISTS bot_integrations(id INTEGER PRIMARY KEY AUTOINCREMENT, platform TEXT UNIQUE, bot_name TEXT DEFAULT '', token_ref TEXT DEFAULT '', active INTEGER DEFAULT 0, status TEXT DEFAULT 'configured', created_at TEXT, updated_at TEXT);
         """)
-        defaults={"welcome_fa":"سلام و خوش آمدید 🌷\nبه بات «کمک یار مهاجر» خوش آمدید.","welcome_en":"Welcome to Mohajer Helper.","welcome_ar":"مرحباً بكم في مساعد المهاجر.","card_number":CARD_NUMBER,"card_owner":CARD_OWNER,"price_fida":"0","price_print_bw":"0","price_print_color":"0","price_government":"500000","bot_open":"1"}
+        defaults={"welcome_fa":WELCOME_FA,"welcome_en":"Welcome to Mohajer Helper.","welcome_ar":"مرحباً بكم في مساعد المهاجر.","card_number":CARD_NUMBER,"card_owner":CARD_OWNER,"price_fida":"0","price_print_bw":"0","price_print_color":"0","price_government":"500000","bot_open":"1"}
         for k,v in defaults.items(): self.conn.execute("INSERT OR IGNORE INTO settings VALUES(?,?)",(k,v))
+        self.conn.execute("UPDATE settings SET value=? WHERE key='welcome_fa'",(WELCOME_FA,))
         sv=[("fida","فیدای غیر حضوری","ارسال مدرک شناسایی و شماره همراه",0),("print","خدمات چاپ","چاپ فایل و عکس",0),("government","حل مشکل ورود اتباع سامانه دولت من","ثبت درخواست و بررسی مدارک",500000)]
         for k,n,d,p in sv:self.conn.execute("INSERT OR IGNORE INTO services(key,name,description,price) VALUES(?,?,?,?)",(k,n,d,p))
         phone=os.getenv("INITIAL_PARTNER_PHONE","").strip(); password=os.getenv("INITIAL_PARTNER_PASSWORD","").strip(); name=os.getenv("INITIAL_PARTNER_NAME","همکار").strip()
