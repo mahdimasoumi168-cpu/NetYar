@@ -16,7 +16,7 @@ import rubika_bootstrap_final
 import server
 
 
-NETYAR_TELEGRAM_BUILD = "2026-09-14-clean-entrypoint-v5"
+NETYAR_TELEGRAM_BUILD = "2026-09-15-final-partner-panel-v1"
 
 bale_bootstrap.install(server)
 rubika_bootstrap_final.install(server)
@@ -30,8 +30,6 @@ PRE_TELEGRAM_MODULES = (
 )
 
 TELEGRAM_MODULES = (
-    # Must be installed first: its handler groups are earlier than every
-    # customer/service router, so closed-hours users cannot leak into flows.
     "telegram_absolute_offhours_guard",
     "telegram_government_phone_final",
     "telegram_phone_registry_and_stability",
@@ -87,13 +85,12 @@ TELEGRAM_MODULES = (
     "telegram_irancell_partner_service",
     "telegram_government_cancel_fix",
     "telegram_government_documents_v3",
-    # Runs at handler group -121, immediately before Government v3 text input
-    # at -120, so invalid birth dates cannot enter the flow.
     "telegram_government_validation_final",
     "telegram_management_stability_final",
-    # Must be last: legacy service modules may replace B.main; restore the
-    # canonical tokenized UI without registering duplicate handlers.
     "telegram_final_ui_rebind",
+    # Final owner of partner entry/menu/logout behavior. It intentionally runs
+    # after all legacy UI layers so none can silently replace the partner menu.
+    "telegram_final_partner_panel",
 )
 
 
