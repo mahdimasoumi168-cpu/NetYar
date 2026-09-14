@@ -8,6 +8,8 @@ import bale_bootstrap
 import rubika_bootstrap_final
 import production_stability
 
+NETYAR_TELEGRAM_BUILD = "2026-09-14-final-audit"
+
 bale_bootstrap.install(server)
 rubika_bootstrap_final.install(server)
 production_stability.install()
@@ -28,15 +30,8 @@ def _install_before_telegram_start(app, B, log):
             installer = getattr(module, "install", None)
             if not callable(installer):
                 raise AttributeError("install() not found")
-
-            # The project contains both install() and install(app, B) modules.
-            # The old bootstrap called several app-aware modules without their
-            # arguments, silently disabling the highest-priority input guards.
             sig = inspect.signature(installer)
-            positional = [
-                p for p in sig.parameters.values()
-                if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
-            ]
+            positional = [p for p in sig.parameters.values() if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)]
             required = [p for p in positional if p.default is inspect.Parameter.empty]
             if len(required) >= 2 or len(positional) >= 2:
                 installer(app, B)
@@ -93,6 +88,7 @@ except Exception:
 
 
 def main():
+    logging.getLogger("netyar.entrypoint").info("NetYar Telegram build=%s", NETYAR_TELEGRAM_BUILD)
     uvicorn.run(server.api,host="0.0.0.0",port=int(os.getenv("PORT","8000")),lifespan="on")
 
 
