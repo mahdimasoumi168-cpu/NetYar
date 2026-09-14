@@ -1,19 +1,15 @@
-"""Stable manager request review and ten-stage partner-code exchange."""
+"""Stable legacy request review controls, kept compatible with the current request schema."""
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import CallbackQueryHandler, MessageHandler, filters
 _SEEN=set()
-
 def partner_uid(B,pid):
-    r=B.db.conn.execute("SELECT telegram_user_id FROM partner_telegram_links WHERE partner_id=?",(pid,)).fetchone()
-    return int(r["telegram_user_id"]) if r and str(r["telegram_user_id"]).isdigit() else None
-
+    try:
+        r=B.db.conn.execute("SELECT telegram_user_id FROM partner_telegram_links WHERE partner_id=?",(pid,)).fetchone(); return int(r["telegram_user_id"]) if r and str(r["telegram_user_id"]).isdigit() else None
+    except Exception:return None
 def admin_kb(B):
     try:
-        import telegram_admin_plus as A
-        return A._admin_menu()
-    except Exception:
-        return None
-
+        import telegram_admin_plus as A; return A._admin_menu()
+    except Exception:return None
 def once(q):
     cid=getattr(q,"id",None)
     if not cid:return True
@@ -21,72 +17,43 @@ def once(q):
     _SEEN.add(cid)
     if len(_SEEN)>1500:_SEEN.clear();_SEEN.add(cid)
     return True
-
 def menu(rid,paid=False):
-    rows=[[InlineKeyboardButton("🔎 جزئیات کامل",callback_data=f"rq:detail:{rid}")],
-          [InlineKeyboardButton("📨 درخواست کد از همکار",callback_data=f"rq:ask:{rid}")]]
-    if paid: rows.append([InlineKeyboardButton("⏳ بررسی اولیه",callback_data=f"rq:review:{rid}"),InlineKeyboardButton("✅ انجام شد",callback_data=f"rq:approve:{rid}")])
-    else:
-        rows.append([InlineKeyboardButton("💰 تأیید دریافت وجه",callback_data=f"rq:payconfirm:{rid}")])
-        rows.append([InlineKeyboardButton("⏳ بررسی اولیه",callback_data=f"rq:review:{rid}")])
-    rows.append([InlineKeyboardButton("❌ رد درخواست",callback_data=f"rq:reject:{rid}")])
-    return InlineKeyboardMarkup(rows)
-
-DETAIL_LABELS={
-    "doc_type":"🪪 نوع مدرک",
-    "phone":"📱 شماره موبایل مشترک",
-    "dob":"🎂 تاریخ تولد مشترک",
-    "unique_id":"🆔 شناسه یکتای مشترک",
-    "special_id":"🔖 شناسه اختصاصی مشترک",
-    "family_code":"👨‍👩‍👧‍👦 کد خانوار مشترک",
-    "postal_code":"📮 کد پستی مشترک",
-    "passport":"🛂 شماره گذرنامه مشترک",
-    "temporary_card_number":"👨‍👩‍👧‍👦 کد خانوار مشترک",
-    "booklet_number":"📗 شماره دفترچه اقامت مشترک",
-    "document":"📸 تصویر مدرک",
-    "partner_id":"👤 شناسه همکار",
-}
+    rows=[[InlineKeyboardButton("🔎 جزئیات کامل",callback_data=f"rq:detail:{rid}")],[InlineKeyboardButton("📨 درخواست کد از همکار",callback_data=f"rq:ask:{rid}")]]
+    rows.append([InlineKeyboardButton("⏳ بررسی اولیه",callback_data=f"rq:review:{rid}") ,InlineKeyboardButton("✅ انجام شد",callback_data=f"rq:approve:{rid}")]) if paid else rows.extend([[InlineKeyboardButton("💰 تأیید دریافت وجه",callback_data=f"rq:payconfirm:{rid}")],[InlineKeyboardButton("⏳ بررسی اولیه",callback_data=f"rq:review:{rid}")]])
+    rows.append([InlineKeyboardButton("❌ رد درخواست",callback_data=f"rq:reject:{rid}")]); return InlineKeyboardMarkup(rows)
+DETAIL_LABELS={"doc_type":"🪪 نوع مدرک","phone":"📱 شماره موبایل مشترک","dob":"🎂 تاریخ تولد مشترک","unique_id":"🆔 شناسه یکتای مشترک","special_id":"🔖 شناسه اختصاصی مشترک","family_code":"👨‍👩‍👧‍👦 کد خانوار مشترک","postal_code":"📮 کد پستی مشترک","passport":"🛂 شماره گذرنامه مشترک","temporary_card_number":"📄 شماره کارت موقت","booklet_number":"📗 شماره دفترچه اقامت مشترک","document":"📸 تصویر مدرک","partner_id":"👤 شناسه همکار"}
 DOC_TYPES={"card":"کارت آمایش","temporary_card":"کارت موقت","passport":"گذرنامه","residence_booklet":"دفترچه اقامت"}
-
-def detail_line(key,value):
-    label=DETAIL_LABELS.get(key,key)
-    if key=="doc_type": value=DOC_TYPES.get(str(value),value)
-    return f"{label}: {value}"
-
+def detail_line(key,value): return f"{DETAIL_LABELS.get(key,key)}: {DOC_TYPES.get(str(value),value) if key=='doc_type' else value}"
 async def cb(update,context,B):
     q=update.callback_query
     if not q:return
     d=(q.data or "").split(":")
     if len(d)<3 or d[0]!="rq":return
     if not once(q):
-        try: await q.answer()
+        try:await q.answer()
         except Exception:pass
         return
-    if not B.admin(q.from_user.id): await q.answer("دسترسی ندارید",show_alert=True);return
+    if not B.admin(q.from_user.id):await q.answer("دسترسی ندارید",show_alert=True);return
     await q.answer();rid=int(d[2]);r=B.db.conn.execute("SELECT * FROM requests WHERE id=?",(rid,)).fetchone()
     if not r:return await q.message.reply_text("❌ درخواست پیدا نشد.",reply_markup=admin_kb(B))
     action=d[1];paid=str(r["payment_status"] or "").lower()=="paid"
     if action=="detail":
-        ans=B.db.conn.execute("SELECT key,answer FROM request_answers WHERE request_id=?",(rid,)).fetchall()
-        lines=[f"🎫 کد پیگیری: {r['tracking_code']}",f"🧾 خدمت: {r['service_key']}",f"📌 وضعیت: {r['status']}",f"💰 مبلغ: {int(r['amount'] or 0):,} تومان",f"💳 پرداخت: {'تأیید شده' if paid else 'تأیید نشده'}"]+[detail_line(str(a['key']),str(a['answer'])) for a in ans if a['answer']]
+        ans=B.db.conn.execute("SELECT field_key,answer,file_id FROM request_answers WHERE request_id=?",(rid,)).fetchall()
+        lines=[f"🎫 کد پیگیری: {r['tracking_code']}",f"🧾 خدمت: {r['service_key']}",f"📌 وضعیت: {r['status']}",f"💰 مبلغ: {int(r['amount'] or 0):,} تومان",f"💳 پرداخت: {'تأیید شده' if paid else 'تأیید نشده'}"]
+        for a in ans:
+            if a["answer"]:lines.append(detail_line(str(a["field_key"]),str(a["answer"])))
+            if a["file_id"]:lines.append(detail_line(str(a["field_key"]),"📎 فایل پیوست دارد"))
         return await q.message.reply_text("🔎 جزئیات کامل درخواست\n\n"+"\n".join(lines),reply_markup=menu(rid,paid))
     if action=="payconfirm":
         if paid:return await q.message.reply_text("ℹ️ پرداخت قبلاً تأیید شده است.",reply_markup=admin_kb(B))
-        B.db.conn.execute("UPDATE requests SET payment_status='paid',payment_method='card_to_card_manual',updated_at=? WHERE id=?",(B.now(),rid));B.db.conn.commit()
-        return await q.message.reply_text("✅ دریافت وجه تأیید شد و درخواست آماده انجام خدمت است.",reply_markup=admin_kb(B))
+        B.db.conn.execute("UPDATE requests SET payment_status='paid',payment_method='card_to_card_manual',updated_at=? WHERE id=?",(B.now(),rid));B.db.conn.commit();return await q.message.reply_text("✅ دریافت وجه تأیید شد و درخواست آماده انجام خدمت است.",reply_markup=admin_kb(B))
     if action in {"review","approve","reject"}:
         if action=="approve" and not paid:return await q.message.reply_text("⛔ ابتدا دریافت وجه را تأیید کنید.",reply_markup=admin_kb(B))
-        status="rejected" if action=="reject" else ("reviewing" if action=="review" else "completed")
-        B.db.conn.execute("UPDATE requests SET status=?,updated_at=? WHERE id=?",(status,B.now(),rid));B.db.conn.commit()
-        text={"review":"⏳ درخواست وارد بررسی اولیه شد.","approve":"✅ درخواست انجام شد و پرونده بسته شد.","reject":"❌ درخواست رد شد و پرونده بسته شد."}[action]
-        return await q.message.reply_text(text,reply_markup=admin_kb(B))
+        status="rejected" if action=="reject" else ("reviewing" if action=="review" else "completed");B.db.conn.execute("UPDATE requests SET status=?,updated_at=? WHERE id=?",(status,B.now(),rid));B.db.conn.commit();return await q.message.reply_text({"review":"⏳ درخواست وارد بررسی اولیه شد.","approve":"✅ درخواست انجام شد و پرونده بسته شد.","reject":"❌ درخواست رد شد و پرونده بسته شد."}[action],reply_markup=admin_kb(B))
     if action=="ask":
         pid=r["user_id"];target=partner_uid(B,pid)
         if not target:return await q.message.reply_text("❌ تلگرام همکار برای این درخواست متصل نیست.",reply_markup=admin_kb(B))
-        st=B.S.setdefault(q.from_user.id,{});st.update(code_request_id=rid,code_partner_id=pid,code_stage=1)
-        await context.bot.send_message(target,f"🔐 درخواست کد مدیریت\n🎫 {r['tracking_code']}\n\nمرحله ۱ از ۱۰\nکد مرحله ۱ را ارسال کنید.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📨 ارسال کد مرحله ۱",callback_data=f"rqcode:send:{rid}:1")]]))
-        return await q.message.reply_text("📨 مرحله ۱ برای همکار ارسال شد.\nپس از پایان، پرونده به پنل مدیریت برمی‌گردد.",reply_markup=admin_kb(B))
-
+        st=B.S.setdefault(q.from_user.id,{});st.update(code_request_id=rid,code_partner_id=pid,code_stage=1);await context.bot.send_message(target,f"🔐 درخواست کد مدیریت\n🎫 {r['tracking_code']}\n\nمرحله ۱ از ۱۰\nکد مرحله ۱ را ارسال کنید.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📨 ارسال کد مرحله ۱",callback_data=f"rqcode:send:{rid}:1")]]));return await q.message.reply_text("📨 مرحله ۱ برای همکار ارسال شد.\nپس از پایان، پرونده به پنل مدیریت برمی‌گردد.",reply_markup=admin_kb(B))
 async def code_cb(update,context,B):
     q=update.callback_query
     if not q:return
@@ -102,39 +69,26 @@ async def code_cb(update,context,B):
         if not r or str(st.get("partner_id"))!=str(r["user_id"]):return await q.answer("این درخواست متعلق به شما نیست.",show_alert=True)
         st.update(mode="partner_send_code",code_request_id=rid,code_stage=stage);await q.answer();return await q.message.reply_text(f"🔐 کد مرحله {stage} را همینجا ارسال کنید:")
     if d[1]=="next" and B.admin(uid):
-        pid=st.get("code_partner_id");target=partner_uid(B,pid)
+        pid=st.get("code_partner_id");target=partner_uid(B,pid);nxt=stage+1
         if not target:return await q.message.reply_text("❌ همکار در دسترس نیست.",reply_markup=admin_kb(B))
-        nxt=stage+1
         if nxt>10:return await q.message.reply_text("✅ هر ۱۰ مرحله تکمیل شده است.",reply_markup=admin_kb(B))
-        st["code_stage"]=nxt
-        await context.bot.send_message(target,f"🔐 مرحله {nxt} از ۱۰\nکد مرحله {nxt} را ارسال کنید.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"📨 ارسال کد مرحله {nxt}",callback_data=f"rqcode:send:{rid}:{nxt}")]]))
-        return await q.message.reply_text(f"📨 مرحله {nxt} ارسال شد.")
+        st["code_stage"]=nxt;await context.bot.send_message(target,f"🔐 مرحله {nxt} از ۱۰\nکد مرحله {nxt} را ارسال کنید.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"📨 ارسال کد مرحله {nxt}",callback_data=f"rqcode:send:{rid}:{nxt}")]]));return await q.message.reply_text(f"📨 مرحله {nxt} ارسال شد.")
     if d[1]=="finish" and B.admin(uid):
-        st["code_request_id"]=None;st["code_partner_id"]=None;st["code_stage"]=None;st["mode"]=None
-        return await q.message.reply_text("✅ دریافت کدها پایان یافت. پرونده بسته شد.",reply_markup=admin_kb(B))
-
+        st["code_request_id"]=None;st["code_partner_id"]=None;st["code_stage"]=None;st["mode"]=None;return await q.message.reply_text("✅ دریافت کدها پایان یافت. پرونده بسته شد.",reply_markup=admin_kb(B))
 async def code_text(update,context,B):
     if not update.message:return
     uid=update.effective_user.id;st=B.S.setdefault(uid,{})
     if st.get("mode")!="partner_send_code":return
-    rid=int(st.get("code_request_id"));stage=int(st.get("code_stage",1));text=(update.message.text or "").strip()
-    r=B.db.conn.execute("SELECT user_id,tracking_code FROM requests WHERE id=?",(rid,)).fetchone()
+    rid=int(st.get("code_request_id"));stage=int(st.get("code_stage",1));text=(update.message.text or "").strip();r=B.db.conn.execute("SELECT user_id,tracking_code FROM requests WHERE id=?",(rid,)).fetchone()
     if not r or str(st.get("partner_id"))!=str(r["user_id"]):return
-    B.db.conn.execute("CREATE TABLE IF NOT EXISTS request_partner_codes(request_id INTEGER,stage INTEGER,code TEXT,created_at TEXT,PRIMARY KEY(request_id,stage))")
-    B.db.conn.execute("INSERT OR REPLACE INTO request_partner_codes VALUES(?,?,?,?)",(rid,stage,text,B.now()));B.db.conn.commit()
+    B.db.conn.execute("CREATE TABLE IF NOT EXISTS request_partner_codes(request_id INTEGER,stage INTEGER,code TEXT,created_at TEXT,PRIMARY KEY(request_id,stage))");B.db.conn.execute("INSERT OR REPLACE INTO request_partner_codes VALUES(?,?,?,?)",(rid,stage,text,B.now()));B.db.conn.commit()
     for aid in B.ADM:
         try:
             buttons=[]
             if stage<10:buttons.append(InlineKeyboardButton(f"➡️ مرحله {stage+1}",callback_data=f"rqcode:next:{rid}:{stage}"))
-            buttons.append(InlineKeyboardButton("✅ پایان",callback_data=f"rqcode:finish:{rid}:{stage}"))
-            await context.bot.send_message(int(aid),f"🔐 کد همکار دریافت شد\n🎫 {r['tracking_code']}\nمرحله {stage} از ۱۰\nکد: {text}",reply_markup=InlineKeyboardMarkup([buttons]))
+            buttons.append(InlineKeyboardButton("✅ پایان",callback_data=f"rqcode:finish:{rid}:{stage}"));await context.bot.send_message(int(aid),f"🔐 کد همکار دریافت شد\n🎫 {r['tracking_code']}\nمرحله {stage} از ۱۰\nکد: {text}",reply_markup=InlineKeyboardMarkup([buttons]))
         except Exception:pass
-    st["mode"]=None;return await update.message.reply_text(f"✅ کد مرحله {stage} برای مدیریت ارسال شد.")
-
+    st["mode"]=None;await update.message.reply_text(f"✅ کد مرحله {stage} برای مدیریت ارسال شد.")
 def install(app,B):
     if getattr(B,"_request_control_v2",False):return
-    B.db.conn.execute("CREATE TABLE IF NOT EXISTS request_partner_codes(request_id INTEGER,stage INTEGER,code TEXT,created_at TEXT,PRIMARY KEY(request_id,stage))");B.db.conn.commit()
-    app.add_handler(CallbackQueryHandler(lambda u,c:cb(u,c,B),pattern=r"^rq:"),group=-50)
-    app.add_handler(CallbackQueryHandler(lambda u,c:code_cb(u,c,B),pattern=r"^rqcode:"),group=-49)
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,lambda u,c:code_text(u,c,B)),group=-48)
-    B._request_control_v2=True
+    B.db.conn.execute("CREATE TABLE IF NOT EXISTS request_partner_codes(request_id INTEGER,stage INTEGER,code TEXT,created_at TEXT,PRIMARY KEY(request_id,stage))");B.db.conn.commit();app.add_handler(CallbackQueryHandler(lambda u,c:cb(u,c,B),pattern=r"^rq:"),group=-50);app.add_handler(CallbackQueryHandler(lambda u,c:code_cb(u,c,B),pattern=r"^rqcode:"),group=-49);app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,lambda u,c:code_text(u,c,B)),group=-48);B._request_control_v2=True
