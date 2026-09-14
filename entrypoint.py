@@ -50,8 +50,6 @@ def _install_before_telegram_start(app, B, log):
         "telegram_partner_login_fix",
         "telegram_offhours_partner_gate_v2",
         "telegram_admin_plus",
-        "telegram_admin_power",
-        "telegram_final_admin_menu_fix",
         "telegram_partner_code_reliable",
         "telegram_request_full_details_patch",
         "telegram_request_details_fix",
@@ -73,11 +71,16 @@ def _install_before_telegram_start(app, B, log):
         "telegram_service_dispatch_final",
         "telegram_information_input_final",
         "telegram_input_hardening_v3",
+        # Final ownership layers: keep Telegram buttons persistent and expose
+        # the complete admin controls after all legacy routers are installed.
+        "full_admin_control_patch",
+        "production_final_patch",
+        "telegram_announcement_media",
     )
     for module_name in app_modules:
         try:
             module = __import__(module_name)
-            module.install(app, B)
+            module.install(app, B) if module_name == "telegram_announcement_media" else module.install()
             log.info("telegram pre-polling layer installed: %s", module_name)
         except Exception:
             log.exception("telegram pre-polling layer unavailable: %s", module_name)
