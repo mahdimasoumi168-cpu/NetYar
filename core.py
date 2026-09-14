@@ -37,8 +37,6 @@ class Database:
         for k,v in defaults.items(): self.conn.execute("INSERT OR IGNORE INTO settings VALUES(?,?)",(k,v))
         sv=[("fida","فیدای غیر حضوری","ارسال مدرک شناسایی و شماره همراه",0),("print","خدمات چاپ","چاپ فایل و عکس",0),("government","حل مشکل ورود اتباع سامانه دولت من","ثبت درخواست و بررسی مدارک",500000)]
         for k,n,d,p in sv:self.conn.execute("INSERT OR IGNORE INTO services(key,name,description,price) VALUES(?,?,?,?)",(k,n,d,p))
-        # Never ship a default partner password in source control. Provision a
-        # partner only when explicit credentials are supplied through Railway.
         phone=os.getenv("INITIAL_PARTNER_PHONE","").strip(); password=os.getenv("INITIAL_PARTNER_PASSWORD","").strip(); name=os.getenv("INITIAL_PARTNER_NAME","همکار").strip()
         if phone and password and not self.conn.execute("SELECT 1 FROM partners WHERE phone=?",(phone,)).fetchone():
             self.conn.execute("INSERT INTO partners(phone,password_hash,name,created_at,updated_at) VALUES(?,?,?,?,?)",(phone,hash_password(password),name,now(),now()))
