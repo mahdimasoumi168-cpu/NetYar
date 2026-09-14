@@ -1,9 +1,8 @@
 """Single-owner Rubika/Telegram integration bootstrap.
 
-The previous version wrapped server._initialize_integrations and then called the
-old function, which itself initialized Rubika. That caused Rubika layers and
-updateBotEndpoints to run twice. This module is now the sole owner of the
-integration startup path: Telegram is initialized once, then Rubika once.
+Telegram uses webhook mode on Railway so there is exactly one update receiver and
+an old/local polling process cannot steal updates with getUpdates. Rubika remains
+webhook based as well.
 """
 import asyncio
 import logging
@@ -95,16 +94,17 @@ def _telegram_initializer(server_module):
             server_module.telegram_app = tg.build()
             await server_module.telegram_app.initialize()
             await server_module.telegram_app.start()
-            await server_module.telegram_app.bot.delete_webhook(drop_pending_updates=False)
-            updater = getattr(server_module.telegram_app, "updater", None)
-            if updater is None:
-                raise RuntimeError("python-telegram-bot updater is unavailable")
-            if not getattr(updater, "running", False):
-                await updater.start_polling(allowed_updates=None, drop_pending_updates=False)
-            if not getattr(updater, "running", False):
-                raise RuntimeError("Telegram polling did not enter running state")
+
+            # Railway is an HTTP service. Webhook mode gives Telegram a single
+            # authoritative receiver and eliminates getUpdates 409 conflicts
+            # caused by another polling process using the same bot token.
+            endpoint = server_module.public_url("/telegram/update")
+            await server_module.telegram_app.bot.set_webhook(
+                url=endpoint,
+                drop_pending_updates=False,
+            )
             server_module.telegram_ready = True
-            log.info("Telegram long polling started successfully")
+            log.info("Telegram webhook started successfully: %s", endpoint)
         except Exception:
             log.exception("Telegram startup failed")
             server_module.telegram_ready = False
