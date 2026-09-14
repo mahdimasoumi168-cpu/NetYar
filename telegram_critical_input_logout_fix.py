@@ -32,12 +32,24 @@ def install(app, B):
         mode = str(st.get("mode") or "")
 
         # Government-service phone input: consume it before every legacy router.
-        if mode in {"govv2_phone", "gov_phone", "government_phone", "gov_phone_input"} or (
-            st.get("gov_doc_type") and not st.get("gov_phone") and mode.startswith("govv2_")
-        ):
+        # If an older layer accidentally cleared mode while the document type
+        # is still present, restore the phone-input state instead of crashing
+        # on None.startswith(...) or falling through to a generic error handler.
+        gov_phone_active = (
+            mode in {"govv2_phone", "gov_phone", "government_phone", "gov_phone_input"}
+            or (
+                st.get("gov_doc_type")
+                and not st.get("gov_phone")
+                and str(mode).startswith("govv2_")
+            )
+        )
+        if gov_phone_active:
             phone = _norm(text)
             if not re.fullmatch(r"09\d{9}", phone):
-                await msg.reply_text("❌ شماره موبایل باید ۱۱ رقم و با ۰۹ شروع شود.\n\n📱 لطفاً شماره موبایل مشترک را دوباره وارد کنید:")
+                await msg.reply_text(
+                    "❌ شماره موبایل باید ۱۱ رقم و با ۰۹ شروع شود.\n\n"
+                    "📱 لطفاً شماره موبایل مشترک را دوباره وارد کنید:"
+                )
             else:
                 st["gov_phone"] = phone
                 st["mode"] = "govv2_dob"
