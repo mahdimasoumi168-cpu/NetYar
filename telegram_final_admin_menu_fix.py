@@ -1,7 +1,7 @@
-"""Final Telegram admin-menu reliability layer.
+"""Deterministic full Telegram admin panel.
 
-Provides a deterministic admin keyboard independent of legacy menu wrappers.
-It also makes the admin reply-keyboard entry deterministic for authorized admins.
+Keeps the management entry point stable and exposes the operational controls
+already implemented by the request/partner/admin layers.
 """
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackQueryHandler, MessageHandler, ApplicationHandlerStop, filters
@@ -12,19 +12,53 @@ ADMIN_LABELS = {"🛠 پنل مدیریت بات", "🛠 پنل مدیریت", "
 def menu():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("👤 کاربران", callback_data="adm:users"), InlineKeyboardButton("👥 همکاران", callback_data="adm:partners")],
-        [InlineKeyboardButton("➕ افزودن همکار جدید", callback_data="adm:addpartner")],
+        [InlineKeyboardButton("➕ افزودن همکار جدید", callback_data="adm:addpartner"), InlineKeyboardButton("🌙 همکاران شب‌کار", callback_data="night2:menu")],
+        [InlineKeyboardButton("📋 مدیریت درخواست‌ها", callback_data="adm:reqmanage")],
         [InlineKeyboardButton("💰 شارژها", callback_data="adm:topups"), InlineKeyboardButton("💳 پرداخت‌ها", callback_data="adm:payments")],
-        [InlineKeyboardButton("📋 درخواست‌ها", callback_data="adm:requests"), InlineKeyboardButton("⚙️ قیمت‌ها", callback_data="adm:prices")],
+        [InlineKeyboardButton("📋 همه درخواست‌ها", callback_data="adm:requests"), InlineKeyboardButton("⚙️ قیمت‌ها", callback_data="adm:prices")],
         [InlineKeyboardButton("➕ افزایش قیمت", callback_data="adm:priceup"), InlineKeyboardButton("➖ کاهش قیمت", callback_data="adm:pricedown")],
         [InlineKeyboardButton("💵 افزایش شارژ", callback_data="adm:creditup"), InlineKeyboardButton("💸 کاهش شارژ", callback_data="adm:creditdown")],
         [InlineKeyboardButton("📈 قیمت‌گذاری تک‌تک خدمات همکار", callback_data="ppx:start")],
-        [InlineKeyboardButton("✏️ تغییر متن‌ها", callback_data="adm:texts"), InlineKeyboardButton("🟢 خدمات", callback_data="adm:services")],
+        [InlineKeyboardButton("🟢 خدمات", callback_data="adm:services"), InlineKeyboardButton("✏️ تغییر متن‌ها", callback_data="adm:texts")],
         [InlineKeyboardButton("📊 گزارش کامل", callback_data="adm:report"), InlineKeyboardButton("📣 اعلان همگانی", callback_data="adm:announce")],
         [InlineKeyboardButton("🤖 بات‌های متصل", callback_data="adm:bots"), InlineKeyboardButton("🧾 لاگ مدیریت", callback_data="adm:logs")],
-        [InlineKeyboardButton("🌙 همکاران شب‌کار", callback_data="night2:menu"), InlineKeyboardButton("⚙️ تنظیمات", callback_data="adm:settings")],
+        [InlineKeyboardButton("⚙️ تنظیمات", callback_data="adm:settings"), InlineKeyboardButton("🧩 ابزارهای مدیریتی", callback_data="adm:tools")],
         [InlineKeyboardButton("⬅️ منوی اصلی", callback_data="adm:main")],
         [InlineKeyboardButton("🚪 خروج کامل از مدیریت", callback_data="adm:exit")],
     ])
+
+
+def _request_list(B):
+    rows = B.db.conn.execute(
+        "SELECT id,tracking_code,service_key,status,amount,created_at FROM requests ORDER BY id DESC LIMIT 25"
+    ).fetchall()
+    buttons = []
+    for r in rows:
+        label = f"#{r['id']} | {r['tracking_code']} | {str(r['status'])[:12]}"
+        buttons.append([InlineKeyboardButton(label, callback_data=f"panel:req:{int(r['id'])}")])
+    buttons.append([InlineKeyboardButton("⬅️ پنل مدیریت", callback_data="adm:menu")])
+    return InlineKeyboardMarkup(buttons)
+
+
+async def install_admin_request_controls(update, context, B):
+    q = getattr(update, "callback_query", None)
+    if not q or not str(q.data or "").startswith("adm:") or not B.admin(q.from_user.id):
+        return
+    action = str(q.data).split(":", 1)[1]
+    if action == "reqmanage":
+        await q.answer()
+        await q.message.reply_text("📋 مدیریت درخواست‌ها\n\nدرخواست موردنظر را انتخاب کنید. با ورود به هر درخواست، کنترل‌های مشاهده، بررسی، انجام، رد، پاسخ و درخواست کد از همکار در دسترس است:", reply_markup=_request_list(B))
+        raise ApplicationHandlerStop
+    if action == "tools":
+        await q.answer()
+        await q.message.reply_text("🧩 ابزارهای مدیریتی\n\nاز گزینه‌های زیر برای عملیات سریع استفاده کنید:", reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("📋 مدیریت درخواست‌ها", callback_data="adm:reqmanage")],
+            [InlineKeyboardButton("📈 قیمت‌گذاری همکار", callback_data="ppx:start")],
+            [InlineKeyboardButton("📣 اعلان همگانی", callback_data="adm:announce")],
+            [InlineKeyboardButton("🧾 لاگ مدیریت", callback_data="adm:logs")],
+            [InlineKeyboardButton("⬅️ پنل مدیریت", callback_data="adm:menu")],
+        ]))
+        raise ApplicationHandlerStop
 
 
 def install(app, B):
@@ -42,20 +76,18 @@ def install(app, B):
         text = (msg.text or "").strip()
         if text not in ADMIN_LABELS:
             return
-        await msg.reply_text("🛠 پنل مدیریت کامل\n\nاز منوی زیر بخش موردنظر را انتخاب کنید:", reply_markup=menu())
+        await msg.reply_text("🛠 پنل مدیریت کامل\n\n👤 کاربران | 👥 همکاران | 📋 درخواست‌ها | 💰 شارژ و پرداخت\n⚙️ قیمت‌ها | 🟢 خدمات | 📊 گزارش | 📣 اعلان\n\nبخش موردنظر را انتخاب کنید:", reply_markup=menu())
         raise ApplicationHandlerStop
 
     async def admin_callback(update, context):
         q = getattr(update, "callback_query", None)
         if not q or not str(q.data or "").startswith("adm:") or not B.admin(q.from_user.id):
             return
-        if q.data not in {"adm:menu"}:
-            return
-        await q.answer()
-        await q.message.reply_text("🛠 پنل مدیریت کامل\n\nاز منوی زیر بخش موردنظر را انتخاب کنید:", reply_markup=menu())
-        raise ApplicationHandlerStop
+        data = str(q.data)
+        if data in {"adm:menu", "adm:reqmanage", "adm:tools"}:
+            await install_admin_request_controls(update, context, B)
 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, admin_text), group=-20000)
-    app.add_handler(CallbackQueryHandler(admin_callback, pattern=r"^adm:menu$"), group=-20000)
+    app.add_handler(CallbackQueryHandler(admin_callback, pattern=r"^adm:(menu|reqmanage|tools)$"), group=-20000)
     B._final_admin_menu_fix = True
     return True
