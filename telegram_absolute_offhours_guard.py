@@ -90,14 +90,18 @@ def install(app, B):
         data = str(q.data or "")
         if data in {"off:restart", "off:partner"}:
             return
-        # The normal restart button is tokenized as ui2:<token>. Resolve the
-        # token here so it remains usable even while the bot is closed.
+        # Normal UI buttons are tokenized as ui2:<token>. Resolve the token so
+        # both restart and partner-panel entry remain available after hours.
         if data.startswith("ui2:"):
             try:
                 token = data[4:]
-                row = B.db.conn.execute("SELECT label,user_id FROM ui2_callbacks WHERE token=?", (token,)).fetchone()
-                if row and str(row["user_id"]) == str(uid) and str(row["label"]).strip() in {"🔄 شروع مجدد", "شروع مجدد"}:
-                    return
+                row = B.db.conn.execute(
+                    "SELECT label,user_id FROM ui2_callbacks WHERE token=?", (token,)
+                ).fetchone()
+                if row and str(row["user_id"]) == str(uid):
+                    label = str(row["label"]).strip()
+                    if label in {"🔄 شروع مجدد", "شروع مجدد", "👥 پنل همکاران", "👥 Partner panel", "👥 لوحة الشركاء"}:
+                        return
             except Exception:
                 pass
         try:
