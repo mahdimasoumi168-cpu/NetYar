@@ -73,8 +73,6 @@ def install(app, B):
         if not msg:
             return
         st = B.S.get(uid, {}) or {}
-        # Credential collection is handled by the dedicated night-shift layer.
-        # It must still validate the partner as a night worker before success.
         if st.get("mode") in {"night_phone", "night_pass"}:
             return
         txt = str(getattr(msg, "text", "") or "").strip()
@@ -102,19 +100,10 @@ def install(app, B):
         await q.message.reply_text(closed_text(B), reply_markup=markup())
         raise ApplicationHandlerStop
 
-    async def update_gate(update, context):
-        if is_open(B):
-            return
-        uid = getattr(getattr(update, "effective_user", None), "id", None)
-        if uid is None or B.admin(uid) or night_worker(B, uid):
-            return
-        data = str(getattr(getattr(update, "callback_query", None), "data", "") or "")
-        if data in {"off:restart", "off:partner"}:
-            return
-        # Do not duplicate the response; the message/callback gate will do it.
-        return
-
-    app.add_handler(TypeHandler(__import__("telegram").Update, update_gate), group=-2000000)
-    app.add_handler(CallbackQueryHandler(callback_gate), group=-1999999)
-    app.add_handler(MessageHandler(filters.ALL, gate), group=-1999998)
+    # These handlers must run before the canonical /start handler (group -9000)
+    # and before all normal callback/text routers. This prevents /start and any
+    # other ordinary action from bypassing the closed-hours lock.
+    app.add_handler(TypeHandler(__import__("telegram").Update, lambda u,c: None), group=-2000000)
+    app.add_handler(CallbackQueryHandler(callback_gate), group=-19999999)
+    app.add_handler(MessageHandler(filters.ALL, gate), group=-19999998)
     B._absolute_offhours_guard_v1 = True
