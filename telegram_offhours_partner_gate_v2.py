@@ -43,7 +43,6 @@ def _partner_by_phone(B, phone):
 
 
 def _active_partner_session(B, uid):
-    """Return the active partner row for an already authenticated session."""
     st = B.S.get(uid, {}) or {}
     pid = st.get("partner_id")
     if not pid or st.get("partner_active") is False or st.get("partner_logged_out"):
@@ -57,13 +56,9 @@ def _active_partner_session(B, uid):
 
 
 def is_night_worker(B, uid):
-    # A valid authenticated partner session is sufficient. Do not require a
-    # second session lookup/refresh after inactivity; this was the source of
-    # the night-shift "please log in again" behaviour.
     row = _active_partner_session(B, uid)
     if row:
         return True
-
     st = B.S.get(uid, {}) or {}
     pid = st.get("partner_id")
     try:
@@ -83,6 +78,34 @@ def is_night_worker(B, uid):
 
 def _allowed_during_closed(B, uid):
     return bool(B.admin(uid) or is_night_worker(B, uid))
+
+
+def _active_input_flow(B, uid):
+    """Do not interrupt a user who is already inside a multi-step service flow.
+
+    This is critical after 19:00: the user may have started a service before
+    closing time and still needs to submit the requested phone, DOB, document
+    data or photos. Blocking that message at an early handler group makes the
+    later dedicated input handlers look completely unresponsive.
+    """
+    try:
+        st = B.S.get(uid, {}) or {}
+        mode = str(st.get("mode") or st.get("step") or "")
+        active_modes = {
+            "govv2_phone", "govv2_dob", "govv2_unique", "govv2_special",
+            "govv2_family", "govv2_identity_number", "govv2_postal", "govv2_photo",
+            "govv2_passport_photo1", "govv2_passport_photo2", "govv2_passport_photo3",
+            "p_phone", "p_pass", "partner_phone", "partner_pass", "final_partner_chat",
+            "partner_message", "night_phone", "night_pass", "topup_amount", "topup_receipt",
+            "public_tracking",
+        }
+        if mode in active_modes or mode.startswith("govv2_"):
+            return True
+        if st.get("mgmt_mode"):
+            return True
+    except Exception:
+        pass
+    return False
 
 
 def _markup():
@@ -127,8 +150,6 @@ def install(app, B):
             await q.message.reply_text("🔄 شروع مجدد", reply_markup=B.main(uid))
             raise ApplicationHandlerStop
 
-        # Keep a valid night-shift session alive. Only request credentials when
-        # there is no active partner session or the partner account is invalid.
         active = _active_partner_session(B, uid)
         if not is_open() and active:
             try:
@@ -259,7 +280,7 @@ def install(app, B):
             return
         uid = q.from_user.id
         data = str(q.data or "")
-        if data in {"off:restart", "off:partner"} or _allowed_during_closed(B, uid):
+        if data in {"off:restart", "off:partner"} or _allowed_during_closed(B, uid) or _active_input_flow(B, uid):
             return
         try:
             await q.answer("⏰ خارج از ساعت کاری است.", show_alert=True)
@@ -285,7 +306,7 @@ async def message_gate(update, context, B):
     msg = getattr(update, "effective_message", None)
     if not user or not msg:
         return
-    if _allowed_during_closed(B, user.id):
+    if _allowed_during_closed(B, user.id) or _active_input_flow(B, user.id):
         return
     await msg.reply_text(_closed_text(), reply_markup=_markup())
     raise ApplicationHandlerStop
