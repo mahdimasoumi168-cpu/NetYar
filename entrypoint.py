@@ -54,7 +54,6 @@ def _install_before_telegram_start(app, B, log):
         "telegram_government_family_code_fix",
         "telegram_ui_policy_v2",
         "telegram_absolute_fix",
-        "telegram_context_recovery",
         "telegram_operational_continuation_guard",
         "telegram_admin_request_reliability_fix",
         "telegram_partner_chat_reliability",
