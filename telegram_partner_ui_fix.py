@@ -1,8 +1,8 @@
 """Reliable Telegram partner-panel UI.
 
-Authorized partners get the partner menu only while their session is active.
-An explicit logout blocks automatic relinking until the user starts a new
-partner-panel login flow.
+Keep the canonical partner panel complete: top-up, all enabled partner
+services, tracking/history, balance, management ticket, and logout.
+This layer must not remove service buttons installed by earlier billing layers.
 """
 import logging
 
@@ -20,7 +20,11 @@ def _partner_row(B, uid):
             if row:
                 st["partner_active"] = True
                 return row
-        row = B.db.conn.execute("SELECT p.* FROM partners p JOIN partner_telegram_links l ON l.partner_id=p.id WHERE l.telegram_user_id=? AND p.active=1 LIMIT 1", (str(uid),)).fetchone()
+        row = B.db.conn.execute(
+            "SELECT p.* FROM partners p JOIN partner_telegram_links l "
+            "ON l.partner_id=p.id WHERE l.telegram_user_id=? AND p.active=1 LIMIT 1",
+            (str(uid),),
+        ).fetchone()
         if row:
             st["partner_id"] = row["id"]
             st["partner_active"] = True
@@ -38,9 +42,12 @@ def install(app, B):
     import telegram_ui_policy_v2 as UI
 
     def partner_inline(uid=None):
+        # Keep the full partner menu. Service actions remain reachable through
+        # the partner balance/charge workflow; do not collapse them to only
+        # top-up + government access issue.
         return UI.inline([
             ["➕ شارژ حساب", "🏛 حل مشکل سامانه دولت من"],
-            ["🪪 فیدای غیر حضوری", "📱 خدمات سیم کارت"],
+            ["📱 خدمات سیم کارت", "🪪 فیدای غیر حضوری"],
             ["🔎 پیگیری کد", "📋 سوابق"],
             ["💰 موجودی", "🎫 تیکت به مدیریت"],
             ["🚪 خروج از پنل"],
