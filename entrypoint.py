@@ -70,6 +70,7 @@ def _install_before_telegram_start(app, B, log):
         "telegram_final_user_state_guard",
         "telegram_service_dispatch_final",
         "telegram_information_input_final",
+        "telegram_input_hardening_v3",
     )
     for module_name in app_modules:
         try:
