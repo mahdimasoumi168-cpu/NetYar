@@ -1,8 +1,8 @@
 """Absolute customer off-hours guard.
 
 Runs before normal Telegram routing. Ordinary users cannot start, continue,
-or trigger any customer flow outside configured working hours. Night-worker
-login is the only customer-side exception until authentication succeeds.
+or trigger any customer flow outside configured working hours. Restart and
+partner night-login entry remain available.
 """
 from datetime import datetime, time
 from zoneinfo import ZoneInfo
@@ -32,15 +32,12 @@ def is_open(B):
 
 
 def night_worker(B, uid):
-    """Return true only after a real, active partner session is authenticated."""
     try:
         st = B.S.get(uid, {}) or {}
         pid = st.get("partner_id")
         if not pid or not st.get("partner_active") or st.get("partner_logged_out"):
             return False
-        row = B.db.conn.execute(
-            "SELECT id FROM partners WHERE id=? AND active=1 LIMIT 1", (int(pid),)
-        ).fetchone()
+        row = B.db.conn.execute("SELECT id FROM partners WHERE id=? AND active=1 LIMIT 1", (int(pid),)).fetchone()
         return bool(row and str(B.db.setting("night_worker:" + str(row["id"]), "0")) == "1")
     except Exception:
         return False
@@ -93,6 +90,16 @@ def install(app, B):
         data = str(q.data or "")
         if data in {"off:restart", "off:partner"}:
             return
+        # The normal restart button is tokenized as ui2:<token>. Resolve the
+        # token here so it remains usable even while the bot is closed.
+        if data.startswith("ui2:"):
+            try:
+                token = data[4:]
+                row = B.db.conn.execute("SELECT label,user_id FROM ui2_callbacks WHERE token=?", (token,)).fetchone()
+                if row and str(row["user_id"]) == str(uid) and str(row["label"]).strip() in {"🔄 شروع مجدد", "شروع مجدد"}:
+                    return
+            except Exception:
+                pass
         try:
             await q.answer("⏰ خارج از ساعت کاری است.", show_alert=True)
         except Exception:
@@ -100,9 +107,6 @@ def install(app, B):
         await q.message.reply_text(closed_text(B), reply_markup=markup())
         raise ApplicationHandlerStop
 
-    # These handlers must run before the canonical /start handler (group -9000)
-    # and before all normal callback/text routers. This prevents /start and any
-    # other ordinary action from bypassing the closed-hours lock.
     app.add_handler(TypeHandler(__import__("telegram").Update, lambda u,c: None), group=-2000000)
     app.add_handler(CallbackQueryHandler(callback_gate), group=-19999999)
     app.add_handler(MessageHandler(filters.ALL, gate), group=-19999998)
