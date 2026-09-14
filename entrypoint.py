@@ -23,9 +23,6 @@ def _install_before_telegram_start(app, B, log):
     for module_name in pre_app_modules:
         try:
             module = __import__(module_name)
-            # request_language_actions also installs a very-early Telegram
-            # update tracker. It must receive the real Application instance;
-            # the other pre-build layers intentionally receive only B.
             if module_name == "request_language_actions":
                 module.install(app, B)
             else:
@@ -71,6 +68,7 @@ def _install_before_telegram_start(app, B, log):
         "telegram_final_admin_partner_fix",
         "telegram_final_menu_dedup_guard",
         "telegram_final_user_state_guard",
+        "telegram_service_dispatch_final",
     )
     for module_name in app_modules:
         try:
