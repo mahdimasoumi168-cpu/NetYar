@@ -1,16 +1,26 @@
-"""Reset stale Telegram conversational sessions on the next user action."""
+"""Safe Telegram idle tracking without breaking active data-entry flows."""
 import os
 import time
-from telegram.ext import MessageHandler, filters, ApplicationHandlerStop
-
+from telegram.ext import MessageHandler, filters
 
 DEFAULT_IDLE_SECONDS = 5 * 60
+
+# Active conversational states must NEVER be swallowed by the idle guard.
+# The user can spend several minutes collecting documents/information.
+ACTIVE_MODES = {
+    "govv2_phone", "govv2_dob", "govv2_unique", "govv2_special",
+    "govv2_family", "govv2_identity_number", "govv2_postal",
+    "govv2_photo", "govv2_passport_photo1", "govv2_passport_photo2",
+    "govv2_passport_photo3", "invoice_pending",
+    "p_phone", "p_pass", "partner_phone", "partner_pass",
+    "final_partner_chat", "partner_message", "night_phone", "night_pass",
+    "topup_amount", "topup_receipt", "public_tracking",
+}
 
 
 def install(app, B):
     if getattr(B, "_idle_session_reset_installed", False):
         return
-
     try:
         idle_seconds = max(60, int(os.getenv("SESSION_IDLE_SECONDS", str(DEFAULT_IDLE_SECONDS))))
     except Exception:
@@ -26,12 +36,14 @@ def install(app, B):
         now = time.monotonic()
         st = B.S.setdefault(uid, {})
         previous = st.get("_last_activity")
-
-        # Always refresh activity so an active conversation never expires.
         st["_last_activity"] = now
+        mode = str(st.get("mode") or "")
 
-        # If the user comes back after inactivity, the next button/text starts
-        # from the public main menu instead of continuing an old data-entry step.
+        # Active service/login/ticket flows are never reset by inactivity.
+        # Their own handlers are responsible for validation and cancellation.
+        if mode in ACTIVE_MODES or mode.startswith("govv2_"):
+            return
+
         if previous is None:
             return
         try:
@@ -41,14 +53,21 @@ def install(app, B):
         if not stale:
             return
 
-        lang = st.get("lang", "fa")
+        # Do not destroy an authenticated partner/night-shift session merely
+        # because there was a pause. Explicit logout is the only logout path.
+        if st.get("partner_id") and st.get("partner_active", True):
+            return
+
+        # For an abandoned public/menu state, clear only transient input state.
+        for key in ("step", "phone", "gov_phone", "gov_dob", "gov_unique", "gov_special", "gov_family_code", "gov_identity_number", "gov_postal"):
+            st.pop(key, None)
+        st["mode"] = None
         await msg.reply_text(
-            "⏰ به دلیل چند دقیقه عدم فعالیت، عملیات قبلی بسته شد.\n\n🏠 به صفحه اصلی برگشتید.\nلطفاً گزینه موردنظر را دوباره انتخاب کنید.",
+            "⏰ عملیات قبلی به دلیل عدم فعالیت بسته شد.\n\n🏠 می‌توانید از منوی اصلی ادامه دهید.",
             reply_markup=B.main(uid),
         )
-        raise ApplicationHandlerStop
 
-    # Run before all conversational routers so stale modes cannot consume
-    # the first action after the timeout.
+    # Track activity before every conversational router, but never consume
+    # active service input. This prevents the classic 'no reaction' symptom.
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text), group=-1000000)
     B._idle_session_reset_installed = True
