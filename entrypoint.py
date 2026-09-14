@@ -15,6 +15,7 @@ production_stability.install()
 def _install_before_telegram_start(app, B, log):
     """Install final Telegram ownership layers before polling starts."""
     pre_app_modules = (
+        "request_language_actions",
         "telegram_partner_logout_fix",
         "telegram_language_consistency",
         "telegram_cancel_policy",
