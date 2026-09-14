@@ -20,14 +20,19 @@ jobs:
           python - <<'PY'
           import ast
           from pathlib import Path
-          root = Path('.')
-          files = {p.stem for p in root.glob('*.py')}
-          text = Path('entrypoint.py').read_text(encoding='utf-8')
-          tree = ast.parse(text)
+          files = {p.stem for p in Path('.').glob('*.py')}
+          tree = ast.parse(Path('entrypoint.py').read_text(encoding='utf-8'))
           names = []
           for node in ast.walk(tree):
               if isinstance(node, ast.Constant) and isinstance(node.value, str):
-                  if node.value.startswith('telegram_') or node.value in {'full_admin_control_patch','production_final_patch','government_balance_postal_fix','partner_pricing','final_stability_overlay','final_government_payment_overlay'}:
+                  if node.value in {'PRE_TELEGRAM_MODULES', 'TELEGRAM_MODULES'}:
+                      continue
+                  if (node.value.startswith('telegram_') or node.value in {
+                      'request_language_actions','telegram_partner_logout_fix',
+                      'telegram_language_consistency','telegram_cancel_policy',
+                      'full_admin_control_patch','production_final_patch',
+                      'government_balance_postal_fix','partner_pricing',
+                      'final_stability_overlay','final_government_payment_overlay'}):
                       names.append(node.value)
           missing = sorted(set(names) - files)
           if missing:
