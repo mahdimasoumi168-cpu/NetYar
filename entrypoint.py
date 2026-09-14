@@ -8,7 +8,7 @@ import bale_bootstrap
 import rubika_bootstrap_final
 import production_stability
 
-NETYAR_TELEGRAM_BUILD = "2026-09-14-button-phone-stability"
+NETYAR_TELEGRAM_BUILD = "2026-09-14-final-routing-repair"
 
 bale_bootstrap.install(server)
 rubika_bootstrap_final.install(server)
@@ -56,7 +56,7 @@ def _install_before_telegram_start(app, B, log):
         "telegram_service_dispatch_final","telegram_information_input_final","telegram_input_hardening_v3",
         "full_admin_control_patch","production_final_patch","telegram_announcement_media",
         "government_balance_postal_fix","telegram_admin_menu_restore","telegram_request_workflow_final",
-        "telegram_universal_button_guard",
+        "telegram_universal_button_guard","telegram_final_repair",
     )
     for module_name in app_modules:
         install_module(module_name)
