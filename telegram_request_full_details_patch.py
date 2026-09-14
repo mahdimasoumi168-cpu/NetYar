@@ -28,10 +28,10 @@ def _full_text(B,rid):
   labels=L.labels(lang); service=L.service_name(r["service_key"],lang); field_label=L.field_label
  except Exception:
   labels={"details":"📋 جزئیات کامل درخواست","tracking":"🎫 کد پیگیری","service":"🧾 خدمت","status":"📌 وضعیت","amount":"💰 مبلغ","payment":"💳 وضعیت پرداخت","method":"💵 روش پرداخت","time":"🕐 زمان ثبت","info":"📋 اطلاعات ثبت‌شده"}; service=_value(r["service_key"]); field_label=lambda k,l:f"📋 {k}"
- lines=[labels["details"],"",f"{labels['tracking']}: {_value(r['tracking_code'])}",f"{labels['service']}: {service}",f"{labels['status']}: {_value(r['status'])}",f"{labels['amount']}: {int(r['amount'] or 0):,} Toman",f"{labels['payment']}: {_value(r['payment_status'])}"]
+ currency={"fa":"تومان","en":"Toman","ar":"تومان"}.get(lang,"تومان")
+ lines=[labels["details"],"",f"{labels['tracking']}: {_value(r['tracking_code'])}",f"{labels['service']}: {service}",f"{labels['status']}: {_value(r['status'])}",f"{labels['amount']}: {int(r['amount'] or 0):,} {currency}",f"{labels['payment']}: {_value(r['payment_status'])}"]
  if r["payment_method"]: lines.append(f"{labels['method']}: {_value(r['payment_method'])}")
  if r["created_at"]: lines.append(f"{labels['time']}: {_value(r['created_at'])}")
- # Include every populated request-table field, including owner/user metadata.
  for key in r.keys():
   if key in {"id","tracking_code","service_key","status","amount","payment_status","payment_method","created_at","updated_at","language"}: continue
   val=_value(r[key])
@@ -84,10 +84,12 @@ def finalize(B):
  if old is None:return False
  async def notify_admins(application,message,request_id=None,inline=None,files=None,**kwargs):
   if not request_id:
-   return await old(application,message,request_id,inline,files,**kwargs)
+   # bot.notify_admins historically accepts four positional arguments only.
+   # Never pass the optional files argument to that legacy signature.
+   return await old(application,message,request_id,inline)
   try:
    text,stored_files=_full_text(B,int(request_id))
-   if not text:return await old(application,message,request_id,inline,files,**kwargs)
+   if not text:return await old(application,message,request_id,inline)
    lang=_lang(B,int(request_id)); mk=_keyboard(int(request_id),lang,True)
    admins=list(dict.fromkeys(getattr(B,"ADM",set()) or [])); ok=True
    for aid in admins:
@@ -116,5 +118,5 @@ def finalize(B):
    return ok
   except Exception:
    log.exception("complete request notification wrapper failed: %s",request_id)
-   return await old(application,message,request_id,inline,files,**kwargs)
+   return await old(application,message,request_id,inline)
  B.notify_admins=notify_admins; B._request_full_notify_patch=True; return True
