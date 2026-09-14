@@ -41,6 +41,7 @@ def _install_before_telegram_start(app, B, log):
         install_module(module_name, pre=True)
 
     app_modules = (
+        "telegram_final_hotfix_20260914",
         "telegram_fast_response_layer",
         "telegram_critical_input_logout_fix","telegram_idle_session_reset","telegram_input_continuation_guard",
         "telegram_admin_button_guard","telegram_partner_pricing_stable","telegram_partner_session_persistence",
