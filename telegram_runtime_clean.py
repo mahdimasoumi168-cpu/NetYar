@@ -6,13 +6,14 @@ import bot as B
 log=logging.getLogger("netyar.telegram_runtime")
 _LANGS={"fa","en","ar"}
 _STATUSES={"foreign","iranian"}
-WELCOME=("👋 سلام و خوش آمدید 🌷\n\n"
-         "به سامانه خدمات آنلاین «بات، کمک یار مهاجر» خوش آمدید. 🌟\n\n"
-         "اینجا تلاش کرده‌ایم خدمات موردنیاز شما را به‌صورت سریع، ساده و آنلاین در اختیارتان قرار دهیم تا بدون سردرگمی بتوانید خدمت موردنظر خود را دریافت یا پیگیری کنید.\n\n"
-         "🚀 بات، کمک یار مهاجر؛ خدماتی برای شما، درآمدی برای همه\n\n"
-         "📌 در این ربات می‌توانید خدمات مختلف را دریافت، درخواست‌های خود را ثبت و پیگیری کنید و در صورت نیاز با پشتیبانی ارتباط داشته باشید.\n\n"
-         "🌍 خدمات برای اتباع و شهروندان ایرانی در نظر گرفته شده است.\n\n"
-         "👇 لطفاً ابتدا زبان موردنظر خود را انتخاب کنید تا ادامه مراحل به زبان انتخابی شما نمایش داده شود.")
+WELCOME=(
+    "👋 سلام!\n"
+    "به سامانه خدمات آنلاین بات، کمک یار مهاجر خوش آمدید. 🌟\n"
+    "اینجا تلاش کرده‌ایم خدمات موردنیاز شما را به‌صورت سریع، ساده و آنلاین در اختیارتان قرار دهیم تا بدون سردرگمی بتوانید خدمت موردنظر خود را دریافت یا پیگیری کنید.\n"
+    "🚀 بات، کمک یار مهاجر؛ خدماتی برای شما، درآمدی برای همه\n"
+    "📌 لطفاً ابتدا زبان موردنظر خود را انتخاب کنید تا ادامه مراحل به زبان انتخابی شما نمایش داده شود.\n"
+    "🇮🇷 فارسی\n🇬🇧 English\n🇸🇦 العربية"
+)
 async def _safe_call(fn, update, context):
     try:
         result=fn(update,context)
@@ -26,12 +27,7 @@ async def _start(update, context):
     uid=user.id
     try:B.db.user("telegram",uid,user.username,user.full_name)
     except Exception:log.exception("user persistence")
-    old=B.S.get(uid,{})
-    # /start is a public reset: do not preserve partner authentication or
-    # transient form state. The user must explicitly authenticate again.
-    lang=old.get("lang") if old.get("lang") in _LANGS else None
     B.S[uid]={}
-    if lang:B.S[uid]["lang"]=lang
     if update.message:
         await update.message.reply_text(WELCOME,reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🇮🇷 فارسی",callback_data="lang:fa"),InlineKeyboardButton("🇬🇧 English",callback_data="lang:en"),InlineKeyboardButton("🇸🇦 العربية",callback_data="lang:ar")]]))
 async def _absolute_startup_callback(update,context):
@@ -111,5 +107,5 @@ def build():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,B.router),group=20)
     _install_features(app)
     B.start=_start
-    log.info("Telegram canonical Application built successfully")
+    log.info("Canonical Telegram Application built successfully")
     return app
