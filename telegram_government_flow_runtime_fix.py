@@ -30,14 +30,17 @@ def install(app, B):
     def _type_name(typ):
         return {"card":"کارت آمایش","temporary_card":"کارت موقت","passport":"گذرنامه","residence_booklet":"دفترچه اقامت"}.get(typ, "-")
 
-    def _admin_text(st, code, amount):
+    def _admin_text(st, code, amount, reused=False, previous_code=""):
         typ = st.get("gov_doc_type")
         extra = ""
         if typ == "card": extra = f"👨‍👩‍👧‍👦 کد خانوار مشترک: {st.get('gov_family_code', '-') }\n"
         elif typ == "passport": extra = f"🛂 شماره پاسپورت مشترک: {st.get('gov_identity_number', '-') }\n"
         elif typ == "residence_booklet": extra = f"📗 شماره دفترچه اقامت مشترک: {st.get('gov_identity_number', '-') }\n"
         elif typ == "temporary_card": extra = f"🪪 شماره کارت موقت مشترک: {st.get('gov_identity_number', '-') }\n"
-        return ("👔 مدیر — درخواست جدید\n" "🆕 حل مشکل سامانه دولت من\n" f"🎫 کد پیگیری: {code}\n" f"🪪 نوع مدرک: {_type_name(typ)}\n" f"📱 شماره موبایل مشترک: {st.get('gov_phone', '-')}\n" f"🎂 تاریخ تولد مشترک: {st.get('gov_dob', '-')}\n" f"🆔 شناسه یکتای مشترک: {st.get('gov_unique', '-')}\n" f"🔖 شناسه اختصاصی مشترک: {st.get('gov_special', '-')}\n" + extra + f"📮 کد پستی مشترک: {st.get('gov_postal', '-')}\n" + f"💰 مبلغ: {amount:,} تومان\n" + "💳 وضعیت پرداخت: در انتظار پرداخت فاکتور\n" + "📎 تمام پیوست‌ها در ادامه همین درخواست ارسال می‌شوند.")
+        payment_line = "♻️ پرداخت قبلی بر اساس شناسه اختصاصی؛ هزینه جدید: ۰ تومان" if reused else f"💰 مبلغ: {amount:,} تومان\n💳 وضعیت پرداخت: در انتظار پرداخت فاکتور"
+        if reused and previous_code:
+            payment_line += f"\n📌 درخواست پرداخت‌شده قبلی: {previous_code}"
+        return ("👔 مدیر — درخواست جدید\n" "🆕 حل مشکل سامانه دولت من\n" f"🎫 کد پیگیری: {code}\n" f"🪪 نوع مدرک: {_type_name(typ)}\n" f"📱 شماره موبایل مشترک: {st.get('gov_phone', '-')}\n" f"🎂 تاریخ تولد مشترک: {st.get('gov_dob', '-')}\n" f"🆔 شناسه یکتای مشترک: {st.get('gov_unique', '-')}\n" f"🔖 شناسه اختصاصی مشترک: {st.get('gov_special', '-')}\n" + extra + f"📮 کد پستی مشترک: {st.get('gov_postal', '-')}\n" + payment_line + "\n📎 تمام پیوست‌ها در ادامه همین درخواست ارسال می‌شوند.")
 
     def _controls(rid):
         return InlineKeyboardMarkup([
@@ -46,6 +49,19 @@ def install(app, B):
             [InlineKeyboardButton("💰 تأیید دریافت وجه", callback_data=f"rq:payconfirm:{rid}"), InlineKeyboardButton("⏳ بررسی اولیه", callback_data=f"rq:review:{rid}")],
             [InlineKeyboardButton("❌ رد درخواست", callback_data=f"rq:reject:{rid}")],
         ])
+
+    def _find_paid_by_special(owner, special_id):
+        """Return the latest already-paid government request for this owner + unique special ID."""
+        if not owner or not special_id:
+            return None
+        return B.db.conn.execute(
+            """SELECT r.id,r.tracking_code,r.status,r.payment_status
+               FROM requests r JOIN request_answers a ON a.request_id=r.id
+               WHERE r.user_id=? AND r.service_key='government'
+                 AND r.payment_status='paid' AND a.field_key='special_id' AND a.answer=?
+               ORDER BY r.id DESC LIMIT 1""",
+            (owner, special_id),
+        ).fetchone()
 
     async def text(update, context):
         if not update.message: return
@@ -90,8 +106,10 @@ def install(app, B):
     async def _create_request(update, context, st, attachments):
         msg = update.message; amount = int(B.db.setting("price_government", "500000") or 500000); pid = st.get("partner_id")
         owner = pid or B.db.user("telegram", update.effective_user.id, update.effective_user.username, update.effective_user.full_name)
-        rid, code = B.db.create_request(owner, "government", "telegram", amount); typ = st.get("gov_doc_type")
-        fields = [("doc_type", typ),("phone", st.get("gov_phone")),("dob", st.get("gov_dob")),("unique_id", st.get("gov_unique")),("special_id", st.get("gov_special")),("postal_code", st.get("gov_postal"))]
+        special_id = _digits(st.get("gov_special"))
+        previous = _find_paid_by_special(owner, special_id)
+        rid, code = B.db.create_request(owner, "government", "telegram", 0 if previous else amount); typ = st.get("gov_doc_type")
+        fields = [("doc_type", typ),("phone", st.get("gov_phone")),("dob", st.get("gov_dob")),("unique_id", st.get("gov_unique")),("special_id", special_id),("postal_code", st.get("gov_postal"))]
         if typ == "card": fields.append(("family_code", st.get("gov_family_code")))
         if typ == "passport": fields.append(("passport", st.get("gov_identity_number")))
         elif typ == "temporary_card": fields.append(("temporary_card_number", st.get("gov_identity_number")))
@@ -100,14 +118,16 @@ def install(app, B):
         for k,v in fields:
             if v: B.db.answer(rid,k,answer=v)
 
-        # Store exactly the submitted attachments. Passport has three distinct images;
-        # do not create a legacy duplicate of the first page.
         labels = ["document"] if typ != "passport" else ["passport_first_page","passport_visa_renewal","passport_renewal"]
         for key,fid in zip(labels,attachments):
             if fid: B.db.answer(rid,key,file_id=fid)
 
-        B.db.conn.execute("UPDATE requests SET status='awaiting_payment',payment_status='unpaid',payment_method='invoice',updated_at=? WHERE id=?",(B.now(),rid)); B.db.conn.commit()
-        text_msg = _admin_text(st,code,amount); controls = _controls(rid)
+        if previous:
+            B.db.conn.execute("""UPDATE requests SET status='submitted',payment_status='paid',payment_method='previous_government_request',payment_note=?,updated_at=? WHERE id=?""",(f"هزینه قبلاً برای شناسه اختصاصی {special_id} در درخواست {previous['tracking_code']} پرداخت شده است؛ درخواست مجدد بدون کسر هزینه ثبت شد.",B.now(),rid))
+        else:
+            B.db.conn.execute("UPDATE requests SET status='awaiting_payment',payment_status='unpaid',payment_method='invoice',updated_at=? WHERE id=?",(B.now(),rid))
+        B.db.conn.commit()
+        text_msg = _admin_text(st,code,amount,bool(previous),previous['tracking_code'] if previous else ""); controls = _controls(rid)
         for aid in B.ADM:
             try: await context.bot.send_message(chat_id=int(aid),text=text_msg,reply_markup=controls)
             except Exception: pass
@@ -125,8 +145,12 @@ def install(app, B):
                     try: await context.bot.send_document(chat_id=int(aid),document=fid,caption=f"🎫 {code}\n📎 تصویر مدرک مشترک")
                     except Exception: pass
 
-        st["mode"]="invoice_pending"; st["request_id"]=rid; st["tracking_code"]=code
-        await msg.reply_text(invoice_text("فاکتور خدمات حل مشکل سامانه دولت من",amount,code,B),reply_markup=invoice_markup(B),parse_mode="HTML")
+        st["mode"]=None; st["request_id"]=rid; st["tracking_code"]=code
+        if previous:
+            await msg.reply_text(f"✅ درخواست جدید ثبت شد.\n🎫 کد پیگیری: {code}\n♻️ این شناسه اختصاصی قبلاً برای این خدمت پرداخت شده است.\n💰 هزینه این درخواست: ۰ تومان",reply_markup=B.partner_kb(st.get("lang","fa")) if pid else B.main(uid))
+        else:
+            st["mode"]="invoice_pending"
+            await msg.reply_text(invoice_text("فاکتور خدمات حل مشکل سامانه دولت من",amount,code,B),reply_markup=invoice_markup(B),parse_mode="HTML")
         raise ApplicationHandlerStop
 
     async def media(update, context):
