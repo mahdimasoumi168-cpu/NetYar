@@ -16,13 +16,11 @@ import rubika_bootstrap_final
 import server
 
 
-NETYAR_TELEGRAM_BUILD = "2026-09-14-clean-entrypoint-v2"
+NETYAR_TELEGRAM_BUILD = "2026-09-14-clean-entrypoint-v3"
 
-# Non-Telegram platform bootstraps.
 bale_bootstrap.install(server)
 rubika_bootstrap_final.install(server)
 production_stability.install()
-
 
 PRE_TELEGRAM_MODULES = (
     "request_language_actions",
@@ -31,11 +29,10 @@ PRE_TELEGRAM_MODULES = (
     "telegram_cancel_policy",
 )
 
-
-# Keep the existing business layers in their proven order.
-# The isolated phone handler is deliberately first so active phone input cannot
-# be swallowed by a generic router or a legacy continuation guard.
 TELEGRAM_MODULES = (
+    # Must be installed first: its handler groups are earlier than every
+    # customer/service router, so closed-hours users cannot leak into flows.
+    "telegram_absolute_offhours_guard",
     "telegram_government_phone_final",
     "telegram_phone_registry_and_stability",
     "telegram_final_hotfix_20260914",
@@ -95,95 +92,57 @@ TELEGRAM_MODULES = (
 
 
 def _install_module(module_name, app, bot, logger, *, pre=False):
-    """Install one optional layer without breaking the whole bot if it is absent."""
     try:
         module = __import__(module_name)
         installer = getattr(module, "install", None)
         if not callable(installer):
             raise AttributeError("install() not found")
-
         signature = inspect.signature(installer)
-        positional = [
-            p
-            for p in signature.parameters.values()
-            if p.kind in (
-                inspect.Parameter.POSITIONAL_ONLY,
-                inspect.Parameter.POSITIONAL_OR_KEYWORD,
-            )
-        ]
+        positional = [p for p in signature.parameters.values() if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)]
         required = [p for p in positional if p.default is inspect.Parameter.empty]
-
         if len(required) >= 2 or len(positional) >= 2:
             installer(app, bot)
         elif len(required) == 1 or len(positional) == 1:
             installer(bot)
         else:
             installer()
-
-        logger.info(
-            "Telegram %s layer installed: %s",
-            "pre-build" if pre else "runtime",
-            module_name,
-        )
+        logger.info("Telegram %s layer installed: %s", "pre-build" if pre else "runtime", module_name)
     except Exception:
-        logger.exception(
-            "Telegram %s layer unavailable: %s",
-            "pre-build" if pre else "runtime",
-            module_name,
-        )
+        logger.exception("Telegram %s layer unavailable: %s", "pre-build" if pre else "runtime", module_name)
 
 
 def _install_telegram_layers(app, bot, logger):
     for module_name in PRE_TELEGRAM_MODULES:
         _install_module(module_name, app, bot, logger, pre=True)
-
     for module_name in TELEGRAM_MODULES:
         _install_module(module_name, app, bot, logger)
-
     try:
         from telegram_request_full_details_patch import finalize
-
         finalize(bot)
         logger.info("Telegram complete-request notification finalizer installed")
     except Exception:
         logger.exception("Telegram complete-request notification finalizer unavailable")
 
 
-# Wrap the Telegram builder once. This keeps all Telegram layer registration in
-# one place and avoids modifying the base runtime itself.
 try:
     import bot as _telegram_bot
     import telegram_runtime_clean as _telegram_runtime
-
     if not getattr(_telegram_runtime, "_netyar_pre_polling_wrapper", False):
         _original_telegram_build = _telegram_runtime.build
-
         def _wrapped_telegram_build():
             app = _original_telegram_build()
-            _install_telegram_layers(
-                app,
-                _telegram_bot,
-                logging.getLogger("netyar.entrypoint"),
-            )
+            _install_telegram_layers(app, _telegram_bot, logging.getLogger("netyar.entrypoint"))
             return app
-
         _telegram_runtime.build = _wrapped_telegram_build
         _telegram_runtime._netyar_pre_polling_wrapper = True
 except Exception:
-    logging.getLogger("netyar.entrypoint").exception(
-        "Telegram pre-polling bootstrap wrapper unavailable"
-    )
+    logging.getLogger("netyar.entrypoint").exception("Telegram pre-polling bootstrap wrapper unavailable")
 
 
 def main():
     logger = logging.getLogger("netyar.entrypoint")
     logger.info("NetYar Telegram build=%s", NETYAR_TELEGRAM_BUILD)
-    uvicorn.run(
-        server.api,
-        host="0.0.0.0",
-        port=int(os.getenv("PORT", "8000")),
-        lifespan="on",
-    )
+    uvicorn.run(server.api, host="0.0.0.0", port=int(os.getenv("PORT", "8000")), lifespan="on")
 
 
 if __name__ == "__main__":
