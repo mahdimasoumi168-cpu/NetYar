@@ -16,7 +16,7 @@ import rubika_bootstrap_final
 import server
 
 
-NETYAR_TELEGRAM_BUILD = "2026-09-14-clean-entrypoint-v3"
+NETYAR_TELEGRAM_BUILD = "2026-09-14-clean-entrypoint-v4"
 
 bale_bootstrap.install(server)
 rubika_bootstrap_final.install(server)
@@ -88,6 +88,9 @@ TELEGRAM_MODULES = (
     "telegram_government_cancel_fix",
     "telegram_government_documents_v3",
     "telegram_management_stability_final",
+    # Must be last: legacy service modules may replace B.main; restore the
+    # canonical tokenized UI without registering duplicate handlers.
+    "telegram_final_ui_rebind",
 )
 
 
