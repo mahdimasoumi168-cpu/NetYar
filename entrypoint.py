@@ -23,7 +23,13 @@ def _install_before_telegram_start(app, B, log):
     for module_name in pre_app_modules:
         try:
             module = __import__(module_name)
-            module.install(B)
+            # request_language_actions also installs a very-early Telegram
+            # update tracker. It must receive the real Application instance;
+            # the other pre-build layers intentionally receive only B.
+            if module_name == "request_language_actions":
+                module.install(app, B)
+            else:
+                module.install(B)
             log.info("telegram pre-build layer installed: %s", module_name)
         except Exception:
             log.exception("telegram pre-build layer unavailable: %s", module_name)
