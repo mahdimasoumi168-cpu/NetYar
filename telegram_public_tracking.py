@@ -1,4 +1,4 @@
-"""Public Telegram tracking-code lookup."""
+"""Private Telegram tracking-code lookup for the requester/authorized partner."""
 from telegram.ext import MessageHandler, filters
 
 def install(app,B):
@@ -13,6 +13,16 @@ def install(app,B):
         r=B.db.conn.execute("SELECT * FROM requests WHERE tracking_code=? ORDER BY id DESC LIMIT 1",(t,)).fetchone()
         if not r:
             return await update.effective_message.reply_text("❌ کد پیگیری پیدا نشد.\nکد را دقیقاً وارد کنید.",reply_markup=B.cancel_kb(st.get("lang","fa")))
+        allowed=bool(B.admin(uid))
+        if not allowed and str(st.get("partner_id"))==str(r["user_id"]):
+            allowed=True
+        if not allowed:
+            try:
+                owner=B.db.conn.execute("SELECT external_id FROM users WHERE id=? AND platform='telegram' LIMIT 1",(r["user_id"],)).fetchone()
+                allowed=bool(owner and str(owner["external_id"])==str(uid))
+            except Exception: allowed=False
+        if not allowed:
+            return await update.effective_message.reply_text("❌ این کد پیگیری متعلق به حساب شما نیست.",reply_markup=B.main(uid))
         answers=B.db.conn.execute("SELECT field_key,answer FROM request_answers WHERE request_id=? AND answer<>'' ORDER BY id",(r["id"],)).fetchall()
         note=next((a["answer"] for a in answers if a["field_key"] in {"admin_note","status_note","tracking_note"}),"")
         st["mode"]=None
