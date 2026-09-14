@@ -6,11 +6,13 @@ import bot as B
 log=logging.getLogger("netyar.telegram_runtime")
 _LANGS={"fa","en","ar"}
 _STATUSES={"foreign","iranian"}
-WELCOME=("👋 سلام!\n\n"
+WELCOME=("👋 سلام و خوش آمدید 🌷\n\n"
          "به سامانه خدمات آنلاین «بات، کمک یار مهاجر» خوش آمدید. 🌟\n\n"
-         "در این سامانه تلاش کرده‌ایم خدمات موردنیاز شما را به‌صورت سریع، ساده و آنلاین در اختیارتان قرار دهیم تا بدون سردرگمی بتوانید خدمت موردنظر خود را دریافت یا پیگیری کنید.\n\n"
+         "اینجا تلاش کرده‌ایم خدمات موردنیاز شما را به‌صورت سریع، ساده و آنلاین در اختیارتان قرار دهیم تا بدون سردرگمی بتوانید خدمت موردنظر خود را دریافت یا پیگیری کنید.\n\n"
          "🚀 بات، کمک یار مهاجر؛ خدماتی برای شما، درآمدی برای همه\n\n"
-         "📌 لطفاً ابتدا زبان موردنظر خود را انتخاب کنید تا ادامه مراحل به زبان انتخابی شما نمایش داده شود.")
+         "📌 در این ربات می‌توانید خدمات مختلف را دریافت، درخواست‌های خود را ثبت و پیگیری کنید و در صورت نیاز با پشتیبانی ارتباط داشته باشید.\n\n"
+         "🌍 خدمات برای اتباع و شهروندان ایرانی در نظر گرفته شده است.\n\n"
+         "👇 لطفاً ابتدا زبان موردنظر خود را انتخاب کنید تا ادامه مراحل به زبان انتخابی شما نمایش داده شود.")
 async def _safe_call(fn, update, context):
     try:
         result=fn(update,context)
@@ -20,20 +22,24 @@ async def _safe_call(fn, update, context):
     except Exception: log.exception("Telegram handler failed: %r",fn); return None
 async def _start(update, context):
     user=update.effective_user
-    if not update.message or not user:return
+    if not user:return
     uid=user.id
     try:B.db.user("telegram",uid,user.username,user.full_name)
     except Exception:log.exception("user persistence")
     old=B.S.get(uid,{})
-    B.S[uid]={k:old[k] for k in ("partner_id","partner_active","admin","lang","status","phone") if k in old}
-    await update.message.reply_text(WELCOME,reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🇮🇷 فارسی",callback_data="lang:fa"),InlineKeyboardButton("🇬🇧 English",callback_data="lang:en"),InlineKeyboardButton("🇸🇦 العربية",callback_data="lang:ar")]]))
+    # /start is a public reset: do not preserve partner authentication or
+    # transient form state. The user must explicitly authenticate again.
+    lang=old.get("lang") if old.get("lang") in _LANGS else None
+    B.S[uid]={}
+    if lang:B.S[uid]["lang"]=lang
+    if update.message:
+        await update.message.reply_text(WELCOME,reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🇮🇷 فارسی",callback_data="lang:fa"),InlineKeyboardButton("🇬🇧 English",callback_data="lang:en"),InlineKeyboardButton("🇸🇦 العربية",callback_data="lang:ar")]]))
 async def _absolute_startup_callback(update,context):
     q=getattr(update,"callback_query",None)
     if not q:return
     data=str(q.data or "").strip()
     if data in {"lang:fa","lang:en","lang:ar","language:fa","language:en","language:ar"}:
-        lang=data.split(":",1)[1];await q.answer();uid=q.from_user.id;old=B.S.get(uid,{})
-        B.S[uid]={k:old[k] for k in ("partner_id","partner_active","admin","phone") if k in old};B.S[uid]["lang"]=lang
+        lang=data.split(":",1)[1];await q.answer();uid=q.from_user.id;B.S[uid]={"lang":lang}
         labels={"fa":("🪪 اتباع هستم","🇮🇷 ایرانی هستم"),"en":("🪪 Foreign national","🇮🇷 Iranian"),"ar":("🪪 أجنبي","🇮🇷 إيراني")}[lang]
         text={"fa":"آیا اتباع هستید یا ایرانی؟","en":"Are you a foreign national or Iranian?","ar":"هل أنت أجنبي أم إيراني؟"}[lang]
         await q.message.reply_text(text,reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(labels[0],callback_data="startup:foreign"),InlineKeyboardButton(labels[1],callback_data="startup:iranian")]]));raise ApplicationHandlerStop
