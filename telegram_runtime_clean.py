@@ -63,7 +63,6 @@ async def _absolute_startup_callback(update,context):
         st["status"]=status;st["citizenship"]=status;st.pop("mode",None);lang=st.get("lang","fa");lang=lang if lang in _LANGS else "fa"
         text={"fa":"منوی خدمات کمک یار مهاجر 👇","en":"Mohajer Helper services 👇","ar":"قائمة خدمات المهاجرين 👇"}[lang] if status=="foreign" else {"fa":"🇮🇷 منوی خدمات ایرانی 👇","en":"🇮🇷 Iranian user menu 👇","ar":"🇮🇷 قائمة المستخدم الإيراني 👇"}[lang]
         await q.message.reply_text(text,reply_markup=B.main(uid));raise ApplicationHandlerStop
-
 async def _final_admin_callback(update, context):
     """Single final owner for adm callbacks; prevents legacy handlers from stealing buttons."""
     q=getattr(update,"callback_query",None)
@@ -80,7 +79,6 @@ async def _final_admin_callback(update, context):
         try: await q.message.reply_text("❌ اجرای این گزینه با خطا مواجه شد.")
         finally: raise ApplicationHandlerStop
     raise ApplicationHandlerStop
-
 async def _final_admin_text(update, context):
     """Single final owner for admin text states, including broadcast."""
     if not getattr(update,"message",None) or not getattr(update,"effective_user",None): return
@@ -97,7 +95,6 @@ async def _final_admin_text(update, context):
         st["admin_plus_mode"]=None
         await update.message.reply_text("❌ اجرای درخواست مدیریت با خطا مواجه شد. لطفاً دوباره تلاش کنید.",reply_markup=A._admin_menu())
     raise ApplicationHandlerStop
-
 def _install_features(app):
     B.start=_start
     try:
@@ -171,8 +168,27 @@ def _install_features(app):
     B.start=_start;B.langcb=_lang_select;B.statuscb=_status_select
     app.add_handler(TypeHandler(Update,_absolute_startup_callback),group=-1000000)
     log.info("Telegram feature layers installed; final admin router installed")
-
 def _self_check():
     required=("main","partner","fida","gov","prt","ptrack","phistory","media","router","admin","cancel")
     missing=[name for name in required if not callable(getattr(B,name,None))]
     if missing:log.error("Telegram runtime self-check FAILED; missing hooks: %s",missing)
+
+def build():
+    """Build exactly one Telegram Application for the Railway webhook runtime."""
+    token=str(getattr(B,"BOT_TOKEN","") or "").strip()
+    if not token:
+        raise RuntimeError("Telegram bot token is missing (BOT_TOKEN/TELEGRAM_BOT_TOKEN/TELEGRAM_TOKEN)")
+    app=Application.builder().token(token).build()
+    _self_check()
+    # Core handlers: keep the existing business logic, but give startup routing
+    # a single authoritative /start owner.
+    app.add_handler(CommandHandler("start",_start),group=-9000)
+    app.add_handler(CommandHandler("addpartner",B.addpartner),group=-100)
+    app.add_handler(MessageHandler(filters.Regex(r"^/Admin2025$"),B.admin_command),group=-100)
+    app.add_handler(CallbackQueryHandler(B.admin_cb,pattern=r"^(tu|pay|req|admin):"),group=0)
+    app.add_handler(MessageHandler(filters.PHOTO|filters.Document.ALL,B.media),group=10)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,B.router),group=20)
+    _install_features(app)
+    B.start=_start
+    log.info("Telegram canonical Application built successfully")
+    return app
