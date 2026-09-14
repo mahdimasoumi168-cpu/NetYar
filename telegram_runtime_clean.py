@@ -29,7 +29,7 @@ async def _start(update, context):
     except Exception:log.exception("user persistence")
     old=B.S.get(uid,{})
     B.S[uid]={k:old[k] for k in ("partner_id","partner_active","admin","lang","status","phone") if k in old}
-    text=("👋 سلام!\n\nبه سامانه خدمات آنلاین بات، کمک یار مهاجر خوش آمدید. 🌟\n\nلطفاً خدمت موردنظر خود را از منوی زیر انتخاب کنید تا در سریع‌ترین زمان راهنمایی شوید.\n\n🚀 بات، کمک یار مهاجر؛ خدماتی برای شما، درآمدی برای همه.\n\nلطفاً زبان را انتخاب کنید.")
+    text="سلام و خوش آمدید 🌷\n\nزبان موردنظر را انتخاب کنید:"
     await update.message.reply_text(text,reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🇮🇷 فارسی",callback_data="lang:fa"),InlineKeyboardButton("🇬🇧 English",callback_data="lang:en"),InlineKeyboardButton("🇸🇦 العربية",callback_data="lang:ar")]]))
 async def _lang_select(update,context):
     q=update.callback_query
@@ -77,7 +77,7 @@ async def _final_admin_callback(update, context):
     except ApplicationHandlerStop: raise
     except Exception:
         log.exception("Final admin callback failed: %r",q.data)
-        try: await q.message.reply_text("❌ اجرای این گزینه با خطا مواجه شد. لطفاً دوباره تلاش کنید.")
+        try: await q.message.reply_text("❌ اجرای این گزینه با خطا مواجه شد.")
         finally: raise ApplicationHandlerStop
     raise ApplicationHandlerStop
 
@@ -164,10 +164,8 @@ def _install_features(app):
     try:
         import telegram_partner_router_guard as PRG;PRG.install();log.info("Telegram partner router guard installed LAST")
     except Exception:log.exception("Telegram partner router guard final install unavailable")
-    # Re-bind the current admin menu after every menu mutation.
     try: B.amenu=A._admin_menu
     except Exception: pass
-    # Final admin owners run before all legacy admin handlers.
     app.add_handler(CallbackQueryHandler(_final_admin_callback,pattern=r"^adm:"),group=-10000)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,_final_admin_text),group=-9999)
     B.start=_start;B.langcb=_lang_select;B.statuscb=_status_select
@@ -178,22 +176,3 @@ def _self_check():
     required=("main","partner","fida","gov","prt","ptrack","phistory","media","router","admin","cancel")
     missing=[name for name in required if not callable(getattr(B,name,None))]
     if missing:log.error("Telegram runtime self-check FAILED; missing hooks: %s",missing)
-    else:log.info("Telegram runtime self-check: core hooks OK")
-    if not getattr(B,"_gov_v2",False):log.error("Telegram runtime self-check FAILED; unified government flow is not active")
-    else:log.info("Telegram runtime self-check: government v2 active")
-    if not getattr(B,"_inline_ui_v2",False):log.error("Telegram runtime self-check FAILED; inline UI v2 is not active")
-    else:log.info("Telegram runtime self-check: inline UI v2 active")
-    if not getattr(B,"_telegram_language_lock",False):log.error("Telegram runtime self-check FAILED; language lock is not active")
-    else:log.info("Telegram runtime self-check: language lock active")
-
-def build():
-    token=os.getenv("BOT_TOKEN","").strip() or os.getenv("TELEGRAM_BOT_TOKEN","").strip() or os.getenv("TELEGRAM_TOKEN","").strip()
-    if not token:raise RuntimeError("Telegram bot token is missing")
-    app=Application.builder().token(token).build();app.add_error_handler(_error_handler);app.add_handler(TypeHandler(Update,_diagnostic),group=-1000001);_install_features(app);_self_check()
-    app.add_handler(CommandHandler(["start","srart"],_start),group=0)
-    app.add_handler(CommandHandler("addpartner",lambda u,c:_safe_call(B.addpartner,u,c)),group=0)
-    app.add_handler(MessageHandler(filters.Regex(r"^/Admin2025$"),lambda u,c:_safe_call(B.admin_command,u,c)),group=0)
-    app.add_handler(CallbackQueryHandler(lambda u,c:_safe_call(B.admin_cb,u,c),pattern=r'^(tu|pay|req|admin):'),group=0)
-    app.add_handler(MessageHandler(filters.PHOTO|filters.Document.ALL,lambda u,c:_safe_call(B.media,u,c)),group=1)
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,lambda u,c:_safe_call(B.router,u,c)),group=1)
-    log.info("Canonical Telegram handlers installed");return app
