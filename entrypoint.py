@@ -8,7 +8,7 @@ import bale_bootstrap
 import rubika_bootstrap_final
 import production_stability
 
-NETYAR_TELEGRAM_BUILD = "2026-09-14-final-request-workflow"
+NETYAR_TELEGRAM_BUILD = "2026-09-14-final-request-workflow-partner-restore"
 
 bale_bootstrap.install(server)
 rubika_bootstrap_final.install(server)
@@ -53,7 +53,7 @@ def _install_before_telegram_start(app, B, log):
         "telegram_partner_login_fix","telegram_offhours_partner_gate_v2","telegram_admin_plus",
         "telegram_partner_code_reliable","telegram_request_full_details_patch","telegram_request_details_fix",
         "telegram_final_ops_overlay","telegram_button_stability_final","telegram_service_billing_v3_fix",
-        "telegram_partner_ui_fix","telegram_request_control_v2","telegram_government_family_code_fix",
+        "telegram_partner_ui_fix","telegram_ux_billing","telegram_request_control_v2","telegram_government_family_code_fix",
         "telegram_ui_policy_v2","telegram_absolute_fix","telegram_operational_continuation_guard",
         "telegram_admin_request_reliability_fix","telegram_partner_chat_reliability",
         "telegram_final_notification_reliability","telegram_final_admin_partner_fix",
