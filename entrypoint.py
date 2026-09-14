@@ -16,7 +16,7 @@ import rubika_bootstrap_final
 import server
 
 
-NETYAR_TELEGRAM_BUILD = "2026-09-14-clean-entrypoint-v4"
+NETYAR_TELEGRAM_BUILD = "2026-09-14-clean-entrypoint-v5"
 
 bale_bootstrap.install(server)
 rubika_bootstrap_final.install(server)
@@ -87,6 +87,9 @@ TELEGRAM_MODULES = (
     "telegram_irancell_partner_service",
     "telegram_government_cancel_fix",
     "telegram_government_documents_v3",
+    # Runs at handler group -121, immediately before Government v3 text input
+    # at -120, so invalid birth dates cannot enter the flow.
+    "telegram_government_validation_final",
     "telegram_management_stability_final",
     # Must be last: legacy service modules may replace B.main; restore the
     # canonical tokenized UI without registering duplicate handlers.
