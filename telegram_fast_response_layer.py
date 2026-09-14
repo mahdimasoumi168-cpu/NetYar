@@ -1,10 +1,18 @@
 """Fast Telegram response layer.
 
-Acknowledges callback buttons immediately so Telegram stops showing a spinner while
-business handlers continue, and handles /start before the large legacy router stack.
+Owns the earliest Telegram /start path so legacy startup wrappers cannot
+replace the canonical welcome message or send a second startup message.
 """
 from telegram.ext import CommandHandler, CallbackQueryHandler, ApplicationHandlerStop
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+WELCOME = (
+    "👋 سلام!\n"
+    "به سامانه خدمات آنلاین بات، کمک یار مهاجر خوش آمدید. 🌟\n\n"
+    "اینجا تلاش کرده‌ایم خدمات موردنیاز شما را به‌صورت سریع، ساده و آنلاین در اختیارتان قرار دهیم تا بدون سردرگمی بتوانید خدمت موردنظر خود را دریافت یا پیگیری کنید.\n\n"
+    "🚀 بات، کمک یار مهاجر؛ خدماتی برای شما، درآمدی برای همه\n\n"
+    "📌 لطفاً ابتدا زبان موردنظر خود را انتخاب کنید تا ادامه مراحل به زبان انتخابی شما نمایش داده شود."
+)
 
 
 def install(app, B):
@@ -17,15 +25,18 @@ def install(app, B):
         if not user or not msg:
             return
         uid = user.id
-        old = B.S.get(uid, {})
-        B.S[uid] = {k: old[k] for k in ("partner_id", "partner_active", "admin", "lang", "status", "phone") if k in old}
+        B.S[uid] = {}
         try:
             B.db.user("telegram", uid, user.username, user.full_name)
         except Exception:
             pass
         await msg.reply_text(
-            "👋 سلام!\n\nبه سامانه خدمات آنلاین بات، کمک یار مهاجر خوش آمدید. 🌟\n\nلطفاً زبان را انتخاب کنید.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🇮🇷 فارسی", callback_data="lang:fa"), InlineKeyboardButton("🇬🇧 English", callback_data="lang:en"), InlineKeyboardButton("🇸🇦 العربية", callback_data="lang:ar")]])
+            WELCOME,
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("🇮🇷 فارسی", callback_data="lang:fa"),
+                InlineKeyboardButton("🇬🇧 English", callback_data="lang:en"),
+                InlineKeyboardButton("🇸🇦 العربية", callback_data="lang:ar"),
+            ]])
         )
         raise ApplicationHandlerStop
 
