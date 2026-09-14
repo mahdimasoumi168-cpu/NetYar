@@ -31,10 +31,9 @@ def _full_text(B,rid):
  lines=[labels["details"],"",f"{labels['tracking']}: {_value(r['tracking_code'])}",f"{labels['service']}: {service}",f"{labels['status']}: {_value(r['status'])}",f"{labels['amount']}: {int(r['amount'] or 0):,} Toman",f"{labels['payment']}: {_value(r['payment_status'])}"]
  if r["payment_method"]: lines.append(f"{labels['method']}: {_value(r['payment_method'])}")
  if r["created_at"]: lines.append(f"{labels['time']}: {_value(r['created_at'])}")
- # Every populated request column is included, so phone/payment/other metadata
- # cannot disappear from the manager's notification or details view.
+ # Include every populated request-table field, including owner/user metadata.
  for key in r.keys():
-  if key in {"id","tracking_code","service_key","status","amount","payment_status","payment_method","created_at","updated_at","language","user_id"}: continue
+  if key in {"id","tracking_code","service_key","status","amount","payment_status","payment_method","created_at","updated_at","language"}: continue
   val=_value(r[key])
   if val: lines.append(f"{field_label(key,lang)}: {val}")
  lines += ["",labels["info"]]
@@ -42,7 +41,9 @@ def _full_text(B,rid):
  for row in B.db.conn.execute("SELECT field_key,answer,file_id FROM request_answers WHERE request_id=? ORDER BY id",(int(rid),)).fetchall():
   key=_value(row["field_key"]); ans=_value(row["answer"]); fid=_value(row["file_id"])
   if ans: lines.append(f"{field_label(key,lang)}: {ans}")
-  elif fid: lines.append(f"{field_label(key,lang)}: 📎"); files.append((key,fid))
+  if fid:
+   if not ans: lines.append(f"{field_label(key,lang)}: 📎")
+   files.append((key,fid))
  return "\n".join(lines),files
 
 async def _send_media(bot,aid,files,rid,lang):
@@ -95,13 +96,10 @@ def finalize(B):
      try:
       await application.bot.send_message(chat_id=int(aid),text=text,reply_markup=mk); delivered=True; break
      except Exception:
-      if attempt==2:log.exception("complete request notification failed: %s",request_id)
-   if not delivered:ok=False
-   # Always forward every stored attachment, regardless of which service field
-   # produced it. This includes recharge/service/payment screenshots saved in
-   # request_answers.
-   all_files=[]
-   for x in stored_files:list_files=[x]; all_files.extend(list_files)
+      if attempt<2: continue
+      log.exception("complete request notification failed: %s",request_id)
+    if not delivered: ok=False
+   all_files=list(stored_files)
    for item in list(files or []):
     if isinstance(item,dict) and item.get("file_id"): all_files.append((item.get("type","photo"),item["file_id"]))
     elif item: all_files.append(("photo",str(item)))
@@ -109,11 +107,12 @@ def finalize(B):
     for item in all_files:
      try:
       fid=item[1] if isinstance(item,tuple) else item
-      if item[0]=="document":await application.bot.send_document(chat_id=int(aid),document=fid)
-      else:await application.bot.send_photo(chat_id=int(aid),photo=fid)
+      kind=item[0] if isinstance(item,tuple) else "photo"
+      if kind=="document": await application.bot.send_document(chat_id=int(aid),document=fid)
+      else: await application.bot.send_photo(chat_id=int(aid),photo=fid)
      except Exception:
-      try:await application.bot.send_document(chat_id=int(aid),document=fid)
-      except Exception:log.exception("request attachment notification failed: %s",request_id)
+      try: await application.bot.send_document(chat_id=int(aid),document=fid)
+      except Exception: log.exception("request attachment notification failed: %s",request_id)
    return ok
   except Exception:
    log.exception("complete request notification wrapper failed: %s",request_id)
