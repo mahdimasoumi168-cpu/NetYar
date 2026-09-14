@@ -3,7 +3,31 @@ import logging
 from types import SimpleNamespace
 from telegram.ext import CallbackQueryHandler, MessageHandler, filters, ApplicationHandlerStop
 log=logging.getLogger("netyar.telegram.absolute_fix")
-ALIASES={"🔷 👥 پنل همکاران":"👥 پنل همکاران","👥 Partner panel":"👥 پنل همکاران","👥 لوحة الشركاء":"👥 پنل همکاران","🔷 🛠 پنل مدیریت بات":"🛠 پنل مدیریت بات","🛠 Admin panel":"🛠 پنل مدیریت بات","🛠 لوحة الإدارة":"🛠 پنل مدیریت بات","📨 ارسال پیام به مدیریت":"✉️ تیکت به مدیریت","✉️ ارسال تیکت به مدیریت":"✉️ تیکت به مدیریت","📝 تیکت به مدیریت":"✉️ تیکت به مدیریت","🔄 شروع دوباره":"🔄 شروع مجدد","Start again":"🔄 شروع مجدد","Restart":"🔄 شروع مجدد"}
+ALIASES={
+ "🔷 👥 پنل همکاران":"👥 پنل همکاران","👥 Partner panel":"👥 پنل همکاران","👥 لوحة الشركاء":"👥 پنل همکاران",
+ "🔷 🛠 پنل مدیریت بات":"🛠 پنل مدیریت بات","🛠 Admin panel":"🛠 پنل مدیریت بات","🛠 لوحة الإدارة":"🛠 پنل مدیریت بات",
+ "📨 ارسال پیام به مدیریت":"✉️ تیکت به مدیریت","✉️ ارسال تیکت به مدیریت":"✉️ تیکت به مدیریت","📝 تیکت به مدیریت":"✉️ تیکت به مدیریت",
+ "🔄 شروع دوباره":"🔄 شروع مجدد","Start again":"🔄 شروع مجدد","Restart":"🔄 شروع مجدد",
+ "👥 Partner panel":"👥 پنل همکاران","👥 لوحة الشركاء":"👥 پنل همکاران",
+ "🪪 FIDA service":"🪪 فیدای غیر حضوری","🪪 خدمة فيدا":"🪪 فیدای غیر حضوری",
+ "🖨 Printing services":"🖨 خدمات چاپ","🖨 خدمات الطباعة":"🖨 خدمات چاپ",
+ "🪪 Government access help":"🪪 حل مشکل ورود اتباع دولت من","🪪 مساعدة الدخول الحكومي":"🪪 حل مشکل ورود اتباع دولت من",
+ "🎫 Card renewal tracking":"🎫 کد رهگیری تمدید کارت‌ها","🎫 متابعة تجديد البطاقة":"🎫 کد رهگیری تمدید کارت‌ها","🎫 متابعة تجديد البطاقة":"🎫 کد رهگیری تمدید کارت‌ها",
+ "📱 SIM card services":"📱 خدمات سیم کارت","📱 خدمات شرائح الهاتف":"📱 خدمات سیم کارت",
+ "📝 Screening test":"📝 آزمون غربالگری","📝 اختبار الفرز":"📝 آزمون غربالگری",
+ "🎫 Track request":"🎫 پیگیری","🎫 متابعة الطلب":"🎫 پیگیری",
+ "💰 My wallet":"💰 کیف پول من","💰 محفظتي":"💰 کیف پول من",
+ "📞 Contact us":"📞 تماس با ما","📞 اتصل بنا":"📞 تماس با ما",
+ "📝 Customer complaints":"📝 ثبت شکایت مشتریان","📝 شكاوى العملاء":"📝 ثبت شکایت مشتریان",
+ "➕ Top up account":"➕ شارژ حساب","➕ شحن الحساب":"➕ شارژ حساب",
+ "🏛 Government access help":"🏛 حل مشکل سامانه دولت من","🏛 مساعدة الدخول الحكومي":"🏛 حل مشکل سامانه دولت من",
+ "🔎 Track code":"🔎 پیگیری کد","🔎 متابعة الرمز":"🔎 پیگیری کد",
+ "📋 History":"📋 سوابق","📋 السجل":"📋 سوابق",
+ "💰 Balance":"💰 موجودی","💰 الرصيد":"💰 موجودی",
+ "🎫 Ticket to admin":"✉️ تیکت به مدیریت","🎫 تذكرة للإدارة":"✉️ تیکت به مدیریت",
+ "🚪 Exit panel":"🚪 خروج از پنل","🚪 خروج از پنل":"🚪 خروج از پنل","🚪 خروج من اللوحة":"🚪 خروج از پنل",
+ "❌ Cancel":"❌ انصراف","❌ إلغاء":"❌ انصراف"
+}
 CONTROL={"🔄 شروع مجدد","🔄 شروع دوباره","Restart","Start again","❌ انصراف","❌ Cancel","❌ إلغاء","لغو","انصراف"}
 EXIT={"🚪 خروج از پنل","🚪 خروج از پنل مدیریت","خروج از پنل","Exit panel","⬅️ منوی اصلی","🔙 منوی اصلی","بازگشت به منوی اصلی"}
 def clean(v):
@@ -36,8 +60,7 @@ def _public_state(B,uid):
   if old.get(k) is not None:new[k]=old[k]
  B.S[uid]=new;return new
 async def _public(update,context,B,uid):
- _public_state(B,uid)
- await update.effective_message.reply_text('🏠 به منوی اصلی برگشتید.',reply_markup=B.main(uid))
+ _public_state(B,uid);await update.effective_message.reply_text('🏠 به منوی اصلی برگشتید.',reply_markup=B.main(uid))
 async def _guard(update,context,B):
  m=update.effective_message
  if not m or not getattr(m,'text',None):return
@@ -47,16 +70,14 @@ async def _guard(update,context,B):
    old=dict(st);B.S[uid]={"lang":old.get('lang','fa')};status=old.get('status') or old.get('citizenship')
    if status:B.S[uid].update(status=status,citizenship=status)
    await B.start(update,context)
-  else: await B.cancel(update,context)
+  else:await B.cancel(update,context)
   raise ApplicationHandlerStop
- if text in EXIT:
-  await _public(update,context,B,uid);raise ApplicationHandlerStop
+ if text in EXIT:await _public(update,context,B,uid);raise ApplicationHandlerStop
  if text=='➕ افزودن همکار' and B.admin(uid):
   try:
    import admin_full_v6;await admin_full_v6.admin_text(update,context)
   except Exception:
-   st['mode']='admin_add_partner';st['admin_add_partner']=True
-   await m.reply_text('➕ افزودن همکار\n\nفرمت:\nشماره | رمز | نام همکار\nمثال: 09xxxxxxxxx | رمز جدید | همکار اصفهان',reply_markup=B.cancel_kb())
+   st['mode']='admin_add_partner';st['admin_add_partner']=True;await m.reply_text('➕ افزودن همکار\n\nفرمت:\nشماره | رمز | نام همکار\nمثال: 09xxxxxxxxx | رمز جدید | همکار اصفهان',reply_markup=B.cancel_kb())
   raise ApplicationHandlerStop
 async def click(update,context,B):
  q=update.callback_query
@@ -76,9 +97,7 @@ async def click(update,context,B):
   if text=='🛠 پنل مدیریت بات':
    if not B.admin(uid):await q.message.reply_text('⛔ این بخش فقط برای مدیریت فعال است.')
    else:
-    import telegram_admin_plus as A
-    st['admin']=True;st['mode']=None;st['admin_plus_mode']=None
-    await q.message.reply_text('🛠 پنل مدیریت کامل\n\nاز منوی زیر بخش موردنظر را انتخاب کنید:',reply_markup=A._admin_menu())
+    import telegram_admin_plus as A;st['admin']=True;st['mode']=None;st['admin_plus_mode']=None;await q.message.reply_text('🛠 پنل مدیریت کامل\n\nاز منوی زیر بخش موردنظر را انتخاب کنید:',reply_markup=A._admin_menu())
    raise ApplicationHandlerStop
   if text=='📱 خدمات سیم کارت':
    fn=getattr(B,'sim_start',None)
@@ -108,12 +127,10 @@ async def click(update,context,B):
  raise ApplicationHandlerStop
 def install(app,B):
  if getattr(B,'_telegram_absolute_fix',False):return
- def main(uid):
-  rows=[["🪪 فیدای غیر حضوری","🖨 خدمات چاپ"],["🪪 حل مشکل ورود اتباع دولت من","🎫 کد رهگیری تمدید کارت‌ها"],["📱 خدمات سیم کارت","📝 آزمون غربالگری و پیگیری"],["🎫 پیگیری","💰 کیف پول من"],["📞 تماس با ما","📝 ثبت شکایت مشتریان"]]
-  if B.admin(uid):rows.append(['🛠 پنل مدیریت بات'])
-  rows.append(['👥 پنل همکاران']);return B.kb(rows)
- def partner_kb(lang='fa'):return B.kb([["➕ شارژ حساب","🏛 حل مشکل سامانه دولت من"],["🪪 فیدای غیر حضوری","📱 خدمات سیم کارت"],["🔎 پیگیری کد","📋 سوابق"],["💰 موجودی"],["✉️ تیکت به مدیریت"],["🚪 خروج از پنل"]])
- B.main=main;B.partner_kb=partner_kb
+ # Do not replace B.main/B.partner_kb here: telegram_language_consistency is
+ # the canonical owner of localized keyboards and also hides foreign services
+ # from the Iranian flow. This layer only guards navigation and translates
+ # localized labels back to canonical service commands.
  app.add_handler(CallbackQueryHandler(lambda u,c:click(u,c,B),pattern=r'^ik:'),group=-4000)
  app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,lambda u,c:_guard(u,c,B)),group=-3999)
  B._telegram_absolute_fix=True
