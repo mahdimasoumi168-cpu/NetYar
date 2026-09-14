@@ -1,0 +1,47 @@
+name: NetYar Static Check
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  static-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile every Python file
+        run: python -m compileall -q .
+      - name: Validate runtime module references
+        run: |
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+          root = Path('.')
+          files = {p.stem for p in root.glob('*.py')}
+          text = Path('entrypoint.py').read_text(encoding='utf-8')
+          tree = ast.parse(text)
+          names = []
+          for node in ast.walk(tree):
+              if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                  if node.value.startswith('telegram_') or node.value in {'full_admin_control_patch','production_final_patch','government_balance_postal_fix','partner_pricing','final_stability_overlay','final_government_payment_overlay'}:
+                      names.append(node.value)
+          missing = sorted(set(names) - files)
+          if missing:
+              raise SystemExit('Missing runtime modules: ' + ', '.join(missing))
+          print('Runtime module references OK:', len(set(names)))
+      - name: Check critical source files exist
+        run: |
+          test -f entrypoint.py
+          test -f telegram_runtime_clean.py
+          test -f telegram_absolute_offhours_guard.py
+          test -f telegram_government_documents_v3.py
+          test -f telegram_government_validation_final.py
+          test -f telegram_final_ui_rebind.py
+          test -f rubika_bootstrap_final.py
+          test -f bale_bootstrap.py
+          test -f server.py
+          echo 'Critical source files OK'
