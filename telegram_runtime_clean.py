@@ -130,6 +130,11 @@ def _install_features(app):
         V30.install(app,B)
         log.info("REAL runtime: absolute callback hardening v30 installed")
     except Exception:log.exception("absolute callback hardening v30 unavailable")
+    try:
+        import telegram_management_only_v32 as V32
+        V32.install(app,B)
+        log.info("REAL runtime: management-only partner UI v32 installed")
+    except Exception:log.exception("management-only v32 unavailable")
     if getattr(B,"_partner_final_router_v29",False) and getattr(B,"_absolute_callback_v30",False):
         log.info("REAL runtime final layers OK: v29 + v30")
     else:
