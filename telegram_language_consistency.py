@@ -12,7 +12,10 @@ TEXT={
  "ar":{"partner":"👥 لوحة الشركاء","admin":"🛠 لوحة الإدارة","fida":"🪪 خدمة فيدا","print":"🖨 خدمات الطباعة","gov":"🪪 مساعدة الدخول الحكومي","renew":"🎫 متابعة تجديد البطاقة","sim":"📱 خدمات شرائح الهاتف","screen":"📝 اختبار الفرز","track":"🎫 متابعة الطلب","wallet":"💰 محفظتي","contact":"📞 اتصل بنا","complaint":"📝 شكاوى العملاء","topup":"➕ شحن الحساب","pgov":"🏛 مساعدة الدخول الحكومي","ptrack":"🔎 متابعة الرمز","history":"📋 السجل","balance":"💰 الرصيد","ticket":"🎫 تذكرة للإدارة","logout":"🚪 خروج من اللوحة","cancel":"❌ إلغاء"}
 }
 
-FA={v:k for k,v in TEXT["fa"].items()}
+# key -> localized label (used by canonical routing)
+KEYS={lang:{key:value for key,value in values.items()} for lang,values in TEXT.items()}
+# localized Persian label -> canonical key (used to normalize legacy labels)
+FA={value:key for key,value in TEXT["fa"].items()}
 
 def install(B):
     import telegram_ui_policy_v2 as UI
@@ -40,7 +43,8 @@ def install(B):
     async def dispatch(update,context,Bot,label):
         key=reverse.get(label)
         if key:
-            canonical=FA[key]
+            # FIX: FA is label -> key; it must not be indexed by a canonical key.
+            canonical=TEXT["fa"][key]
             return await old_dispatch(update,context,Bot,canonical)
         return await old_dispatch(update,context,Bot,label)
     UI._dispatch=dispatch
