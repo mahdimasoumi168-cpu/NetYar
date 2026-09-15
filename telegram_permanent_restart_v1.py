@@ -1,9 +1,10 @@
 """Telegram Persian-only start/restart and permanently available restart button."""
 from telegram import ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import MessageHandler, filters, ApplicationHandlerStop
+from telegram.ext import MessageHandler, CallbackQueryHandler, filters, ApplicationHandlerStop
 
 RESTART = "🔄 شروع مجدد"
 USE_SERVICES = "🛎 استفاده از خدمات"
+USE_SERVICES_CALLBACK = "start:services"
 
 
 def _keyboard(rows=None):
@@ -15,7 +16,8 @@ def _keyboard(rows=None):
 
 
 def _start_keyboard():
-    return _keyboard([[USE_SERVICES]])
+    """Welcome message keeps the service action with the text as an inline button."""
+    return InlineKeyboardMarkup([[InlineKeyboardButton(USE_SERVICES, callback_data=USE_SERVICES_CALLBACK)]])
 
 
 def _clear_flow(st):
@@ -39,7 +41,31 @@ async def _show_persian_start(update, context, B):
     st = B.S.setdefault(update.effective_user.id, {})
     st["lang"] = "fa"
     st["mode"] = None
-    await update.effective_message.reply_text(WELCOME_FA, reply_markup=_start_keyboard())
+    await update.effective_message.reply_text(
+        WELCOME_FA,
+        reply_markup=_start_keyboard(),
+    )
+    # Keep only restart in the persistent reply keyboard below the chat.
+    await update.effective_message.reply_text(
+        "برای شروع مجدد هر زمان می‌توانید از دکمه زیر استفاده کنید.",
+        reply_markup=_keyboard(),
+    )
+
+
+async def _show_service_choice(update, B):
+    uid = update.effective_user.id
+    st = B.S.setdefault(uid, {})
+    st["lang"] = "fa"
+    st["mode"] = None
+    await update.effective_message.reply_text(
+        "نوع کاربر را انتخاب کنید:",
+        reply_markup=InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("🪪 اتباع هستم", callback_data="st:foreign"),
+                InlineKeyboardButton("🇮🇷 ایرانی هستم", callback_data="st:iranian"),
+            ]
+        ]),
+    )
 
 
 def install(app, B):
@@ -79,16 +105,18 @@ def install(app, B):
     async def use_services(update, context):
         if not update.message or (update.message.text or "").strip() != USE_SERVICES:
             return
-        uid = update.effective_user.id
-        st = B.S.setdefault(uid, {})
-        st["lang"] = "fa"
-        st["mode"] = None
-        await update.message.reply_text(
-            "نوع کاربر را انتخاب کنید:",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🪪 اتباع هستم", callback_data="st:foreign"), InlineKeyboardButton("🇮🇷 ایرانی هستم", callback_data="st:iranian")]]),
-        )
+        await _show_service_choice(update, B)
+        raise ApplicationHandlerStop
+
+    async def use_services_callback(update, context):
+        query = update.callback_query
+        if not query or query.data != USE_SERVICES_CALLBACK:
+            return
+        await query.answer()
+        await _show_service_choice(update, B)
         raise ApplicationHandlerStop
 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, restart), group=-2000001)
+    app.add_handler(CallbackQueryHandler(use_services_callback, pattern=r"^start:services$"), group=-2000001)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, use_services), group=-2000000)
     B._permanent_restart_v2 = True
