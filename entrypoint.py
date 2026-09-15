@@ -15,7 +15,7 @@ import production_stability
 import rubika_bootstrap_final
 import server
 
-NETYAR_TELEGRAM_BUILD = "2026-09-15-offhours-stable-v25"
+NETYAR_TELEGRAM_BUILD = "2026-09-15-offhours-stable-v26"
 
 bale_bootstrap.install(server)
 rubika_bootstrap_final.install(server)
@@ -52,6 +52,7 @@ TELEGRAM_MODULES = (
     "telegram_night_logout_final",
     "telegram_partner_login_fix",
     "telegram_offhours_partner_gate_v2",
+    "telegram_night_shift_stability_v26",
     "telegram_admin_plus",
     "telegram_partner_code_reliable",
     "telegram_request_full_details_patch",
@@ -136,10 +137,14 @@ def _install_telegram_layers(app, bot, logger):
     ):
         _install_module(name, app, bot, logger)
 
-    # Highest-priority partner management entry guard. It must run before all
-    # ui2 callback handlers so ApplicationHandlerStop from legacy layers can
-    # never be converted into a false "execution failed" message.
+    # Management entry guard must exist before legacy ui2 callbacks can turn a
+    # valid waiting-state transition into a generic execution error.
     _install_module("telegram_partner_management_hotfix_v25", app, bot, logger)
+
+    # Highest-priority message/media consumer for final_partner_chat. It waits
+    # for the first real partner message and forwards it without falling into
+    # legacy service handlers.
+    _install_module("telegram_partner_runtime_hardening_v26", app, bot, logger)
 
     # Final partner session safety net: authenticated partners never fall back
     # to the public menu on internal errors.
