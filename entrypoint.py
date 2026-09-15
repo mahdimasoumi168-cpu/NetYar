@@ -1,10 +1,10 @@
 """NetYar production entrypoint."""
 import inspect,logging,os,uvicorn
 import bale_bootstrap,production_stability,rubika_bootstrap_final,server
-NETYAR_TELEGRAM_BUILD="2026-09-15-persian-only-offhours-v11"
+NETYAR_TELEGRAM_BUILD="2026-09-15-persian-only-offhours-v12"
 bale_bootstrap.install(server);rubika_bootstrap_final.install(server);production_stability.install()
 PRE_TELEGRAM_MODULES=("telegram_global_cancel_v4","request_language_actions","telegram_partner_logout_fix","telegram_language_consistency","telegram_cancel_policy")
-TELEGRAM_MODULES=("telegram_absolute_offhours_guard","telegram_government_phone_final","telegram_phone_registry_and_stability","telegram_final_hotfix_20260914","telegram_fast_response_layer","telegram_critical_input_logout_fix","telegram_idle_session_reset","telegram_input_continuation_guard","telegram_admin_button_guard","telegram_partner_pricing_stable","telegram_partner_session_persistence","telegram_management_destination_guard","telegram_global_admin_guard","telegram_universal_partner_guard","final_stability_overlay","final_government_payment_overlay","telegram_price_dedup_guard","telegram_government_flow_runtime_fix","telegram_night_logout_final","telegram_partner_login_fix","telegram_offhours_partner_gate_v2","telegram_admin_plus","telegram_partner_code_reliable","telegram_request_full_details_patch","telegram_request_details_fix","telegram_final_ops_overlay","telegram_button_stability_final","telegram_service_billing_v3_fix","telegram_partner_ui_fix","telegram_ux_billing","telegram_request_control_v2","telegram_government_family_code_fix","telegram_ui_policy_v2","telegram_absolute_fix","telegram_operational_continuation_guard","telegram_admin_request_reliability_fix","telegram_partner_chat_reliability","telegram_final_notification_reliability","telegram_final_admin_partner_fix","telegram_final_menu_dedup_guard","telegram_final_user_state_guard","telegram_service_dispatch_final","telegram_information_input_final","telegram_input_hardening_v3","full_admin_control_patch","production_final_patch","telegram_announcement_media","government_balance_postal_fix","telegram_admin_menu_restore","telegram_request_workflow_final","telegram_universal_button_guard","telegram_final_repair","telegram_irancell_partner_service","telegram_government_cancel_fix","telegram_government_documents_v3","telegram_government_validation_final","telegram_management_stability_final","telegram_final_ui_rebind","telegram_final_partner_panel","telegram_final_integration_guard")
+TELEGRAM_MODULES=("telegram_absolute_offhours_guard","telegram_government_phone_final","telegram_phone_registry_and_stability","telegram_final_hotfix_20260914","telegram_fast_response_layer","telegram_critical_input_logout_fix","telegram_idle_session_reset","telegram_input_continuation_guard","telegram_admin_button_guard","telegram_partner_pricing_stable","telegram_partner_session_persistence","telegram_management_destination_guard","telegram_global_admin_guard","telegram_universal_partner_guard","final_stability_overlay","final_government_payment_overlay","telegram_price_dedup_guard","telegram_government_flow_runtime_fix","telegram_night_logout_final","telegram_partner_login_fix","telegram_offhours_partner_gate_v2","telegram_admin_plus","telegram_partner_code_reliable","telegram_request_full_details_patch","telegram_request_details_fix","telegram_final_ops_overlay","telegram_button_stability_final","telegram_service_billing_v3_fix","telegram_partner_ui_fix","telegram_ux_billing","telegram_request_control_v2","telegram_government_family_code_fix","telegram_ui_policy_v2","telegram_absolute_fix","telegram_operational_continuation_guard","telegram_admin_request_reliability_fix","telegram_partner_chat_reliability","telegram_final_notification_reliability","telegram_final_admin_partner_fix","telegram_final_menu_dedup_guard","telegram_final_user_state_guard","telegram_service_dispatch_final","telegram_information_input_final","telegram_input_hardening_v3","full_admin_control_patch","production_final_patch","telegram_announcement_media","government_balance_postal_fix","telegram_admin_menu_restore","telegram_request_workflow_final","telegram_universal_button_guard","telegram_final_repair","telegram_irancell_partner_service","telegram_government_cancel_fix","telegram_government_documents_v3","telegram_government_validation_final","telegram_management_stability_final","telegram_final_ui_rebind","telegram_final_partner_panel","telegram_final_integration_guard","telegram_partner_menu_final_v2")
 def _install_module(name,app,bot,logger,*,pre=False):
     try:
         m=__import__(name);fn=getattr(m,"install",None)
@@ -28,30 +28,7 @@ def _install_telegram_layers(app,bot,logger):
         from telegram_request_full_details_patch import finalize
         finalize(bot);logger.info("Telegram complete-request notification finalizer installed")
     except Exception:logger.exception("Telegram complete-request notification finalizer unavailable")
-    try:
-        import telegram_night_shift_v2
-        telegram_night_shift_v2.install(app,bot);logger.info("Telegram night-worker access layer installed")
-    except Exception:logger.exception("Telegram night-worker access layer unavailable")
-    try:
-        import canonical_button_router
-        canonical_button_router.install();logger.info("Telegram canonical button router installed")
-    except Exception:logger.exception("Telegram canonical button router unavailable")
-    try:
-        import telegram_persian_offhours_lock
-        telegram_persian_offhours_lock.install(app,bot);logger.info("Telegram Persian-only strict off-hours lock installed")
-    except Exception:logger.exception("Telegram Persian-only strict off-hours lock unavailable")
-    _install_module("telegram_permanent_restart_v1",app,bot,logger)
-    _install_module("telegram_announcement_flow_v2",app,bot,logger)
-    _install_module("telegram_iranian_contact_final",app,bot,logger)
-try:
-    import bot as _telegram_bot
-    import telegram_runtime_clean as _telegram_runtime
-    if not getattr(_telegram_runtime,"_netyar_pre_polling_wrapper",False):
-        _original_telegram_build=_telegram_runtime.build
-        def _wrapped_telegram_build():
-            app=_original_telegram_build();_install_telegram_layers(app,_telegram_bot,logging.getLogger("netyar.entrypoint"));return app
-        _telegram_runtime.build=_wrapped_telegram_build;_telegram_runtime._netyar_pre_polling_wrapper=True
-except Exception:logging.getLogger("netyar.entrypoint").exception("Telegram pre-polling bootstrap wrapper unavailable")
+
 def main():
     logger=logging.getLogger("netyar.entrypoint");logger.info("NetYar Telegram build=%s",NETYAR_TELEGRAM_BUILD);uvicorn.run(server.api,host="0.0.0.0",port=int(os.getenv("PORT","8000")),lifespan="on")
 if __name__=="__main__":main()
