@@ -12,7 +12,6 @@ def _restart_keyboard(): return ReplyKeyboardMarkup([[RESTART]],resize_keyboard=
 def _services_keyboard(): return InlineKeyboardMarkup([[InlineKeyboardButton(USE_SERVICES,callback_data="start:services")]])
 
 def _offhours_state():
-    """Return canonical closed-hours helpers; fail closed if unavailable."""
     try:
         from telegram_offhours_partner_gate_v2 import _is_open, _closed_text, _closed_markup
         return (not bool(_is_open(B))), _closed_text(B), _closed_markup()
@@ -23,126 +22,84 @@ def _offhours_state():
             [InlineKeyboardButton("👥 پنل همکاران", callback_data="off:partner")],
         ])
 
-def _is_offhours():
-    closed, _, _ = _offhours_state()
-    return closed
-
+def _is_offhours(): return _offhours_state()[0]
 async def _reply_closed(message):
-    closed, text, markup = _offhours_state()
+    closed,text,markup=_offhours_state()
     if closed:
-        await message.reply_text(text, reply_markup=markup)
-        return True
+        await message.reply_text(text,reply_markup=markup); return True
     return False
-
-async def _safe_call(fn, update, context, *extra):
+async def _safe_call(fn,update,context,*extra):
     try:
         result=fn(update,context,*extra)
-        if inspect.isawaitable(result): return await result
-        return result
+        return await result if inspect.isawaitable(result) else result
     except ApplicationHandlerStop: raise
     except Exception:
-        log.exception("Telegram handler failed: %r",fn)
-        return None
-
-async def _start(update, context):
+        log.exception("Telegram handler failed: %r",fn); return None
+async def _start(update,context):
     user=update.effective_user
     if not user:return
-    # IMPORTANT: this check must happen before the normal welcome/menu flow.
-    # The runtime /start handler is installed at a higher priority than the
-    # generic off-hours callback/message gates, so it must hard-stop itself.
-    if await _reply_closed(update.effective_message):
-        raise ApplicationHandlerStop
+    if await _reply_closed(update.effective_message): raise ApplicationHandlerStop
     uid=user.id
     try:B.db.user("telegram",uid,user.username,user.full_name)
     except Exception:log.exception("user persistence")
-    old=dict(B.S.get(uid,{}) or {})
-    B.S[uid]={"lang":"fa"}
+    old=dict(B.S.get(uid,{}) or {}); B.S[uid]={"lang":"fa"}
     if not old.get("partner_logged_out"):
         for k in ("partner_id","partner_active"):
             if k in old:B.S[uid][k]=old[k]
-    else:
-        B.S[uid]["partner_logged_out"]=True
+    else:B.S[uid]["partner_logged_out"]=True
     if update.message:
         await update.message.reply_text(WELCOME,reply_markup=_services_keyboard())
         await update.message.reply_text(RESTART,reply_markup=_restart_keyboard())
     raise ApplicationHandlerStop
-
-async def _restart(update, context):
-    # Keep restart completely blocked outside working hours.
-    if update.effective_message and await _reply_closed(update.effective_message):
-        raise ApplicationHandlerStop
+async def _restart(update,context):
+    if update.effective_message and await _reply_closed(update.effective_message): raise ApplicationHandlerStop
     return await _start(update,context)
-
 async def _services_callback(update,context):
     q=getattr(update,"callback_query",None)
     if not q or q.data!="start:services":return
     if _is_offhours():
-        try: await q.answer("❌ خارج از ساعت کاری است.",show_alert=True)
-        except Exception: pass
-        if q.message: await _reply_closed(q.message)
+        try:await q.answer("❌ خارج از ساعت کاری است.",show_alert=True)
+        except Exception:pass
+        if q.message:await _reply_closed(q.message)
         raise ApplicationHandlerStop
-    await q.answer(); uid=q.from_user.id; st=B.S.setdefault(uid,{})
-    st["lang"]="fa"; st.pop("mode",None)
-    await q.message.reply_text("نوع کاربری خود را انتخاب کنید:",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🪪 اتباع هستم",callback_data="st:foreign"),InlineKeyboardButton("🇮🇷 ایرانی هستم",callback_data="st:iranian")]]))
-    raise ApplicationHandlerStop
-
+    await q.answer(); uid=q.from_user.id; B.S.setdefault(uid,{})["lang"]="fa"
+    await q.message.reply_text("نوع کاربری خود را انتخاب کنید:",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🪪 اتباع هستم",callback_data="st:foreign"),InlineKeyboardButton("🇮🇷 ایرانی هستم",callback_data="st:iranian")]])); raise ApplicationHandlerStop
 async def _blocked_language_callback(update,context):
     q=getattr(update,"callback_query",None)
     if not q:return
     data=str(q.data or "").strip()
-    if not (data.startswith("lang:") or data.startswith("language:")):return
+    if not(data.startswith("lang:") or data.startswith("language:")):return
     if _is_offhours():
-        try: await q.answer("❌ خارج از ساعت کاری است.",show_alert=True)
-        except Exception: pass
-        if q.message: await _reply_closed(q.message)
+        try:await q.answer("❌ خارج از ساعت کاری است.",show_alert=True)
+        except Exception:pass
+        if q.message:await _reply_closed(q.message)
         raise ApplicationHandlerStop
-    uid=q.from_user.id; B.S.setdefault(uid,{})["lang"]="fa"
-    await q.answer("زبان فارسی است.")
-    await q.message.reply_text("لطفاً از دکمه «🛎 استفاده از خدمات» استفاده کنید.",reply_markup=_services_keyboard())
-    raise ApplicationHandlerStop
+    B.S.setdefault(q.from_user.id,{})["lang"]="fa"; await q.answer("زبان فارسی است.")
+    await q.message.reply_text("لطفاً از دکمه «🛎 استفاده از خدمات» استفاده کنید.",reply_markup=_services_keyboard()); raise ApplicationHandlerStop
 
 def _install_features(app):
     B.start=_start
-    # Install the canonical off-hours stack explicitly in the actual runtime.
-    # These guards must exist in the live Application, not only in entrypoint.
-    try:
-        import telegram_offhours_partner_gate_v2 as OH
-        OH.install(app,B)
-    except Exception:log.exception("off-hours partner gate unavailable")
-    try:
-        import telegram_offhours_absolute_start_guard as OAS
-        OAS.install(app,B)
-    except Exception:log.exception("absolute off-hours start guard unavailable")
-    try:
-        import telegram_startup_button_firewall as SBF;SBF.install(app,B)
-    except Exception:log.exception("startup button firewall unavailable")
-    try:
-        import telegram_business_features as F;F.install(app,B)
-    except Exception:log.exception("business features unavailable")
-    try:
-        import telegram_ui_policy_v2 as UI;UI.install(app,B)
-    except Exception:log.exception("ui policy unavailable")
+    for module,fn,args in (
+        ("telegram_offhours_partner_gate_v2","install",(app,B)),
+        ("telegram_offhours_absolute_start_guard","install",(app,B)),
+        ("telegram_startup_button_firewall","install",(app,B)),
+        ("telegram_business_features","install",(app,B)),
+        ("telegram_ui_policy_v2","install",(app,B)),
+        ("telegram_partner_ui_fix","install",(app,B)),
+        ("telegram_public_tracking","install",(app,B)),
+        ("telegram_service_billing_v3_fix","install",(app,B)),
+        ("telegram_sim_service_v2","install",(app,B)),
+        ("telegram_irancell_partner_service","install",(app,B)),
+    ):
+        try:
+            m=__import__(module); f=getattr(m,fn,None)
+            if callable(f):f(*args)
+        except Exception:log.exception("Telegram layer unavailable: %s",module)
     try:
         import telegram_language_consistency as TLC;TLC.install(B)
     except Exception:log.exception("language consistency unavailable")
     try:
-        import telegram_partner_ui_fix as PUI;PUI.install(app,B)
-    except Exception:log.exception("partner UI unavailable")
-    try:
-        import telegram_public_tracking as PT;PT.install(app,B)
-    except Exception:log.exception("tracking unavailable")
-    try:
-        import telegram_service_billing_v3_fix as SVC3;SVC3.install(app,B)
-    except Exception:log.exception("billing unavailable")
-    try:
-        import telegram_sim_service_v2 as SIM;SIM.install(app,B)
-    except Exception:log.exception("sim service unavailable")
-    try:
-        import telegram_irancell_partner_service as IRSIM;IRSIM.install(app,B)
-    except Exception:log.exception("Irancell partner service unavailable")
-    try:
-        import telegram_topup_invoice as TI
-        TI.install(B)
+        import telegram_topup_invoice as TI;TI.install(B)
         if getattr(B,"_topup_invoice_install_app",None):B._topup_invoice_install_app(app)
     except Exception:log.exception("topup invoice unavailable")
     try:
@@ -158,6 +115,22 @@ def _install_features(app):
                 try:f(app,B)
                 except TypeError:f(B)
         except Exception:log.exception("optional Telegram layer unavailable: %s",name)
+    # The actual production runtime is built from this function. These two
+    # layers therefore MUST be installed here, not only in entrypoint.py.
+    try:
+        import telegram_partner_final_router_v29 as V29
+        V29.install(app,B)
+        log.info("REAL runtime: partner router v29 installed")
+    except Exception:log.exception("partner final router v29 unavailable")
+    try:
+        import telegram_absolute_callback_hardening_v30 as V30
+        V30.install(app,B)
+        log.info("REAL runtime: absolute callback hardening v30 installed")
+    except Exception:log.exception("absolute callback hardening v30 unavailable")
+    if getattr(B,"_partner_final_router_v29",False) and getattr(B,"_absolute_callback_v30",False):
+        log.info("REAL runtime final layers OK: v29 + v30")
+    else:
+        log.error("REAL runtime final layers FAILED: v29=%s v30=%s",getattr(B,"_partner_final_router_v29",False),getattr(B,"_absolute_callback_v30",False))
     B.start=_start
     app.add_handler(CommandHandler("start",_start),group=-10000000)
     app.add_handler(MessageHandler(filters.Regex(r"^🔄 شروع مجدد$"),_restart),group=-9999999)
