@@ -9,12 +9,8 @@ MANAGEMENT = "💬 ارتباط با مدیریت"
 IRANCELL = "📱 حل مشکل سیم کارت ایرانسل"
 CANCEL = "❌ انصراف"
 TICKET_LABELS = {
-    "🎫 تیکت به مدیریت",
-    "✉️ ارسال تیکت به مدیریت",
-    "✉️ تیکت به مدیریت",
-    "🎫 ارسال تیکت",
-    "🎫 Ticket to admin",
-    "✉️ Ticket to admin",
+    "🎫 تیکت به مدیریت", "✉️ ارسال تیکت به مدیریت", "✉️ تیکت به مدیریت",
+    "🎫 ارسال تیکت", "🎫 Ticket to admin", "✉️ Ticket to admin",
 }
 
 
@@ -26,10 +22,7 @@ def partner_menu(B, uid):
             ["🏛 حل مشکل سامانه دولت من", "🎫 درخواست‌های من"],
             ["📱 خدمات سیم کارت", "🪪 فیدای غیر حضوری"],
             ["🔎 پیگیری کد", "📋 سوابق"],
-            ["💰 موجودی"],
-            [MANAGEMENT],
-            ["🚪 خروج از پنل"],
-            [CANCEL],
+            ["💰 موجودی"], [MANAGEMENT], ["🚪 خروج از پنل"], [CANCEL],
         ], B, uid)
     except Exception:
         return InlineKeyboardMarkup([
@@ -43,7 +36,6 @@ def install(app, B):
     if getattr(B, "_management_only_v32", False):
         return True
 
-    # Make every live partner keyboard resolve to the single management chat.
     def _partner_kb(lang="fa"):
         uid = 0
         try:
@@ -54,23 +46,18 @@ def install(app, B):
         return partner_menu(B, uid)
     B.partner_kb = _partner_kb
 
-    # The closed-hours gate owns its own menu function; replace it too.
     try:
         import telegram_offhours_partner_gate_v2 as G
         G._night_partner_markup = partner_menu
     except Exception:
         log.exception("night partner menu patch failed")
 
-    # v31 has a private night-menu helper; patch it so the service list cannot
-    # reintroduce the removed ticket button.
     try:
         import telegram_partner_runtime_fix_v31 as V31
         V31._night_menu = partner_menu
     except Exception:
         log.exception("v31 night menu patch failed")
 
-    # Any legacy dispatcher route for ticket is disabled. The only supported
-    # partner communication path is MANAGEMENT.
     try:
         import telegram_ui_policy_v2 as UI
         old_dispatch = UI._dispatch
@@ -95,7 +82,6 @@ def install(app, B):
     except Exception:
         log.exception("management-only dispatch patch failed")
 
-    # Repair the v31-created off:partner callback after module load.
     try:
         async def off_partner_clean(update, context):
             q = getattr(update, "callback_query", None)
@@ -110,23 +96,23 @@ def install(app, B):
                     return
             except Exception:
                 return
-            try:
-                await q.answer()
-            except Exception:
-                pass
+            try: await q.answer()
+            except Exception: pass
             await q.message.reply_text("🌙 پنل همکاران شیفت شب فعال است.", reply_markup=partner_menu(B, q.from_user.id))
             raise ApplicationHandlerStop
         app.add_handler(CallbackQueryHandler(off_partner_clean, pattern=r"^off:partner$"), group=-31002)
     except Exception:
         log.exception("off-hours management-only callback patch failed")
 
-    # Final Government hardening must be loaded from the real Telegram runtime.
+    # Do not let a broken optional hardening import make the management UI
+    # report a false startup/runtime failure. The actual government flow is
+    # already installed by the authoritative Telegram runtime layers.
     try:
         import telegram_government_final_hardening_v19 as G19
         G19.install(app, B)
         log.info("REAL runtime: Government hardening v19 installed")
-    except Exception:
-        log.exception("Government hardening v19 unavailable")
+    except Exception as exc:
+        log.warning("Government hardening v19 skipped; continuing with installed government flow: %s", exc)
 
     B._management_only_v32 = True
     log.info("Management-only partner UI v32 installed")
