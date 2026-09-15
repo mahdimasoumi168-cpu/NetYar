@@ -2,9 +2,9 @@
 
 This is an additive safety layer. It does not change the existing menus during
 working hours and does not replace the partner-panel flow. Outside working
-hours, /start, start/restart callbacks and ordinary service entry points are
-blocked before they can open the public main menu. The only exception is an
-explicitly authenticated night-shift partner/admin context.
+hours, /start and restart are always blocked; entering the night partner panel
+is possible only through the dedicated "👥 پنل همکاران" button and its fresh
+credential flow.
 """
 import logging
 from telegram.ext import CommandHandler, CallbackQueryHandler, ApplicationHandlerStop
@@ -17,24 +17,23 @@ def install(app, B):
         return True
 
     try:
-        from telegram_offhours_partner_gate_v2 import _is_open, _allowed_during_closed, _closed_text, _markup
+        from telegram_offhours_partner_gate_v2 import _is_open, _closed_text, _closed_markup
     except Exception:
         log.exception("canonical off-hours gate unavailable")
         return False
 
-    def blocked(uid):
+    def closed():
         try:
-            return (not _is_open(B)) and (not _allowed_during_closed(B, uid))
+            return not bool(_is_open(B))
         except Exception:
-            # Fail closed. A malformed clock/config must never expose services.
             return True
 
     async def start(update, context):
         user = getattr(update, "effective_user", None)
         msg = getattr(update, "effective_message", None)
-        if not user or not msg or not blocked(user.id):
+        if not user or not msg or not closed():
             return
-        await msg.reply_text(_closed_text(B), reply_markup=_markup())
+        await msg.reply_text(_closed_text(B), reply_markup=_closed_markup())
         raise ApplicationHandlerStop
 
     async def start_callback(update, context):
@@ -44,17 +43,18 @@ def install(app, B):
         data = str(q.data or "").strip().lower()
         if data not in {"start", "restart", "start:restart", "main:restart", "home:restart"}:
             return
-        if not blocked(q.from_user.id):
+        if not closed():
             return
         try:
-            await q.answer("⏰ خارج از ساعت کاری است.", show_alert=True)
+            await q.answer("❌ خارج از ساعت کاری است.", show_alert=True)
         except Exception:
             pass
         if q.message:
-            await q.message.reply_text(_closed_text(B), reply_markup=_markup())
+            await q.message.reply_text(_closed_text(B), reply_markup=_closed_markup())
         raise ApplicationHandlerStop
 
-    # Highest-priority handlers: they must run before normal /start/menu logic.
+    # Highest-priority handlers: /start and recognized restart callbacks can
+    # never fall through to the public main-menu handler while closed.
     app.add_handler(CommandHandler("start", start), group=-50000)
     app.add_handler(CallbackQueryHandler(start_callback), group=-49999)
     B._absolute_offhours_start_guard = True
