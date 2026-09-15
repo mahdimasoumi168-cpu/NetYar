@@ -18,7 +18,7 @@ def install(app,B):
   except Exception:return None
  def request_details(rid):
   rows=B.db.conn.execute("SELECT field_key,answer,file_id FROM request_answers WHERE request_id=? ORDER BY id",(rid,)).fetchall();lines=[]
-  labels={"phone":"📱 شماره موبایل مشترک","mobile":"📱 شماره موبایل مشترک","customer_phone":"📱 شماره موبایل مشترک","dob":"🎂 تاریخ تولد مشترک","birth_date":"🎂 تاریخ تولد مشترک","unique_id":"🆔 شناسه یکتا","unique_code":"🆔 شناسه یکتا","special_id":"🔖 شناسه اختصاصی","special_code":"🔖 شناسه اختصاصی","family_code":"👨‍👩‍👧‍👦 کد خانوار","household_code":"👨‍👩‍👧‍👦 کد خانوار","passport":"🛂 شماره پاسپورت","passport_number":"🛂 شماره پاسپورت","doc_type":"🪪 نوع مدرک","name":"👤 نام و نام خانوادگی","full_name":"👤 نام و نام خانوادگی"}
+  labels={"phone":"📱 شماره موبایل مشترک","mobile":"📱 شماره موبایل مشترک","customer_phone":"📱 شماره موبایل مشترک","subscriber_phone":"📱 شماره موبایل مشترک","dob":"🎂 تاریخ تولد مشترک","birth_date":"🎂 تاریخ تولد مشترک","unique_id":"🆔 شناسه یکتا","unique_code":"🆔 شناسه یکتا","special_id":"🔖 شناسه اختصاصی","special_code":"🔖 شناسه اختصاصی","family_code":"👨‍👩‍👧‍👦 کد خانوار","household_code":"👨‍👩‍👧‍👦 کد خانوار","passport":"🛂 شماره پاسپورت","passport_number":"🛂 شماره پاسپورت","doc_type":"🪪 نوع مدرک","name":"👤 نام و نام خانوادگی","full_name":"👤 نام و نام خانوادگی"}
   for a in rows:
    key=str(a["field_key"] or "");ans=str(a["answer"] or "").strip();fid=str(a["file_id"] or "").strip()
    if ans:lines.append(f"{labels.get(key,'📋 '+key)}: {ans}")
@@ -38,9 +38,9 @@ def install(app,B):
    n+=1
    for k,v in ((f"partner_code_attempts_{rid}",str(n)),(f"partner_code_request_admin_{rid}",str(q.from_user.id)),(f"request_code_chat_{rid}",str(chat))):B.db.set_setting(k,v)
    B.db.conn.execute("UPDATE requests SET status='awaiting_partner_code',updated_at=? WHERE id=?",(B.now(),rid));B.db.conn.commit()
-   st=B.S.setdefault(int(q.from_user.id),{});st["mode"]="admin_send_code_image";st["code_request_rid"]=rid;st["code_request_chat"]=int(chat);st["lang"]=st.get("lang","fa")
+   st=B.S.setdefault(int(q.from_user.id),{});st["mode"]="admin_send_code_image";st["code_request_rid"]=rid;st["code_request_chat"]=int(chat);st["lang"]="fa"
    await q.answer("تصویر را ارسال کنید")
-   await q.message.reply_text("🖼️ ابتدا تصویر/اسکرین‌شات موردنظر را همین‌جا ارسال کنید. بعد از دریافت، آن را برای همان همکارِ ثبت‌کننده این درخواست می‌فرستم.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ لغو",callback_data=f"pc:x:{rid}")],[InlineKeyboardButton("⬅️ بازگشت به پنل مدیریت",callback_data="adm:menu")]]))
+   await q.message.reply_text("🖼️ تصویر یا اسکرین‌شات امنیتی را همین‌جا ارسال کنید.\n\nبعد از دریافت، تصویر فقط برای همان همکارِ ثبت‌کننده درخواست ارسال می‌شود.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ لغو",callback_data=f"pc:x:{rid}")],[InlineKeyboardButton("⬅️ بازگشت به پنل مدیریت",callback_data="adm:menu")]]))
   except ApplicationHandlerStop:raise
   except Exception:log.exception("ask partner code failed");await q.answer("❌ درخواست کد ناموفق بود.",show_alert=True)
   raise ApplicationHandlerStop
@@ -52,15 +52,17 @@ def install(app,B):
   rid=int(st["code_request_rid"]);chat=int(st.get("code_request_chat") or 0)
   if not chat:await msg.reply_text("❌ حساب همکار برای این درخواست مشخص نیست.");raise ApplicationHandlerStop
   try:
-   caption="🔐 درخواست کد امنیتی\n\nاین تصویر از طرف مدیریت ارسال شده است. لطفاً طبق تصویر کد امنیتی را دریافت کرده و فقط خودِ کد را در همین چت ارسال کنید."
+   caption="🔐 درخواست کد امنیتی\n\nاین تصویر از طرف مدیریت ارسال شده است. لطفاً کد امنیتی نمایش‌داده‌شده را دریافت کنید و فقط خودِ کد را در همین چت ارسال کنید."
    if msg.photo:await context.bot.send_photo(chat_id=chat,photo=msg.photo[-1].file_id,caption=caption,reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ لغو",callback_data=f"pc:x:{rid}")]]))
    elif msg.document:await context.bot.send_document(chat_id=chat,document=msg.document.file_id,caption=caption,reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ لغو",callback_data=f"pc:x:{rid}")]]))
-   else:return
+   else:
+    await msg.reply_text("❌ فقط تصویر یا فایل تصویر را ارسال کنید.");raise ApplicationHandlerStop
    B.db.set_setting(f"partner_code_image_sent_{rid}","1")
    pst=B.S.setdefault(chat,{})
-   pst["mode"]="partner_send_code";pst["code_request_rid"]=rid;pst["code_request_admin"]=str(uid);pst["lang"]=pst.get("lang","fa")
+   pst["mode"]="partner_send_code";pst["code_request_rid"]=rid;pst["code_request_admin"]=str(uid);pst["lang"]="fa"
    st["mode"]=None;st.pop("code_request_rid",None);st.pop("code_request_chat",None)
-   await msg.reply_text("✅ تصویر برای همان همکار ارسال شد.\n⏳ حالا منتظر کد امنیتی هستیم؛ همکار باید فقط کد را ارسال کند.")
+   await msg.reply_text("✅ تصویر برای همان همکار ارسال شد.\n⏳ منتظر کد امنیتی هستیم؛ همکار باید فقط کد را ارسال کند.")
+  except ApplicationHandlerStop:raise
   except Exception:log.exception("send security image failed");await msg.reply_text("❌ ارسال تصویر به همکار انجام نشد. دوباره تلاش کنید.")
   raise ApplicationHandlerStop
  async def reply(update,context):
@@ -71,6 +73,7 @@ def install(app,B):
   if not r:st["mode"]=None;raise ApplicationHandlerStop
   exact=exact_chat(rid)
   if exact and int(exact)!=int(uid):return
+  if not text or len(text)>200:return
   B.db.answer(rid,"partner_code",answer=text);B.db.conn.execute("UPDATE requests SET status='processing',updated_at=? WHERE id=?",(B.now(),rid));B.db.conn.commit()
   aid=str(B.db.setting(f"partner_code_request_admin_{rid}","")).strip();recipients=[aid] if aid else [str(x) for x in B.ADM];details=request_details(rid)
   out=("🔐 کد امنیتی از همان حساب ثبت‌کننده دریافت شد\n\n"f"🎫 کد پیگیری: {r['tracking_code']}\n🧾 خدمت: {r['service_key']}\n📱 حساب تلگرام ثبت‌کننده: {uid}\n\n📋 اطلاعات کامل درخواست:\n{details}\n\n🔑 کد امنیتی: {text}")
@@ -83,7 +86,7 @@ def install(app,B):
      if i<2:await asyncio.sleep(.7*(i+1))
   B.db.set_setting(f"partner_code_request_admin_{rid}","");B.db.set_setting(f"request_code_chat_{rid}","")
   st["mode"]=None;st.pop("code_request_rid",None);st.pop("code_request_admin",None)
-  await update.message.reply_text("✅ کد دریافت شد و برای همان مدیر درخواست‌کننده ارسال شد." if sent else "⚠️ کد دریافت شد، اما اعلان مدیریت ارسال نشد.",reply_markup=B.partner_kb(st.get("lang","fa")))
+  await update.message.reply_text("✅ کد دریافت شد و برای همان مدیر درخواست‌کننده ارسال شد." if sent else "⚠️ کد دریافت شد، اما اعلان مدیریت ارسال نشد.",reply_markup=B.partner_kb("fa"))
   raise ApplicationHandlerStop
  async def cancel(update,context):
   q=update.callback_query;data=str(q.data or "")
