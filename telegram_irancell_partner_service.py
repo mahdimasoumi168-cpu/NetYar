@@ -1,6 +1,6 @@
-"""Partner-only Irancell SIM ownership/problem service.
-Flow: partner panel -> subscriber Irancell mobile -> identity document photo ->
-300,000 toman debit from partner balance -> request + full admin notification.
+"""Telegram partner-only Irancell SIM service.
+Flow: subscriber Irancell mobile -> identity document -> 300,000 toman partner-balance debit -> admin notification.
+The admin request can start a security-code exchange: admin uploads an image, the exact partner who created the request receives it, and the partner's code is returned to the requesting admin.
 """
 import logging, re, secrets
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -28,8 +28,8 @@ def _phone(v):
 def _admin_markup(rid):
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🔎 مشاهده اطلاعات کامل", callback_data=f"irsim:detail:{rid}")],
-        [InlineKeyboardButton("⏳ بررسی اولیه", callback_data=f"irsim:review:{rid}"), InlineKeyboardButton("🔐 درخواست کد از همکار", callback_data=f"panel:askcode:{rid}")],
-        [InlineKeyboardButton("✅ انجام شد", callback_data=f"irsim:approve:{rid}"), InlineKeyboardButton("❌ رد درخواست", callback_data=f"irsim:reject:{rid}")],
+        [InlineKeyboardButton("⏳ بررسی اولیه", callback_data=f"irsim:review:{rid}"), InlineKeyboardButton("🔐 درخواست کد امنیتی", callback_data=f"panel:askcode:{rid}")],
+        [InlineKeyboardButton("❌ رد درخواست", callback_data=f"irsim:reject:{rid}")],
     ])
 
 
@@ -41,15 +41,6 @@ def _ensure_service(B):
         B.db.conn.commit()
     except Exception:
         log.exception("Could not register Irancell service")
-
-
-def _valid_gov_id(value, kind):
-    d = _digits(value).strip()
-    if kind == "unique":
-        return bool(re.fullmatch(r"9\d{9}", d)), d
-    if kind == "special":
-        return bool(re.fullmatch(r"1\d{11}", d)), d
-    return False, d
 
 
 def install(app, B):
@@ -92,43 +83,16 @@ def install(app, B):
     except Exception:
         log.exception("Could not extend Telegram UI dispatcher")
 
-    async def validate_identifiers(update, context):
-        msg = update.effective_message
-        if not msg or not update.effective_user or not msg.text: return
-        st = B.S.setdefault(update.effective_user.id, {})
-        mode = st.get("mode")
-        if mode not in {"gov_unique", "gov_special", "govv2_unique", "govv2_special", "govv3_unique", "govv3_special", "v7_unique", "v7_special"}: return
-        ok, d = _valid_gov_id(msg.text, "unique" if "unique" in mode else "special")
-        if not ok:
-            if "unique" in mode:
-                await msg.reply_text("❌ شناسه یکتا نامعتبر است. شناسه یکتا باید دقیقاً ۱۰ رقم باشد و با ۹ شروع شود.")
-            else:
-                await msg.reply_text("❌ شناسه اختصاصی نامعتبر است. شناسه اختصاصی باید دقیقاً ۱۲ رقم باشد و با ۱ شروع شود.")
-            raise ApplicationHandlerStop
-        if "unique" in mode:
-            st["gov_unique"] = d
-            st["unique_id"] = d
-            st["mode"] = mode.replace("unique", "special")
-            await msg.reply_text("🔖 شناسه اختصاصی مشترک را وارد کنید:")
-        else:
-            st["gov_special"] = d
-            st["special_id"] = d
-            st["mode"] = mode.replace("special", "family")
-            await msg.reply_text("👨‍👩‍👧‍👦 کد خانوار مشترک را وارد کنید:")
-        raise ApplicationHandlerStop
-
     async def text(update, context):
         msg = update.effective_message
         if not msg or not update.effective_user: return
-        uid = update.effective_user.id
-        st = B.S.setdefault(uid, {})
+        uid = update.effective_user.id; st = B.S.setdefault(uid, {})
         if st.get("mode") != PHONE_MODE: return
         p = _phone(msg.text or "")
         if not p:
             await msg.reply_text("❌ شماره موبایل صحیح نیست.\n\n📱 لطفاً شماره ۱۱ رقمی ایرانسل را با ۰۹ وارد کنید:", reply_markup=B.cancel_kb(st.get("lang", "fa")))
         else:
-            st.setdefault("irancell", {})["phone"] = p
-            st["mode"] = PHOTO_MODE
+            st.setdefault("irancell", {})["phone"] = p; st["mode"] = PHOTO_MODE
             await msg.reply_text("📸 حالا عکس مدرک شناسایی مشترک را ارسال کنید:\n\nمدرک باید واضح و خوانا باشد.", reply_markup=B.cancel_kb(st.get("lang", "fa")))
         raise ApplicationHandlerStop
 
@@ -143,47 +107,42 @@ def install(app, B):
             raise ApplicationHandlerStop
         s = st.setdefault("irancell", {}); phone = s.get("phone", ""); pid = st.get("partner_id")
         if not pid or not phone:
-            st["mode"] = None
-            await msg.reply_text("❌ نشست خدمت منقضی شده است. دوباره از پنل همکاران وارد شوید.", reply_markup=B.partner_kb(st.get("lang", "fa")))
-            raise ApplicationHandlerStop
+            st["mode"] = None; await msg.reply_text("❌ نشست خدمت منقضی شده است. دوباره از پنل همکاران وارد شوید.", reply_markup=B.partner_kb(st.get("lang", "fa"))); raise ApplicationHandlerStop
         conn = B.db.conn
         try:
             conn.execute("BEGIN IMMEDIATE")
             p = conn.execute("SELECT * FROM partners WHERE id=? AND active=1", (int(pid),)).fetchone()
             if not p: raise RuntimeError("partner_not_found")
-            balance = int(p["balance"] or 0)
-            if balance < PRICE:
+            if int(p["balance"] or 0) < PRICE:
                 conn.rollback(); st["mode"] = None
-                await msg.reply_text(f"❌ اعتبار پنل همکار کافی نیست.\n\n💳 اعتبار فعلی: {balance:,} تومان\n💰 هزینه خدمت: {PRICE:,} تومان\n\nابتدا حساب پنل را شارژ کنید.", reply_markup=B.partner_kb(st.get("lang", "fa")))
-                raise ApplicationHandlerStop
+                await msg.reply_text(f"❌ اعتبار پنل همکار کافی نیست.\n\n💳 اعتبار فعلی: {int(p['balance'] or 0):,} تومان\n💰 هزینه خدمت: {PRICE:,} تومان\n\nابتدا حساب پنل را شارژ کنید.", reply_markup=B.partner_kb(st.get("lang", "fa"))); raise ApplicationHandlerStop
             user_id = B.db.user("telegram", uid, update.effective_user.username or "", update.effective_user.full_name or "")
             cur = conn.execute("UPDATE partners SET balance=balance-?,updated_at=? WHERE id=? AND active=1 AND balance>=?", (PRICE, B.now(), int(pid), PRICE))
             if cur.rowcount != 1: raise RuntimeError("insufficient_balance")
             code = "NYM-" + secrets.token_hex(4).upper()
-            cur = conn.execute("INSERT INTO requests(tracking_code,user_id,service_key,platform,status,amount,payment_status,payment_method,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)", (code, user_id, SERVICE_KEY, "telegram", "submitted", PRICE, "paid", "partner_balance", B.now(), B.now()))
+            cur = conn.execute("INSERT INTO requests(tracking_code,user_id,service_key,platform,status,amount,payment_status,payment_method,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)", (code,user_id,SERVICE_KEY,"telegram","submitted",PRICE,"paid","partner_balance",B.now(),B.now()))
             rid = cur.lastrowid
-            answers = {"partner_id": str(pid), "partner_name": str(p["name"] or ""), "partner_phone": str(p["phone"] or ""), "subscriber_phone": phone, "carrier": "ایرانسل", "service": "حل مشکل سیم کارت ایرانسل", "amount": str(PRICE)}
-            for k,v in answers.items(): conn.execute("INSERT INTO request_answers(request_id,field_key,answer,file_id,created_at) VALUES(?,?,?,?,?)", (rid,k,v,"",B.now()))
-            conn.execute("INSERT INTO request_answers(request_id,field_key,answer,file_id,created_at) VALUES(?,?,?,?,?)", (rid,"identity_document","",fid,B.now()))
-            try: conn.execute("INSERT INTO audit_log(platform,actor_id,action,target,details,created_at) VALUES(?,?,?,?,?,?)", ("telegram",str(uid),"partner_irancell_service",str(rid),f"partner_id={pid};phone={phone};amount={PRICE}",B.now()))
+            answers = {"partner_id":str(pid),"partner_name":str(p["name"] or ""),"partner_phone":str(p["phone"] or ""),"subscriber_phone":phone,"carrier":"ایرانسل","service":"حل مشکل سیم کارت ایرانسل","amount":str(PRICE)}
+            for k,v in answers.items(): conn.execute("INSERT INTO request_answers(request_id,field_key,answer,file_id,created_at) VALUES(?,?,?,?,?)",(rid,k,v,"",B.now()))
+            conn.execute("INSERT INTO request_answers(request_id,field_key,answer,file_id,created_at) VALUES(?,?,?,?,?)",(rid,"identity_document","",fid,B.now()))
+            try: conn.execute("INSERT INTO audit_log(platform,actor_id,action,target,details,created_at) VALUES(?,?,?,?,?,?)",("telegram",str(uid),"partner_irancell_service",str(rid),f"partner_id={pid};phone={phone};amount={PRICE}",B.now()))
             except Exception: pass
             conn.commit()
         except ApplicationHandlerStop: raise
         except Exception:
             try: conn.rollback()
             except Exception: pass
-            st["mode"] = None
-            await msg.reply_text("❌ ثبت خدمت انجام نشد؛ هیچ مبلغی از اعتبار پنل کسر نشد. لطفاً دوباره تلاش کنید.", reply_markup=B.partner_kb(st.get("lang", "fa")))
-            raise ApplicationHandlerStop
-        text_admin = ("🆕 درخواست جدید از پنل همکاران\n\n📱 خدمت: حل مشکل سیم کارت ایرانسل\n"f"🎫 کد پیگیری: {code}\n"f"👤 نام همکار: {p['name'] or '-'}\n"f"📞 موبایل همکار: {p['phone'] or '-'}\n"f"📱 شماره موبایل مشترک ایرانسل: {phone}\n""📄 مدرک شناسایی: پیوست شده\n"f"💰 مبلغ کسرشده از اعتبار پنل: {PRICE:,} تومان\n""💳 وضعیت پرداخت: پرداخت‌شده از اعتبار پنل\n📌 وضعیت درخواست: در انتظار بررسی مدیریت")
+            st["mode"] = None; await msg.reply_text("❌ ثبت خدمت انجام نشد؛ هیچ مبلغی از اعتبار پنل کسر نشد. لطفاً دوباره تلاش کنید.", reply_markup=B.partner_kb(st.get("lang", "fa"))); raise ApplicationHandlerStop
+
+        admin_text = ("🆕 درخواست جدید از پنل همکاران\n\n📱 خدمت: حل مشکل سیم کارت ایرانسل\n"f"🎫 کد پیگیری: {code}\n"f"👤 نام همکار: {p['name'] or '-'}\n"f"📞 موبایل همکار: {p['phone'] or '-'}\n"f"📱 شماره موبایل مشترک ایرانسل: {phone}\n""📄 مدرک شناسایی: پیوست شده\n"f"💰 مبلغ کسرشده از اعتبار پنل: {PRICE:,} تومان\n""💳 پرداخت: از شارژ پنل همکار\n📌 وضعیت: در انتظار بررسی مدیریت")
         for aid in B.ADM:
             try:
-                await context.bot.send_message(chat_id=int(aid), text=text_admin, reply_markup=_admin_markup(rid))
+                await context.bot.send_message(chat_id=int(aid), text=admin_text, reply_markup=_admin_markup(rid))
                 try: await context.bot.send_photo(chat_id=int(aid), photo=fid, caption=f"📎 مدرک شناسایی مشترک\n🎫 {code}")
                 except Exception: await context.bot.send_document(chat_id=int(aid), document=fid, caption=f"📎 مدرک شناسایی مشترک\n🎫 {code}")
             except Exception: log.exception("Irancell admin notification failed")
         st["mode"] = None; st.pop("irancell", None)
-        await msg.reply_text(f"✅ درخواست با موفقیت ثبت شد.\n\n📱 خدمت: حل مشکل سیم کارت ایرانسل\n🎫 کد پیگیری: {code}\n💰 مبلغ کسرشده از اعتبار پنل: {PRICE:,} تومان\n\n📨 اطلاعات کامل و تصویر مدرک برای مدیریت ارسال شد.", reply_markup=B.partner_kb(st.get("lang", "fa")))
+        await msg.reply_text(f"✅ درخواست با موفقیت ثبت شد.\n\n📱 خدمت: حل مشکل سیم کارت ایرانسل\n🎫 کد پیگیری: {code}\n💰 هزینه: {PRICE:,} تومان\n💳 از شارژ پنل کسر شد.\n\n📨 اطلاعات و مدرک برای مدیریت ارسال شد.", reply_markup=B.partner_kb(st.get("lang", "fa")))
         raise ApplicationHandlerStop
 
     async def admin_cb(update, context):
@@ -192,25 +151,23 @@ def install(app, B):
         await q.answer()
         if not B.admin(q.from_user.id): return await q.message.reply_text("❌ دسترسی مدیریت ندارید.")
         parts = data.split(":")
-        try: rid = int(parts[2])
+        try: rid=int(parts[2])
         except Exception: return await q.message.reply_text("❌ شناسه درخواست نامعتبر است.")
-        row = B.db.conn.execute("SELECT * FROM requests WHERE id=?", (rid,)).fetchone()
+        row=B.db.conn.execute("SELECT * FROM requests WHERE id=?",(rid,)).fetchone()
         if not row: return await q.message.reply_text("❌ درخواست پیدا نشد.")
-        if parts[1] == "detail":
-            ans = B.db.conn.execute("SELECT field_key,answer FROM request_answers WHERE request_id=? ORDER BY id", (rid,)).fetchall()
-            body = [f"📋 جزئیات درخواست {row['tracking_code']}","","📱 خدمت: حل مشکل سیم کارت ایرانسل",f"💰 مبلغ: {int(row['amount'] or 0):,} تومان",f"💳 پرداخت: {row['payment_method'] or '-'}",f"📌 وضعیت: {row['status'] or '-'}"]
-            for a in ans: body.append(f"• {a['field_key']}: {a['answer'] or '-'}")
-            return await q.message.reply_text("\n".join(body), reply_markup=_admin_markup(rid))
-        if parts[1] == "review": B.db.conn.execute("UPDATE requests SET status='reviewing',updated_at=? WHERE id=?",(B.now(),rid))
-        elif parts[1] == "approve": B.db.conn.execute("UPDATE requests SET status='completed',updated_at=? WHERE id=?",(B.now(),rid))
-        elif parts[1] == "reject": B.db.conn.execute("UPDATE requests SET status='rejected',updated_at=? WHERE id=?",(B.now(),rid))
-        else: return
-        B.db.conn.commit()
-        labels={"review":"⏳ درخواست به وضعیت «در حال بررسی» منتقل شد.","approve":"✅ درخواست با موفقیت به وضعیت «انجام شد» منتقل شد.","reject":"❌ درخواست رد شد."}
-        await q.message.reply_text(labels[parts[1]], reply_markup=_admin_markup(rid))
+        if parts[1]=="detail":
+            ans=B.db.conn.execute("SELECT field_key,answer FROM request_answers WHERE request_id=? ORDER BY id",(rid,)).fetchall()
+            labels={"partner_id":"شناسه همکار","partner_name":"نام همکار","partner_phone":"موبایل همکار","subscriber_phone":"شماره موبایل مشترک ایرانسل","carrier":"اپراتور","service":"خدمت","amount":"مبلغ"}
+            body=[f"📋 جزئیات درخواست {row['tracking_code']}","",f"📌 وضعیت: {row['status'] or '-'}",f"💳 پرداخت: {row['payment_method'] or '-'}"]
+            for a in ans: body.append(f"• {labels.get(a['field_key'],a['field_key'])}: {a['answer'] or '-'}")
+            return await q.message.reply_text("\n".join(body),reply_markup=_admin_markup(rid))
+        status={"review":"reviewing","reject":"rejected"}.get(parts[1])
+        if status:
+            B.db.conn.execute("UPDATE requests SET status=?,updated_at=? WHERE id=?",(status,B.now(),rid)); B.db.conn.commit()
+            return await q.message.reply_text("⏳ درخواست به «در حال بررسی» منتقل شد." if status=="reviewing" else "❌ درخواست رد شد.",reply_markup=_admin_markup(rid))
+        return
 
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, validate_identifiers), group=-6200)
     app.add_handler(CallbackQueryHandler(admin_cb, pattern=r"^irsim:"), group=-6100)
     app.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL, media), group=-6101)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text), group=-6102)
-    B._irancell_partner_service = True
+    B._irancell_partner_service=True
