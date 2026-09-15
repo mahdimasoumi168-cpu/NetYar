@@ -8,7 +8,6 @@ USE_SERVICES_CALLBACK = "start:services"
 
 
 def _keyboard(rows=None):
-    """Return a reply keyboard that always keeps restart available."""
     base = [list(r) for r in (rows or [])]
     base = [r for r in base if RESTART not in r]
     base.append([RESTART])
@@ -16,7 +15,6 @@ def _keyboard(rows=None):
 
 
 def _start_keyboard():
-    """Welcome message keeps the service action with the text as an inline button."""
     return InlineKeyboardMarkup([[InlineKeyboardButton(USE_SERVICES, callback_data=USE_SERVICES_CALLBACK)]])
 
 
@@ -45,9 +43,10 @@ async def _show_persian_start(update, context, B):
         WELCOME_FA,
         reply_markup=_start_keyboard(),
     )
-    # Keep only restart in the persistent reply keyboard below the chat.
+    # Restart remains permanently available as a reply-keyboard button;
+    # do not send a separate helper message after the welcome text.
     await update.effective_message.reply_text(
-        "برای شروع مجدد هر زمان می‌توانید از دکمه زیر استفاده کنید.",
+        "",
         reply_markup=_keyboard(),
     )
 
