@@ -15,7 +15,7 @@ import production_stability
 import rubika_bootstrap_final
 import server
 
-NETYAR_TELEGRAM_BUILD = "2026-09-15-offhours-stable-v20"
+NETYAR_TELEGRAM_BUILD = "2026-09-15-offhours-stable-v21"
 
 bale_bootstrap.install(server)
 rubika_bootstrap_final.install(server)
@@ -28,6 +28,10 @@ PRE_TELEGRAM_MODULES = (
     "telegram_partner_logout_fix",
     "telegram_language_consistency",
     "telegram_cancel_policy",
+    # Absolute start/restart hard gate is intentionally first in the Telegram
+    # runtime. Outside working hours it blocks /start and restart before any
+    # ordinary public menu/service handler can run.
+    "telegram_offhours_absolute_start_guard",
 )
 
 # Existing service/UI layers. Keep the existing menu/service stack intact.
