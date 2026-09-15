@@ -85,6 +85,15 @@ def install(app, B):
 
     app.add_handler(CallbackQueryHandler(admin_callbacks, pattern=r"^adm:"), group=-2000001)
 
+    # Real runtime: install the reliable request-reply owner so req:r callbacks
+    # never fall through to the legacy partner callback recovery.
+    try:
+        import telegram_admin_request_reliability_fix as AR
+        AR.install(app, B)
+        log.info("REAL runtime: admin request reply reliability installed")
+    except Exception:
+        log.exception("admin request reply reliability unavailable")
+
     try:
         import telegram_absolute_callback_hardening_v30 as V30
         old_dispatch = V30._dispatch
