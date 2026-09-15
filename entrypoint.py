@@ -11,7 +11,7 @@ import bale_bootstrap
 import production_stability
 import rubika_bootstrap_final
 import server
-NETYAR_TELEGRAM_BUILD = "2026-09-15-final-integration-v2"
+NETYAR_TELEGRAM_BUILD = "2026-09-15-final-integration-v3"
 bale_bootstrap.install(server)
 rubika_bootstrap_final.install(server)
 production_stability.install()
@@ -34,6 +34,15 @@ def _install_telegram_layers(app,bot,logger):
         from telegram_request_full_details_patch import finalize
         finalize(bot); logger.info("Telegram complete-request notification finalizer installed")
     except Exception: logger.exception("Telegram complete-request notification finalizer unavailable")
+    # The canonical button router must be installed LAST. Older overlays replace
+    # B.router/UI dispatch; installing this after every legacy layer makes the
+    # canonical main/partner/admin buttons the final routing owner.
+    try:
+        import canonical_button_router
+        canonical_button_router.install()
+        logger.info("Telegram canonical button router installed LAST")
+    except Exception:
+        logger.exception("Telegram canonical button router unavailable")
 try:
     import bot as _telegram_bot
     import telegram_runtime_clean as _telegram_runtime
