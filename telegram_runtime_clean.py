@@ -135,10 +135,15 @@ def _install_features(app):
         V32.install(app,B)
         log.info("REAL runtime: management-only partner UI v32 installed")
     except Exception:log.exception("management-only v32 unavailable")
+    try:
+        import telegram_session_and_context_hardening_v33 as V33
+        V33.install(app,B)
+        log.info("REAL runtime: session/context hardening v33 installed")
+    except Exception:log.exception("session/context hardening v33 unavailable")
     if getattr(B,"_partner_final_router_v29",False) and getattr(B,"_absolute_callback_v30",False):
-        log.info("REAL runtime final layers OK: v29 + v30")
+        log.info("REAL runtime final layers OK: v29 + v30 + v33")
     else:
-        log.error("REAL runtime final layers FAILED: v29=%s v30=%s",getattr(B,"_partner_final_router_v29",False),getattr(B,"_absolute_callback_v30",False))
+        log.error("REAL runtime final layers FAILED: v29=%s v30=%s v33=%s",getattr(B,"_partner_final_router_v29",False),getattr(B,"_absolute_callback_v30",False),getattr(B,"_session_context_hardening_v33",False))
     B.start=_start
     app.add_handler(CommandHandler("start",_start),group=-10000000)
     app.add_handler(MessageHandler(filters.Regex(r"^🔄 شروع مجدد$"),_restart),group=-9999999)
