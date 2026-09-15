@@ -4,33 +4,20 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, ReplyKe
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, MessageHandler, TypeHandler, filters, ApplicationHandlerStop
 import bot as B
 log=logging.getLogger("netyar.telegram_runtime")
-
-WELCOME=(
-    "👋 سلام!\n\n"
-    "به سامانه خدمات آنلاین بات، کمک یار مهاجر خوش آمدید. 🌟\n\n"
-    "اینجا تلاش کرده‌ایم خدمات موردنیاز شما را به‌صورت سریع، ساده و آنلاین در اختیارتان قرار دهیم تا بدون سردرگمی بتوانید خدمت موردنظر خود را دریافت یا پیگیری کنید.\n\n"
-    "🚀 بات، کمک یار مهاجر؛ خدماتی برای شما، درآمدی برای همه\n\n"
-    "📌 برای شروع دریافت خدمات، روی دکمه «🛎 استفاده از خدمات» بزنید."
-)
+WELCOME=("👋 سلام!\n\n" "به سامانه خدمات آنلاین بات، کمک یار مهاجر خوش آمدید. 🌟\n\n" "اینجا تلاش کرده‌ایم خدمات موردنیاز شما را به‌صورت سریع، ساده و آنلاین در اختیارتان قرار دهیم تا بدون سردرگمی بتوانید خدمت موردنظر خود را دریافت یا پیگیری کنید.\n\n" "🚀 بات، کمک یار مهاجر؛ خدماتی برای شما، درآمدی برای همه\n\n" "📌 برای شروع دریافت خدمات، روی دکمه «🛎 استفاده از خدمات» بزنید.")
 RESTART="🔄 شروع مجدد"
 USE_SERVICES="🛎 استفاده از خدمات"
-
-def _restart_keyboard():
-    return ReplyKeyboardMarkup([[RESTART]],resize_keyboard=True,is_persistent=True)
-
-def _services_keyboard():
-    return InlineKeyboardMarkup([[InlineKeyboardButton(USE_SERVICES,callback_data="start:services")]])
-
-async def _safe_call(fn, update, context):
+def _restart_keyboard(): return ReplyKeyboardMarkup([[RESTART]],resize_keyboard=True,is_persistent=True)
+def _services_keyboard(): return InlineKeyboardMarkup([[InlineKeyboardButton(USE_SERVICES,callback_data="start:services")]])
+async def _safe_call(fn, update, context, *extra):
     try:
-        result=fn(update,context)
+        result=fn(update,context,*extra)
         if inspect.isawaitable(result): return await result
         return result
     except ApplicationHandlerStop: raise
     except Exception:
         log.exception("Telegram handler failed: %r",fn)
         return None
-
 async def _start(update, context):
     user=update.effective_user
     if not user:return
@@ -45,44 +32,24 @@ async def _start(update, context):
         await update.message.reply_text(WELCOME,reply_markup=_services_keyboard())
         await update.message.reply_text(RESTART,reply_markup=_restart_keyboard())
     raise ApplicationHandlerStop
-
-async def _restart(update, context):
-    return await _start(update,context)
-
+async def _restart(update, context): return await _start(update,context)
 async def _services_callback(update,context):
     q=getattr(update,"callback_query",None)
     if not q or q.data!="start:services":return
-    await q.answer()
-    uid=q.from_user.id
-    st=B.S.setdefault(uid,{})
-    st["lang"]="fa"
-    st.pop("mode",None)
-    await q.message.reply_text(
-        "نوع کاربری خود را انتخاب کنید:",
-        reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("🪪 اتباع هستم",callback_data="st:foreign"),
-            InlineKeyboardButton("🇮🇷 ایرانی هستم",callback_data="st:iranian")
-        ]])
-    )
+    await q.answer(); uid=q.from_user.id; st=B.S.setdefault(uid,{})
+    st["lang"]="fa"; st.pop("mode",None)
+    await q.message.reply_text("نوع کاربری خود را انتخاب کنید:",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🪪 اتباع هستم",callback_data="st:foreign"),InlineKeyboardButton("🇮🇷 ایرانی هستم",callback_data="st:iranian")]]))
     raise ApplicationHandlerStop
-
 async def _blocked_language_callback(update,context):
     q=getattr(update,"callback_query",None)
     if not q:return
     data=str(q.data or "").strip()
     if not (data.startswith("lang:") or data.startswith("language:")):return
-    uid=q.from_user.id
-    B.S.setdefault(uid,{})["lang"]="fa"
+    uid=q.from_user.id; B.S.setdefault(uid,{})["lang"]="fa"
     await q.answer("زبان فارسی است.")
-    await q.message.reply_text(
-        "لطفاً از دکمه «🛎 استفاده از خدمات» استفاده کنید.",
-        reply_markup=_services_keyboard()
-    )
+    await q.message.reply_text("لطفاً از دکمه «🛎 استفاده از خدمات» استفاده کنید.",reply_markup=_services_keyboard())
     raise ApplicationHandlerStop
-
 def _install_features(app):
-    # Legacy feature layers remain available, but their old startup handlers
-    # are prevented from winning by the authoritative handlers installed below.
     B.start=_start
     try:
         import telegram_startup_button_firewall as SBF;SBF.install(app,B)
@@ -119,7 +86,7 @@ def _install_features(app):
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,lambda u,c:_safe_call(A._text,u,c,B)),group=-19)
         B.amenu=A._admin_menu
     except Exception:log.exception("admin plus unavailable")
-    for name,fn in (("telegram_announcement_media", "install"),("telegram_admin_entry","install"),("telegram_government_flow_v2","install"),("telegram_government_flow_runtime_fix","install"),("partner_pricing","install_telegram"),("telegram_service_pricing","install"),("telegram_admin_menu_v2","install"),("telegram_request_control_v2","install"),("telegram_legacy_callback_bridge","install"),("telegram_partner_code_reliable","install"),("telegram_request_resend_fa","install"),("telegram_access_hardening","install"),("telegram_partner_visibility_fix","install"),("telegram_partner_application_gate","install")):
+    for name,fn in (("telegram_announcement_media","install"),("telegram_admin_entry","install"),("telegram_government_flow_v2","install"),("telegram_government_flow_runtime_fix","install"),("partner_pricing","install_telegram"),("telegram_service_pricing","install"),("telegram_admin_menu_v2","install"),("telegram_request_control_v2","install"),("telegram_legacy_callback_bridge","install"),("telegram_partner_code_reliable","install"),("telegram_request_resend_fa","install"),("telegram_access_hardening","install"),("telegram_partner_visibility_fix","install"),("telegram_partner_application_gate","install")):
         try:
             m=__import__(name);f=getattr(m,fn,None)
             if callable(f):
@@ -127,32 +94,24 @@ def _install_features(app):
                 except TypeError:f(B)
         except Exception:log.exception("optional Telegram layer unavailable: %s",name)
     B.start=_start
-    # Authoritative startup handlers are deliberately registered at the final
-    # layer so legacy /start and language callbacks cannot take over.
     app.add_handler(CommandHandler("start",_start),group=-10000000)
     app.add_handler(MessageHandler(filters.Regex(r"^🔄 شروع مجدد$"),_restart),group=-9999999)
     app.add_handler(CallbackQueryHandler(_blocked_language_callback,pattern=r"^(lang|language):"),group=-9999998)
     app.add_handler(CallbackQueryHandler(_services_callback,pattern=r"^start:services$"),group=-9999997)
     log.info("Telegram Persian-only authoritative startup handlers installed")
-
 def _self_check():
     required=("main","partner","fida","gov","prt","ptrack","phistory","media","router","admin","cancel")
     missing=[name for name in required if not callable(getattr(B,name,None))]
     if missing:log.error("Telegram runtime self-check FAILED; missing hooks: %s",missing)
-
 def build():
     token=str(getattr(B,"BOT_TOKEN","") or "").strip()
     if not token:raise RuntimeError("Telegram bot token is missing")
-    app=Application.builder().token(token).build()
-    _self_check()
-    # Legacy handlers stay registered for existing services; the authoritative
-    # startup handlers installed by _install_features run first.
+    app=Application.builder().token(token).build(); _self_check()
     app.add_handler(CommandHandler("addpartner",B.addpartner),group=-100)
     app.add_handler(MessageHandler(filters.Regex(r"^/Admin2025$"),B.admin_command),group=-100)
     app.add_handler(CallbackQueryHandler(B.admin_cb,pattern=r"^(tu|pay|req|admin):"),group=0)
     app.add_handler(MessageHandler(filters.PHOTO|filters.Document.ALL,B.media),group=10)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,B.router),group=20)
-    _install_features(app)
-    B.start=_start
+    _install_features(app); B.start=_start
     log.info("Canonical Telegram Application built successfully; Persian-only startup active")
     return app
