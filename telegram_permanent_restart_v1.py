@@ -35,7 +35,7 @@ WELCOME_FA = (
 )
 
 
-async def _show_persian_start(update, context, B):
+async def _show_persian_start(update, context, B, *, install_restart_keyboard=False):
     st = B.S.setdefault(update.effective_user.id, {})
     st["lang"] = "fa"
     st["mode"] = None
@@ -43,12 +43,15 @@ async def _show_persian_start(update, context, B):
         WELCOME_FA,
         reply_markup=_start_keyboard(),
     )
-    # Telegram does not allow an empty message. Use a zero-width character only
-    # to attach the permanent reply keyboard without displaying helper text.
-    await update.effective_message.reply_text(
-        "\u200b",
-        reply_markup=_keyboard(),
-    )
+    # Inline and reply keyboards cannot be attached to the same Telegram message.
+    # Install the persistent reply keyboard only on a real /start. On restart the
+    # user already has this keyboard because restart itself was pressed from it.
+    # Never send an empty/zero-width helper message: Telegram rejects empty text.
+    if install_restart_keyboard:
+        await update.effective_message.reply_text(
+            "🔄",
+            reply_markup=_keyboard(),
+        )
 
 
 async def _show_service_choice(update, B):
@@ -88,7 +91,7 @@ def install(app, B):
         st.update(partner_keep)
         st["lang"] = "fa"
         st["mode"] = None
-        await _show_persian_start(update, context, B)
+        await _show_persian_start(update, context, B, install_restart_keyboard=True)
 
     B.start = wrapped_start
     B.restart_keyboard = _keyboard
@@ -98,7 +101,7 @@ def install(app, B):
             return
         st = B.S.setdefault(update.effective_user.id, {})
         _clear_flow(st)
-        await _show_persian_start(update, context, B)
+        await _show_persian_start(update, context, B, install_restart_keyboard=False)
         raise ApplicationHandlerStop
 
     async def use_services(update, context):
