@@ -1,7 +1,7 @@
 """NetYar production entrypoint.
 
 The runtime layers are intentionally ordered: core guards first, service
-flows in the middle, and final request/partner delivery layers last.  Existing
+flows in the middle, and final request/partner delivery layers last. Existing
 features are preserved; the final layers only harden routing and delivery.
 """
 import inspect
@@ -15,7 +15,7 @@ import production_stability
 import rubika_bootstrap_final
 import server
 
-NETYAR_TELEGRAM_BUILD = "2026-09-15-clean-runtime-v19"
+NETYAR_TELEGRAM_BUILD = "2026-09-15-offhours-stable-v20"
 
 bale_bootstrap.install(server)
 rubika_bootstrap_final.install(server)
@@ -30,11 +30,11 @@ PRE_TELEGRAM_MODULES = (
     "telegram_cancel_policy",
 )
 
-# Existing service/UI layers. Order is preserved from the working runtime;
-# final compatibility layers are kept at the end so they can safely normalize
-# behavior without replacing the original menus or options.
+# Existing service/UI layers. Keep the existing menu/service stack intact.
+# The canonical off-hours gate remains in telegram_offhours_partner_gate_v2;
+# telegram_offhours_api_fix only repairs its public clock helper before the
+# night-shift logout module imports it.
 TELEGRAM_MODULES = (
-    "telegram_absolute_offhours_guard",
     "telegram_government_phone_final",
     "telegram_phone_registry_and_stability",
     "telegram_final_hotfix_20260914",
@@ -52,6 +52,7 @@ TELEGRAM_MODULES = (
     "final_government_payment_overlay",
     "telegram_price_dedup_guard",
     "telegram_government_flow_runtime_fix",
+    "telegram_offhours_api_fix",
     "telegram_night_logout_final",
     "telegram_partner_login_fix",
     "telegram_offhours_partner_gate_v2",
@@ -99,11 +100,8 @@ TELEGRAM_MODULES = (
     "telegram_partner_ticket_fix",
     "telegram_ticket_reliability",
     "telegram_ticket_media",
-    # Final document flow is an override layer; it keeps the original UI but
-    # guarantees the requested passport/booklet/card collection behavior.
+    # Existing requested document/request delivery layers remain last.
     "telegram_government_final_override_v18",
-    # Final request delivery is last so every stored attachment and admin
-    # action is visible without removing the older management options.
     "telegram_final_request_delivery_v17",
 )
 
@@ -153,8 +151,7 @@ def _install_telegram_layers(app, bot, logger):
     for name in TELEGRAM_MODULES:
         _install_module(name, app, bot, logger)
 
-    # Legacy hardening modules that are intentionally loaded after the main
-    # stack because some projects define their callbacks in the legacy layer.
+    # Legacy hardening modules remain loaded for backward compatibility.
     for name in (
         "telegram_government_strict_validation",
         "telegram_government_flow_hardening_v4",
@@ -165,20 +162,13 @@ def _install_telegram_layers(app, bot, logger):
     ):
         _install_module(name, app, bot, logger)
 
-    # Patch the canonical admin notifier once. Do not install the same module
-    # again through another explicit call; its internal guard owns idempotency.
     try:
         from telegram_request_full_details_patch import finalize
-
         finalize(bot)
         logger.info("Telegram complete-request notification finalizer installed")
     except Exception:
-        logger.exception(
-            "Telegram complete-request notification finalizer unavailable"
-        )
+        logger.exception("Telegram complete-request notification finalizer unavailable")
 
-    # desktop_agent_api_clean is deliberately last because it only exposes the
-    # persisted request state and should not take over Telegram routing.
     _install_module("desktop_agent_api_clean", app, bot, logger)
 
 
