@@ -27,8 +27,6 @@ async def _start(update, context):
     old=dict(B.S.get(uid,{}) or {})
     B.S[uid]={"lang":"fa"}
     # Never restore a partner session after the user has explicitly logged out.
-    # A permanent logout must survive /start and 🔄 شروع مجدد until a fresh
-    # partner authentication is completed.
     if not old.get("partner_logged_out"):
         for k in ("partner_id","partner_active"):
             if k in old:B.S[uid][k]=old[k]
@@ -81,6 +79,12 @@ def _install_features(app):
     try:
         import telegram_sim_service_v2 as SIM;SIM.install(app,B)
     except Exception:log.exception("sim service unavailable")
+    # Partner-only Irancell SIM troubleshooting service:
+    # subscriber's Irancell number -> identity document -> 300,000 toman
+    # atomic deduction from partner balance -> full admin notification + document.
+    try:
+        import telegram_irancell_partner_service as IRSIM;IRSIM.install(app,B)
+    except Exception:log.exception("Irancell partner service unavailable")
     try:
         import telegram_topup_invoice as TI
         TI.install(B)
