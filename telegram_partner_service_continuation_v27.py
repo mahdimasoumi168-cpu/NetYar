@@ -51,9 +51,15 @@ def install(app, B):
             return old(lang) if callable(old) else None
     B.partner_kb = partner_kb
 
-    # Do not consume messages here. This layer only restores the partner menu
-    # after a completed/cancelled service and leaves data-entry handlers to the
-    # dedicated service modules loaded earlier.
     B._partner_service_price = PRICE
     B._partner_continuation_v27 = True
     log.info("Partner continuation v27 installed; Irancell price=%s", PRICE)
+
+    # Absolute final owner: this is intentionally installed after every
+    # previous menu/callback overlay so legacy dispatchers cannot hide the
+    # Irancell option or leak a generic ui2 callback error.
+    try:
+        from telegram_final_service_owner_v28 import install as install_v28
+        install_v28(app, B)
+    except Exception:
+        log.exception("Final service owner v28 unavailable")
