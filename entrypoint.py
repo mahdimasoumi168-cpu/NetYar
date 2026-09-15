@@ -15,7 +15,7 @@ import production_stability
 import rubika_bootstrap_final
 import server
 
-NETYAR_TELEGRAM_BUILD = "2026-09-15-offhours-stable-v22"
+NETYAR_TELEGRAM_BUILD = "2026-09-15-offhours-stable-v23"
 
 bale_bootstrap.install(server)
 rubika_bootstrap_final.install(server)
@@ -107,9 +107,6 @@ TELEGRAM_MODULES = (
     # Existing requested document/request delivery layers remain last.
     "telegram_government_final_override_v18",
     "telegram_final_request_delivery_v17",
-    # Final safety net: if any legacy layer tries to return an active partner
-    # to the public main menu after an error/cancel, keep the partner panel.
-    "telegram_partner_main_guard",
 )
 
 
@@ -168,6 +165,11 @@ def _install_telegram_layers(app, bot, logger):
         "telegram_final_bugfixes_v1",
     ):
         _install_module(name, app, bot, logger)
+
+    # Absolute final safety net: legacy modules above may call B.main(uid) on
+    # an error/cancel. An authenticated partner must remain inside the partner
+    # panel, so install this wrapper only after every other Telegram layer.
+    _install_module("telegram_partner_main_guard", app, bot, logger)
 
     try:
         from telegram_request_full_details_patch import finalize
