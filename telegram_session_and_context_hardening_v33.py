@@ -1,12 +1,7 @@
-"""Session/context hardening for the real Telegram runtime.
-
-Goals:
-- Partner logout is final: clear authentication/session keys immediately.
-- Re-entering the partner panel always asks for fresh credentials.
-- Cancel from any partner flow returns to the partner panel, not the public menu.
-- Legacy text-router paths follow the same rules as ui2 callbacks.
-"""
+"""Session/context hardening for the real Telegram runtime."""
 import logging
+import inspect
+from telegram.ext import CallbackQueryHandler, ApplicationHandlerStop
 
 log = logging.getLogger("netyar.telegram.session_v33")
 
@@ -31,10 +26,7 @@ def install(app, B):
         if _partner_active(st):
             st["mode"] = None
             st["step"] = None
-            for k in (
-                "gov_files", "gov_answers", "gov_doc_type", "print_files",
-                "irancell", "irancell_phone", "final_chat_admin", "final_chat_partner_id",
-            ):
+            for k in ("gov_files", "gov_answers", "gov_doc_type", "print_files", "irancell", "irancell_phone", "final_chat_admin", "final_chat_partner_id"):
                 st.pop(k, None)
             try:
                 import telegram_management_only_v32 as M32
@@ -56,23 +48,42 @@ def install(app, B):
             return None
         st = B.S.setdefault(uid, {})
         lang = st.get("lang", "fa")
-        for k in (
-            "partner", "partner_id", "partner_active", "partner_phone", "phone",
-            "partner_logged_out", "night_phone", "night_partner_id", "mode", "step",
-            "final_chat_admin", "final_chat_partner_id", "irancell", "irancell_phone",
-        ):
+        for k in ("partner", "partner_id", "partner_active", "partner_phone", "phone", "partner_logged_out", "night_phone", "night_partner_id", "mode", "step", "final_chat_admin", "final_chat_partner_id", "irancell", "irancell_phone"):
             st.pop(k, None)
         st.clear()
         st["lang"] = lang
         st["partner_logged_out"] = True
-        await msg.reply_text(
-            "✅ از پنل همکاران به‌طور کامل خارج شدید.\n\n"
-            "🔐 برای ورود مجدد باید دوباره شماره موبایل و رمز عبور همکار را وارد کنید.",
-            reply_markup=B.main(uid),
-        )
+        await msg.reply_text("✅ از پنل همکاران به‌طور کامل خارج شدید.\n\n🔐 برای ورود مجدد باید دوباره شماره موبایل و رمز عبور همکار را وارد کنید.", reply_markup=B.main(uid))
         return True
 
     B.partner_exit = partner_exit
+
+    # Authoritative owner for all admin-panel callbacks. It runs before legacy
+    # callback routers so partner state cannot trigger a partner fallback error.
+    async def admin_callbacks(update, context):
+        q = getattr(update, "callback_query", None)
+        data = str(getattr(q, "data", "") or "") if q else ""
+        if not q or not data.startswith("adm:"):
+            return
+        uid = q.from_user.id
+        if not B.admin(uid):
+            return
+        try:
+            import telegram_admin_plus as A
+            await q.answer()
+            result = A._callback(update, context, B)
+            if inspect.isawaitable(result):
+                await result
+        except Exception:
+            log.exception("authoritative admin callback failed: %s", data)
+            try:
+                import telegram_admin_plus as A
+                await q.message.reply_text("❌ خطای موقت در پنل مدیریت؛ دوباره انتخاب کنید.", reply_markup=A._admin_menu())
+            except Exception:
+                log.exception("admin callback recovery failed")
+        raise ApplicationHandlerStop
+
+    app.add_handler(CallbackQueryHandler(admin_callbacks, pattern=r"^adm:"), group=-2000001)
 
     try:
         import telegram_absolute_callback_hardening_v30 as V30
@@ -80,17 +91,15 @@ def install(app, B):
         if not getattr(V30, "_session_dispatch_v33", False):
             async def dispatch(update, context, BB, label):
                 label = str(label or "").strip()
+                q = update.callback_query
+                uid = q.from_user.id
+                st = BB.S.setdefault(uid, {})
                 if label == "❌ انصراف":
-                    uid = update.callback_query.from_user.id
-                    st = BB.S.setdefault(uid, {})
                     lang = st.get("lang", "fa")
                     if _partner_active(st):
                         st["mode"] = None
                         st["step"] = None
-                        for k in (
-                            "gov_files", "gov_answers", "gov_doc_type", "print_files",
-                            "irancell", "irancell_phone", "final_chat_admin", "final_chat_partner_id",
-                        ):
+                        for k in ("gov_files", "gov_answers", "gov_doc_type", "print_files", "irancell", "irancell_phone", "final_chat_admin", "final_chat_partner_id"):
                             st.pop(k, None)
                         try:
                             import telegram_management_only_v32 as M32
@@ -98,14 +107,26 @@ def install(app, B):
                         except Exception:
                             markup = BB.partner_kb(lang)
                         try:
-                            await update.callback_query.answer()
+                            await q.answer()
                         except Exception:
                             pass
-                        await update.callback_query.message.reply_text("❌ عملیات لغو شد.", reply_markup=markup)
+                        await q.message.reply_text("❌ عملیات لغو شد.", reply_markup=markup)
                         return
                     return await old_dispatch(update, context, BB, label)
                 if label == "🚪 خروج از پنل":
                     return await partner_exit(update, context)
+                if label in {"🛠 پنل مدیریت بات", "🛠 پنل مدیریت", "🛠 Admin panel", "🛠 لوحة الإدارة"}:
+                    if not BB.admin(uid):
+                        await q.message.reply_text("❌ دسترسی مدیریت ندارید.", reply_markup=BB.main(uid))
+                        return
+                    try:
+                        import telegram_admin_plus as A
+                        await q.answer()
+                        await q.message.reply_text("🛠 پنل مدیریت کامل\n\nاز منوی زیر بخش موردنظر را انتخاب کنید:", reply_markup=A._admin_menu())
+                    except Exception:
+                        log.exception("ui2 admin menu failed")
+                        await q.message.reply_text("❌ پنل مدیریت فعلاً در دسترس نیست؛ دوباره تلاش کنید.")
+                    return
                 return await old_dispatch(update, context, BB, label)
             V30._dispatch = dispatch
             V30._session_dispatch_v33 = True
