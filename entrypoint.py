@@ -15,7 +15,7 @@ import production_stability
 import rubika_bootstrap_final
 import server
 
-NETYAR_TELEGRAM_BUILD = "2026-09-15-partner-services-v27"
+NETYAR_TELEGRAM_BUILD = "2026-09-15-partner-services-v29"
 
 bale_bootstrap.install(server)
 rubika_bootstrap_final.install(server)
@@ -140,11 +140,11 @@ def _install_telegram_layers(app, bot, logger):
     _install_module("telegram_partner_management_hotfix_v25", app, bot, logger)
     _install_module("telegram_partner_runtime_hardening_v26", app, bot, logger)
     _install_module("telegram_partner_main_guard", app, bot, logger)
-
-    # Absolute final partner-service menu/price synchronization. This must be
-    # after every legacy menu layer so later imports cannot overwrite the
-    # Irancell button or its 980,000-toman partner-balance price.
     _install_module("telegram_partner_service_continuation_v27", app, bot, logger)
+    # v29 is deliberately installed independently after v27. It is the final
+    # callback/menu owner for the affected partner routes and therefore still
+    # installs even if an older optional overlay fails during startup.
+    _install_module("telegram_partner_final_router_v29", app, bot, logger)
 
     try:
         from telegram_request_full_details_patch import finalize
