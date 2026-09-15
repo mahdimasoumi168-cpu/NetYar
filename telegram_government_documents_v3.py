@@ -2,8 +2,7 @@
 
 Keeps the government service flow deterministic and isolated from legacy
 handlers. Supports Amayesh card, temporary card, passport and residence
-booklet. Optional SIM-card proof is collected after the required document
-images. Cancellation always returns to the same stable menu layout.
+booklet. Optional SIM-card proof is collected after the required document images.
 """
 import re
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
@@ -50,7 +49,6 @@ def _file_id(msg):
 
 
 def _stable_main(B, uid):
-    # The government service is intentionally the first, full-width option.
     rows = [
         ["🏛 حل مشکل سامانه دولت من"],
         ["🪪 فیدای غیر حضوری", "🖨 خدمات چاپ"],
@@ -68,7 +66,6 @@ def _stable_main(B, uid):
 def install(app, B):
     if getattr(B, "_gov_documents_v3", False):
         return
-
     old_main = getattr(B, "main", None)
     B._gov_old_main = old_main
     B.main = lambda uid: _stable_main(B, uid)
@@ -98,38 +95,29 @@ def install(app, B):
         if partner_id:
             st["partner_id"] = partner_id
             st["partner_active"] = True
-            return await update.effective_message.reply_text(
-                "❌ عملیات لغو شد.", reply_markup=B.partner_kb(lang)
-            )
-        return await update.effective_message.reply_text(
-            "❌ عملیات لغو شد.", reply_markup=_stable_main(B, uid)
-        )
+            return await update.effective_message.reply_text("❌ عملیات لغو شد.", reply_markup=B.partner_kb(lang))
+        return await update.effective_message.reply_text("❌ عملیات لغو شد.", reply_markup=_stable_main(B, uid))
 
     async def cb(update, context):
         q = update.callback_query
         if not q or not str(q.data or "").startswith("govv3:"):
             return
         await q.answer()
-        uid = q.from_user.id
-        st = B.S.setdefault(uid, {})
+        st = B.S.setdefault(q.from_user.id, {})
         action = str(q.data).split(":", 1)[1]
-
         if action == "cancel":
             await cancel(q, context, st)
             raise ApplicationHandlerStop
-
         if action in {"card", "temporary", "passport", "residence"}:
             typ = {"card": "card", "temporary": "temporary_card", "passport": "passport", "residence": "residence_booklet"}[action]
             st["gov_doc_type"] = typ
             st["mode"] = "govv3_phone"
             await q.message.reply_text("📱 شماره موبایل مشترک را وارد کنید:", reply_markup=_cancel_markup())
             raise ApplicationHandlerStop
-
         if action == "sim_yes":
             st["mode"] = "govv3_sim_optional"
             await q.message.reply_text("📱 لطفاً سند سیم‌کارت مشترک را ارسال کنید:", reply_markup=_cancel_markup())
             raise ApplicationHandlerStop
-
         if action == "sim_no":
             await _create_request(update, context, st)
             raise ApplicationHandlerStop
@@ -144,71 +132,63 @@ def install(app, B):
             return
         t = (update.message.text or "").strip()
         d = _digits(t)
-
         if mode == "govv3_phone":
             p = re.sub(r"\D", "", d)
-            if p.startswith("98"):
+            if p.startswith("98") and len(p) == 12:
                 p = "0" + p[2:]
             if not re.fullmatch(r"09\d{9}", p):
-                await update.message.reply_text("❌ شماره موبایل باید ۱۱ رقم و با ۰۹ شروع شود.", reply_markup=_cancel_markup())
+                await update.message.reply_text("❌ شماره موبایل باید دقیقاً ۱۱ رقم و با ۰۹ شروع شود.", reply_markup=_cancel_markup())
             else:
                 st["gov_phone"] = p
                 st["mode"] = "govv3_dob"
                 await update.message.reply_text("🎂 تاریخ تولد مشترک را وارد کنید:", reply_markup=_cancel_markup())
             raise ApplicationHandlerStop
-
         if mode == "govv3_dob":
-            st["gov_dob"] = t
-            st["mode"] = "govv3_unique"
-            await update.message.reply_text("🆔 شناسه یکتای مشترک را وارد کنید:", reply_markup=_cancel_markup())
-            raise ApplicationHandlerStop
-
-        if mode == "govv3_unique":
-            if len(t) < 3:
-                await update.message.reply_text("❌ شناسه یکتا را صحیح وارد کنید.", reply_markup=_cancel_markup())
+            if not re.fullmatch(r"1[34]\d{2}/(0[1-9]|1[0-2])/(0[1-9]|[12]\d|3[01])", d):
+                await update.message.reply_text("❌ تاریخ تولد نامعتبر است. مثال صحیح: 1385/05/12", reply_markup=_cancel_markup())
             else:
-                st["gov_unique"] = t
+                st["gov_dob"] = d
+                st["mode"] = "govv3_unique"
+                await update.message.reply_text("🆔 شناسه یکتای مشترک را وارد کنید:", reply_markup=_cancel_markup())
+            raise ApplicationHandlerStop
+        if mode == "govv3_unique":
+            if not re.fullmatch(r"9\d{9}", d):
+                await update.message.reply_text("❌ شناسه یکتا باید دقیقاً ۱۰ رقم و با ۹ شروع شود.", reply_markup=_cancel_markup())
+            else:
+                st["gov_unique"] = d
                 st["mode"] = "govv3_special"
                 await update.message.reply_text("🔖 شناسه اختصاصی مشترک را وارد کنید:", reply_markup=_cancel_markup())
             raise ApplicationHandlerStop
-
         if mode == "govv3_special":
             if not re.fullmatch(r"1\d{11}", d):
-                await update.message.reply_text("❌ شناسه اختصاصی باید ۱۲ رقم و با ۱ شروع شود.", reply_markup=_cancel_markup())
+                await update.message.reply_text("❌ شناسه اختصاصی باید دقیقاً ۱۲ رقم و با ۱ شروع شود.", reply_markup=_cancel_markup())
             else:
                 st["gov_special"] = d
                 typ = st.get("gov_doc_type")
-                if typ == "card":
+                if typ in {"card", "temporary_card"}:
                     st["mode"] = "govv3_family"
-                    await update.message.reply_text("👨‍👩‍👧‍👦 کد خانوار مشترک را وارد کنید:", reply_markup=_cancel_markup())
+                    await update.message.reply_text("👨‍👩‍👧‍👦 کد خانوار مشترک را وارد کنید (حداقل ۵ رقم):", reply_markup=_cancel_markup())
                 else:
                     st["mode"] = "govv3_identity_number"
-                    prompt = {
-                        "passport": "🛂 شماره گذرنامه مشترک را وارد کنید:",
-                        "residence_booklet": "📗 شماره دفترچه اقامت مشترک را وارد کنید:",
-                        "temporary_card": "🪪 شماره کارت موقت مشترک را وارد کنید:",
-                    }[typ]
+                    prompt = {"passport": "🛂 شماره گذرنامه مشترک را وارد کنید:", "residence_booklet": "📗 شماره دفترچه اقامت مشترک را وارد کنید:"}[typ]
                     await update.message.reply_text(prompt, reply_markup=_cancel_markup())
             raise ApplicationHandlerStop
-
         if mode == "govv3_family":
-            if not d.isdigit():
-                await update.message.reply_text("❌ کد خانوار باید عددی باشد.", reply_markup=_cancel_markup())
+            if not re.fullmatch(r"\d{5,}", d):
+                await update.message.reply_text("❌ کد خانوار نامعتبر است. کد خانوار باید عددی و حداقل ۵ رقم باشد.", reply_markup=_cancel_markup())
             else:
                 st["gov_family_code"] = d
                 st["mode"] = "govv3_postal"
                 await update.message.reply_text("📮 کد پستی ۱۰ رقمی منزل مشترک را وارد کنید:", reply_markup=_cancel_markup())
             raise ApplicationHandlerStop
-
         if mode == "govv3_identity_number":
-            if len(t) < 3:
+            if not re.fullmatch(r"\d{3,}", d):
                 await update.message.reply_text("❌ شماره مدرک را صحیح وارد کنید.", reply_markup=_cancel_markup())
             else:
-                st["gov_identity_number"] = t
+                st["gov_identity_number"] = d
                 st["mode"] = "govv3_postal"
                 await update.message.reply_text("📮 کد پستی ۱۰ رقمی منزل مشترک را وارد کنید:", reply_markup=_cancel_markup())
             raise ApplicationHandlerStop
-
         if mode == "govv3_postal":
             if not re.fullmatch(r"\d{10}", d):
                 await update.message.reply_text("❌ کد پستی باید دقیقاً ۱۰ رقم باشد.", reply_markup=_cancel_markup())
@@ -220,10 +200,10 @@ def install(app, B):
                     await update.message.reply_text("📸 ۱/۳ — عکس صفحه اول پاسپورت مشترک را ارسال کنید:", reply_markup=_cancel_markup())
                 elif typ == "residence_booklet":
                     st["mode"] = "govv3_residence_photo1"
-                    await update.message.reply_text("📗 ۱/۲ — عکس صفحه اول مشخصات دفترچه اقامت را ارسال کنید:", reply_markup=_cancel_markup())
+                    await update.message.reply_text("📗 ۱/۲ — عکس اول دفترچه اقامت مشترک را ارسال کنید:", reply_markup=_cancel_markup())
                 else:
                     st["mode"] = "govv3_card_photo"
-                    await update.message.reply_text("🪪 عکس کارت مشترک را ارسال کنید:", reply_markup=_cancel_markup())
+                    await update.message.reply_text("🪪 ۱/۱ — عکس مدرک مشترک را ارسال کنید:", reply_markup=_cancel_markup())
             raise ApplicationHandlerStop
 
     async def media(update, context):
@@ -238,19 +218,18 @@ def install(app, B):
         if not fid:
             await update.message.reply_text("❌ لطفاً عکس یا فایل مدرک را ارسال کنید.", reply_markup=_cancel_markup())
             raise ApplicationHandlerStop
-
         if mode == "govv3_passport_photo1":
             st["gov_passport_photo1"] = fid; st["mode"] = "govv3_passport_photo2"
             await update.message.reply_text("📸 ۲/۳ — عکس صفحه تمدید پاسپورت را ارسال کنید:", reply_markup=_cancel_markup())
         elif mode == "govv3_passport_photo2":
             st["gov_passport_photo2"] = fid; st["mode"] = "govv3_passport_photo3"
-            await update.message.reply_text("📸 ۳/۳ — عکس صفحه تمدید روادید را ارسال کنید:", reply_markup=_cancel_markup())
+            await update.message.reply_text("📸 ۳/۳ — عکس صفحه تمدید/روادید پاسپورت را ارسال کنید:", reply_markup=_cancel_markup())
         elif mode == "govv3_passport_photo3":
             st["gov_passport_photo3"] = fid; st["mode"] = "govv3_sim_optional"
             await update.message.reply_text("📱 سند سیم‌کارت مشترک اختیاری است.\nاگر دارید ارسال کنید؛ در غیر این صورت «بدون سند سیم‌کارت» را بزنید:", reply_markup=_optional_sim_markup())
         elif mode == "govv3_residence_photo1":
             st["gov_residence_photo1"] = fid; st["mode"] = "govv3_residence_photo2"
-            await update.message.reply_text("📗 ۲/۲ — عکس صفحه تمدید دفترچه اقامت را ارسال کنید:", reply_markup=_cancel_markup())
+            await update.message.reply_text("📗 ۲/۲ — عکس دوم دفترچه اقامت مشترک را ارسال کنید:", reply_markup=_cancel_markup())
         elif mode == "govv3_residence_photo2":
             st["gov_residence_photo2"] = fid; st["mode"] = "govv3_sim_optional"
             await update.message.reply_text("📱 سند سیم‌کارت مشترک اختیاری است.\nاگر دارید ارسال کنید؛ در غیر این صورت «بدون سند سیم‌کارت» را بزنید:", reply_markup=_optional_sim_markup())
@@ -271,21 +250,13 @@ def install(app, B):
         owner = pid or B.db.user("telegram", uid, update.effective_user.username, update.effective_user.full_name)
         rid, code = B.db.create_request(owner, "government", "telegram", amount)
         typ = st.get("gov_doc_type")
-        fields = [
-            ("doc_type", typ), ("phone", st.get("gov_phone")), ("dob", st.get("gov_dob")),
-            ("unique_id", st.get("gov_unique")), ("special_id", st.get("gov_special")),
-            ("postal_code", st.get("gov_postal")),
-        ]
-        if typ == "card": fields.append(("family_code", st.get("gov_family_code")))
+        fields = [("doc_type", typ), ("phone", st.get("gov_phone")), ("dob", st.get("gov_dob")), ("unique_id", st.get("gov_unique")), ("special_id", st.get("gov_special")), ("postal_code", st.get("gov_postal"))]
+        if typ in {"card", "temporary_card"}: fields.append(("family_code", st.get("gov_family_code")))
         if typ == "passport": fields.append(("passport", st.get("gov_identity_number")))
-        if typ == "temporary_card": fields.append(("temporary_card_number", st.get("gov_identity_number")))
         if typ == "residence_booklet": fields.append(("booklet_number", st.get("gov_identity_number")))
         if pid: fields.append(("partner_id", str(pid)))
         for k, v in fields:
             if v: B.db.answer(rid, k, answer=v)
-
-        attachments = []
-        labels = []
         if typ == "passport":
             attachments = [st.get("gov_passport_photo1"), st.get("gov_passport_photo2"), st.get("gov_passport_photo3")]
             labels = ["passport_first_page", "passport_renewal_page", "passport_visa_renewal_page"]
@@ -299,35 +270,26 @@ def install(app, B):
             if fid: B.db.answer(rid, key, file_id=fid)
         if st.get("gov_sim_document"):
             B.db.answer(rid, "sim_card_document", file_id=st["gov_sim_document"])
-
         B.db.conn.execute("UPDATE requests SET status='awaiting_payment',payment_status='unpaid',payment_method='invoice',updated_at=? WHERE id=?", (B.now(), rid)); B.db.conn.commit()
         extra = ""
-        if typ == "card": extra = f"👨‍👩‍👧‍👦 کد خانوار: {st.get('gov_family_code','-')}\n"
+        if typ in {"card", "temporary_card"}: extra = f"👨‍👩‍👧‍👦 کد خانوار: {st.get('gov_family_code','-')}\n"
         elif typ == "passport": extra = f"🛂 شماره گذرنامه: {st.get('gov_identity_number','-')}\n"
         elif typ == "residence_booklet": extra = f"📗 شماره دفترچه اقامت: {st.get('gov_identity_number','-')}\n"
-        elif typ == "temporary_card": extra = f"🪪 شماره کارت موقت: {st.get('gov_identity_number','-')}\n"
-        text = (
-            "👔 مدیر — درخواست جدید\n🆕 حل مشکل سامانه دولت من\n"
-            f"🎫 کد پیگیری: {code}\n🪪 نوع مدرک: {_type_name(typ)}\n"
-            f"📱 شماره موبایل مشترک: {st.get('gov_phone','-')}\n🎂 تاریخ تولد مشترک: {st.get('gov_dob','-')}\n"
-            f"🆔 شناسه یکتای مشترک: {st.get('gov_unique','-')}\n🔖 شناسه اختصاصی مشترک: {st.get('gov_special','-')}\n"
-            + extra + f"📮 کد پستی مشترک: {st.get('gov_postal','-')}\n"
-            f"📱 سند سیم‌کارت: {'ارسال شده' if st.get('gov_sim_document') else 'اختیاری — ارسال نشده'}\n"
-            f"💰 مبلغ: {amount:,} تومان\n💳 وضعیت پرداخت: در انتظار پرداخت فاکتور"
-        )
+        text = ("👔 مدیر — درخواست جدید\n🆕 حل مشکل سامانه دولت من\n" f"🎫 کد پیگیری: {code}\n🪪 نوع مدرک: {_type_name(typ)}\n" f"📱 شماره موبایل مشترک: {st.get('gov_phone','-')}\n🎂 تاریخ تولد مشترک: {st.get('gov_dob','-')}\n" f"🆔 شناسه یکتای مشترک: {st.get('gov_unique','-')}\n🔖 شناسه اختصاصی مشترک: {st.get('gov_special','-')}\n" + extra + f"📮 کد پستی مشترک: {st.get('gov_postal','-')}\n" f"📱 سند سیم‌کارت: {'ارسال شده' if st.get('gov_sim_document') else 'اختیاری — ارسال نشده'}\n" f"💰 مبلغ: {amount:,} تومان\n💳 وضعیت پرداخت: در انتظار پرداخت فاکتور")
         controls = InlineKeyboardMarkup([
             [InlineKeyboardButton("🔎 مشاهده اطلاعات کامل", callback_data=f"rq:detail:{rid}")],
             [InlineKeyboardButton("📨 درخواست کد از همکار", callback_data=f"rq:ask:{rid}")],
             [InlineKeyboardButton("💰 تأیید دریافت وجه", callback_data=f"rq:payconfirm:{rid}"), InlineKeyboardButton("⏳ بررسی اولیه", callback_data=f"rq:review:{rid}")],
             [InlineKeyboardButton("❌ رد درخواست", callback_data=f"rq:reject:{rid}")],
         ])
-        captions = []
         if typ == "passport": captions = ["📸 ۱/۳ — صفحه اول پاسپورت", "📸 ۲/۳ — صفحه تمدید پاسپورت", "📸 ۳/۳ — صفحه تمدید روادید"]
         elif typ == "residence_booklet": captions = ["📗 ۱/۲ — صفحه اول مشخصات دفترچه اقامت", "📗 ۲/۲ — صفحه تمدید دفترچه اقامت"]
         else: captions = [f"🪪 تصویر {_type_name(typ)}"]
         for aid in B.ADM:
-            try: await context.bot.send_message(chat_id=int(aid), text=text, reply_markup=controls)
-            except Exception: pass
+            try:
+                await context.bot.send_message(chat_id=int(aid), text=text, reply_markup=controls)
+            except Exception:
+                pass
             for fid, cap in zip(attachments, captions):
                 if not fid: continue
                 try: await context.bot.send_photo(chat_id=int(aid), photo=fid, caption=f"🎫 {code}\n{cap}")
@@ -339,7 +301,6 @@ def install(app, B):
                 except Exception:
                     try: await context.bot.send_document(chat_id=int(aid), document=st["gov_sim_document"], caption=f"🎫 {code}\n📱 سند سیم‌کارت اختیاری")
                     except Exception: pass
-
         st["mode"] = "invoice_pending"; st["request_id"] = rid; st["tracking_code"] = code
         await update.effective_message.reply_text(invoice_text("فاکتور خدمات حل مشکل سامانه دولت من", amount, code, B), reply_markup=invoice_markup(B), parse_mode="HTML")
 
