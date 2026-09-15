@@ -15,7 +15,7 @@ import production_stability
 import rubika_bootstrap_final
 import server
 
-NETYAR_TELEGRAM_BUILD = "2026-09-15-offhours-stable-v26"
+NETYAR_TELEGRAM_BUILD = "2026-09-15-partner-services-v27"
 
 bale_bootstrap.install(server)
 rubika_bootstrap_final.install(server)
@@ -137,18 +137,14 @@ def _install_telegram_layers(app, bot, logger):
     ):
         _install_module(name, app, bot, logger)
 
-    # Management entry guard must exist before legacy ui2 callbacks can turn a
-    # valid waiting-state transition into a generic execution error.
     _install_module("telegram_partner_management_hotfix_v25", app, bot, logger)
-
-    # Highest-priority message/media consumer for final_partner_chat. It waits
-    # for the first real partner message and forwards it without falling into
-    # legacy service handlers.
     _install_module("telegram_partner_runtime_hardening_v26", app, bot, logger)
-
-    # Final partner session safety net: authenticated partners never fall back
-    # to the public menu on internal errors.
     _install_module("telegram_partner_main_guard", app, bot, logger)
+
+    # Absolute final partner-service menu/price synchronization. This must be
+    # after every legacy menu layer so later imports cannot overwrite the
+    # Irancell button or its 980,000-toman partner-balance price.
+    _install_module("telegram_partner_service_continuation_v27", app, bot, logger)
 
     try:
         from telegram_request_full_details_patch import finalize
