@@ -22,6 +22,7 @@ _RUBIKA_LAYERS = (
     "rubika_final_stability",
     "rubika_language_global",
     "rubika_final_safe_overlay_v1",
+    "rubika_government_doc_fix_v1",
 )
 
 _RB_LOCKS = {}
