@@ -26,7 +26,6 @@ async def _start(update, context):
     except Exception:log.exception("user persistence")
     old=dict(B.S.get(uid,{}) or {})
     B.S[uid]={"lang":"fa"}
-    # Never restore a partner session after the user has explicitly logged out.
     if not old.get("partner_logged_out"):
         for k in ("partner_id","partner_active"):
             if k in old:B.S[uid][k]=old[k]
@@ -79,9 +78,6 @@ def _install_features(app):
     try:
         import telegram_sim_service_v2 as SIM;SIM.install(app,B)
     except Exception:log.exception("sim service unavailable")
-    # Partner-only Irancell SIM troubleshooting service:
-    # subscriber's Irancell number -> identity document -> 300,000 toman
-    # atomic deduction from partner balance -> full admin notification + document.
     try:
         import telegram_irancell_partner_service as IRSIM;IRSIM.install(app,B)
     except Exception:log.exception("Irancell partner service unavailable")
@@ -96,7 +92,7 @@ def _install_features(app):
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,lambda u,c:_safe_call(A._text,u,c,B)),group=-19)
         B.amenu=A._admin_menu
     except Exception:log.exception("admin plus unavailable")
-    for name,fn in (("telegram_announcement_media","install"),("telegram_admin_entry","install"),("telegram_government_flow_v2","install"),("telegram_government_flow_runtime_fix","install"),("partner_pricing","install_telegram"),("telegram_service_pricing","install"),("telegram_admin_menu_v2","install"),("telegram_request_control_v2","install"),("telegram_legacy_callback_bridge","install"),("telegram_partner_code_reliable","install"),("telegram_request_resend_fa","install"),("telegram_access_hardening","install"),("telegram_partner_visibility_fix","install"),("telegram_partner_application_gate","install")):
+    for name,fn in (("telegram_announcement_media","install"),("telegram_admin_entry","install"),("telegram_government_flow_v2","install"),("telegram_government_flow_runtime_fix","install"),("telegram_government_balance_guard","install"),("partner_pricing","install_telegram"),("telegram_service_pricing","install"),("telegram_admin_menu_v2","install"),("telegram_request_control_v2","install"),("telegram_legacy_callback_bridge","install"),("telegram_partner_code_reliable","install"),("telegram_request_resend_fa","install"),("telegram_access_hardening","install"),("telegram_partner_visibility_fix","install"),("telegram_partner_application_gate","install")):
         try:
             m=__import__(name);f=getattr(m,fn,None)
             if callable(f):
