@@ -120,6 +120,14 @@ def install(app, B):
     except Exception:
         log.exception("off-hours management-only callback patch failed")
 
+    # Final Government hardening must be loaded from the real Telegram runtime.
+    try:
+        import telegram_government_final_hardening_v19 as G19
+        G19.install(app, B)
+        log.info("REAL runtime: Government hardening v19 installed")
+    except Exception:
+        log.exception("Government hardening v19 unavailable")
+
     B._management_only_v32 = True
     log.info("Management-only partner UI v32 installed")
     return True
