@@ -115,8 +115,11 @@ def _install_features(app):
                 try:f(app,B)
                 except TypeError:f(B)
         except Exception:log.exception("optional Telegram layer unavailable: %s",name)
-    # The actual production runtime is built from this function. These two
-    # layers therefore MUST be installed here, not only in entrypoint.py.
+    try:
+        import telegram_partner_runtime_fix_v31 as V31
+        V31.install(app,B)
+        log.info("REAL runtime: partner runtime fix v31 installed")
+    except Exception:log.exception("partner runtime fix v31 unavailable")
     try:
         import telegram_partner_final_router_v29 as V29
         V29.install(app,B)
