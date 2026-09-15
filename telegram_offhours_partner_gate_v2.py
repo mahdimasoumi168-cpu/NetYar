@@ -1,10 +1,11 @@
 """Final Telegram off-hours gate with persistent night-worker sessions.
 
-Night-shift partners authenticate once. An already authenticated, active partner
-session remains valid while the bot is running. Outside configured working hours,
-ordinary users are hard-blocked: no service flow, input flow, callback or menu
-may continue. Only admins and partners explicitly enabled for night shift may
-operate during the closed period.
+Outside working hours, ordinary service flows are hard-blocked. /start and
+restart never open the public menu during the closed period. The only
+explicitly permitted closed-hours entry is the partner-panel button, followed
+by fresh night-shift partner authentication when needed. Authenticated
+night-shift partners may use their partner panel; public/customer flows remain
+blocked.
 """
 from datetime import datetime, time
 from zoneinfo import ZoneInfo
@@ -36,18 +37,14 @@ def _setting(B, key, default):
 
 
 def _is_open(B):
-    """Use the same configurable Tehran work-hours source as the admin panel."""
     op = _setting(B, "work_open", DEFAULT_OPEN)
     cl = _setting(B, "work_close", DEFAULT_CLOSE)
     try:
         o = time.fromisoformat(op)
         c = time.fromisoformat(cl)
         now = datetime.now(TZ).time()
-        # Supports both normal ranges (07:00-19:00) and overnight ranges.
         return o <= now < c if o < c else (now >= o or now < c)
     except Exception:
-        # Fail closed if configuration is corrupt; never accidentally expose
-        # customer services outside the configured hours.
         return False
 
 
@@ -65,8 +62,10 @@ def _partner_by_phone(B, phone):
 
 def _active_partner_session(B, uid):
     st = B.S.get(uid, {}) or {}
+    if st.get("partner_logged_out"):
+        return None
     pid = st.get("partner_id")
-    if not pid or st.get("partner_active") is False or st.get("partner_logged_out"):
+    if not pid or st.get("partner_active") is not True:
         return None
     try:
         return B.db.conn.execute(
@@ -101,10 +100,12 @@ def is_night_worker(B, uid):
 
 
 def _allowed_during_closed(B, uid):
-    return bool(B.admin(uid) or is_night_worker(B, uid))
+    # Only a partner explicitly enabled for night shift may operate after
+    # hours. Administrators are not given an implicit public/service bypass.
+    return bool(is_night_worker(B, uid))
 
 
-def _markup():
+def _closed_markup():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🔄 شروع مجدد", callback_data="off:restart")],
         [InlineKeyboardButton("👥 پنل همکاران", callback_data="off:partner")],
@@ -115,10 +116,11 @@ def _closed_text(B):
     op = _setting(B, "work_open", DEFAULT_OPEN)
     cl = _setting(B, "work_close", DEFAULT_CLOSE)
     return (
-        "⏰ ربات در حال حاضر خارج از ساعت کاری است.\n\n"
+        "❌ ربات در حال حاضر خارج از ساعت کاری است.\n\n"
         f"🕖 ساعت کاری: {op} تا {cl} به وقت تهران\n"
-        "🚫 در این زمان هیچ‌یک از خدمات عادی، دریافت اطلاعات یا ادامه درخواست‌ها فعال نیست.\n\n"
-        "فقط همکارانی که در پنل مدیریت برای شیفت شب تعریف شده‌اند می‌توانند از پنل همکاران استفاده کنند."
+        "🚫 هیچ‌یک از خدمات عمومی، دریافت اطلاعات یا شروع درخواست در این زمان مجاز نیست.\n\n"
+        "برای شیفت شب فقط همکارانی که در پنل مدیریت برای شیفت شب تعریف شده‌اند\n"
+        "می‌توانند از مسیر «👥 پنل همکاران» وارد شوند."
     )
 
 
@@ -143,43 +145,49 @@ def install(app, B):
             pass
         uid = q.from_user.id
 
+        # Restart is always a hard stop outside working hours, even for an
+        # already authenticated night-shift partner. They must use the partner
+        # panel path explicitly; restart never opens a service menu.
         if data == "off:restart":
-            if not _is_open(B) and not _allowed_during_closed(B, uid):
-                await q.message.reply_text(_closed_text(B), reply_markup=_markup())
+            if not _is_open(B):
+                await q.message.reply_text(_closed_text(B), reply_markup=_closed_markup())
                 raise ApplicationHandlerStop
             await q.message.reply_text("🔄 شروع مجدد", reply_markup=B.main(uid))
             raise ApplicationHandlerStop
 
+        # Explicit partner-panel entry is the ONLY closed-hours entry point.
         active = _active_partner_session(B, uid)
-        if not _is_open(B) and active and is_night_worker(B, uid):
-            try:
-                import telegram_ui_policy_v2 as UI
-                markup = UI.inline([
-                    ["➕ شارژ حساب", "🔎 پیگیری کد"],
-                    ["📋 سوابق", "💰 موجودی"],
-                    ["🏛 حل مشکل سامانه دولت من"],
-                    ["💬 ارتباط با مدیریت"],
-                    ["🚪 خروج از پنل"],
-                ], B, uid)
-            except Exception:
-                markup = B.partner_kb("fa")
-            await q.message.reply_text("🌙 پنل همکاران شیفت شب فعال است.", reply_markup=markup)
-            raise ApplicationHandlerStop
-
         if not _is_open(B):
-            if B.admin(uid):
-                from telegram_partner_router_guard import _open_partner
-                import telegram_ui_policy_v2 as UI
-                await _open_partner(update, context, B, UI)
+            if active and is_night_worker(B, uid):
+                try:
+                    import telegram_ui_policy_v2 as UI
+                    markup = UI.inline([
+                        ["➕ شارژ حساب", "🔎 پیگیری کد"],
+                        ["📋 سوابق", "💰 موجودی"],
+                        ["🏛 حل مشکل سامانه دولت من"],
+                        ["📱 خدمات سیم کارت", "🪪 فیدای غیر حضوری"],
+                        ["💬 ارتباط با مدیریت"],
+                        ["🚪 خروج از پنل"],
+                    ], B, uid)
+                except Exception:
+                    markup = B.partner_kb("fa")
+                await q.message.reply_text("🌙 پنل همکاران شیفت شب فعال است.", reply_markup=markup)
                 raise ApplicationHandlerStop
+
             st = B.S.setdefault(uid, {})
+            # Never reuse an old/stale partner authentication here.
             st.pop("partner_id", None)
             st.pop("partner_active", None)
             st.pop("partner", None)
+            st.pop("partner_phone", None)
+            st.pop("phone", None)
+            st["partner_logged_out"] = True
             st["mode"] = "night_phone"
             st["step"] = "night_phone"
             await q.message.reply_text(
-                "🌙 ورود به پنل همکاران در شیفت شب\n\n📱 لطفاً شماره موبایل اختصاصی همکار را وارد کنید:",
+                "🌙 ورود به پنل همکاران شیفت شب\n\n"
+                "🔐 برای ورود باید دوباره اطلاعات همکار را وارد کنید.\n\n"
+                "📱 شماره موبایل اختصاصی همکار را وارد کنید:",
                 reply_markup=_night_login_markup(),
             )
             raise ApplicationHandlerStop
@@ -199,6 +207,13 @@ def install(app, B):
             return
         text = (update.message.text or "").strip()
         if not text:
+            return
+
+        # Do not accept credential entry unless the user explicitly entered
+        # the closed-hours partner panel flow.
+        if _is_open(B):
+            st["mode"] = None
+            st["step"] = None
             return
 
         if mode == "night_phone":
@@ -261,6 +276,7 @@ def install(app, B):
                 ["➕ شارژ حساب", "🔎 پیگیری کد"],
                 ["📋 سوابق", "💰 موجودی"],
                 ["🏛 حل مشکل سامانه دولت من"],
+                ["📱 خدمات سیم کارت", "🪪 فیدای غیر حضوری"],
                 ["💬 ارتباط با مدیریت"],
                 ["🚪 خروج از پنل"],
             ], B, uid)
@@ -280,14 +296,20 @@ def install(app, B):
             return
         uid = q.from_user.id
         data = str(q.data or "")
-        if data in {"off:restart", "off:partner"} or _allowed_during_closed(B, uid):
+        if data in {"off:restart", "off:partner"}:
+            return
+        st = B.S.get(uid, {}) or {}
+        # During closed hours only an active, authenticated night-shift partner
+        # inside partner mode may use callbacks. Anything from the public menu,
+        # a previous customer flow, or an exited session is blocked.
+        if is_night_worker(B, uid) and st.get("mode") == "partner":
             return
         try:
-            await q.answer("⏰ خارج از ساعت کاری است.", show_alert=True)
+            await q.answer("❌ خارج از ساعت کاری است و این عملیات مجاز نیست.", show_alert=True)
         except Exception:
             pass
         try:
-            await q.message.reply_text(_closed_text(B), reply_markup=_markup())
+            await q.message.reply_text(_closed_text(B), reply_markup=_closed_markup())
         finally:
             raise ApplicationHandlerStop
 
@@ -306,9 +328,7 @@ async def message_gate(update, context, B):
     msg = getattr(update, "effective_message", None)
     if not user or not msg:
         return
-    # Hard gate: outside working hours there are no exceptions for ordinary
-    # customer flows, including flows that were started before closing.
-    if _allowed_during_closed(B, user.id):
+    if is_night_worker(B, user.id) and (B.S.get(user.id, {}) or {}).get("mode") == "partner":
         return
-    await msg.reply_text(_closed_text(B), reply_markup=_markup())
+    await msg.reply_text(_closed_text(B), reply_markup=_closed_markup())
     raise ApplicationHandlerStop
