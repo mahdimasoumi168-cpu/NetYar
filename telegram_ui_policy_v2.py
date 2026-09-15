@@ -85,43 +85,62 @@ async def _complaint_text(update,context,B):
     except Exception: log.exception("complaint notification failed")
     st["mode"]=None; await update.message.reply_text("✅ شکایت شما برای مدیریت ارسال شد.",reply_markup=B.main(uid)); raise ApplicationHandlerStop
 
+async def _management_chat(update,context,B,q,st):
+    """Open the partner's direct management chat without passing through legacy routing."""
+    uid=q.from_user.id
+    pid=st.get("partner_id")
+    if not pid or not st.get("partner_active", True) or st.get("partner_logged_out"):
+        await q.message.reply_text("⛔ ابتدا وارد پنل همکاران شوید.", reply_markup=B.main(uid))
+        raise ApplicationHandlerStop
+    try:
+        row=B.db.conn.execute("SELECT * FROM partners WHERE id=? AND active=1 LIMIT 1",(int(pid),)).fetchone()
+    except Exception:
+        log.exception("management chat partner lookup failed")
+        row=None
+    if not row:
+        st.pop("partner_id",None)
+        st["partner_active"]=False
+        st["mode"]=None
+        await q.message.reply_text("⛔ حساب همکار فعال نیست. لطفاً دوباره وارد شوید.",reply_markup=B.main(uid))
+        raise ApplicationHandlerStop
+    try:
+        B.db.set_setting(f"partner_chat_{pid}",str(uid))
+        if row["phone"]:
+            B.db.set_setting(f"partner_chat_{row['phone']}",str(uid))
+    except Exception:
+        pass
+    st.update(mode="final_partner_chat", final_chat_admin=None, final_chat_partner_id=int(pid))
+    await q.message.reply_text(
+        "💬 ارتباط با مدیریت فعال شد.\n\n"
+        "پیام، عکس، فایل، ویس یا ویدیو را ارسال کنید.\n"
+        "همه پیام‌ها برای مدیریت ارسال می‌شوند.\n\n"
+        "برای خروج، «❌ انصراف» را بزنید.",
+        reply_markup=B.cancel_kb(st.get("lang","fa")),
+    )
+    raise ApplicationHandlerStop
+
 async def _dispatch(update,context,B,label):
     q=update.callback_query; uid=q.from_user.id; st=B.S.setdefault(uid,{}); fake=_fake(update,label)
     if label==RESTART:return await B.start(fake,context)
     if label==CANCEL:return await B.cancel(fake,context)
     if label=="👥 پنل همکاران":
-        # Partner-panel navigation is deliberately isolated from legacy partner
-        # wrappers. Those wrappers can mutate the same session while processing
-        # an inline callback and were the source of the generic execution error.
-        # A logged-out user must always enter the normal login flow.
         if st.get("partner_logged_out"):
-            st.pop("partner_id",None); st.pop("partner_active",None)
+            st.pop("partner_id",None);st.pop("partner_active",None)
         pid=st.get("partner_id")
         if pid and st.get("partner_active", True):
-            try:
-                p=B.db.conn.execute("SELECT * FROM partners WHERE id=? AND active=1 LIMIT 1",(pid,)).fetchone()
-            except Exception:
-                log.exception("partner panel database lookup failed")
-                p=None
+            try:p=B.db.conn.execute("SELECT * FROM partners WHERE id=? AND active=1 LIMIT 1",(pid,)).fetchone()
+            except Exception:log.exception("partner panel database lookup failed");p=None
             if p:
-                st["partner_active"]=True
-                st["mode"]=None
-                st["partner_logged_out"]=False
-                return await q.message.reply_text(
-                    f"👥 پنل همکاران\n👤 {p['name']}\n📱 {p['phone']}\n💰 اعتبار: {int(p['balance'] or 0):,} تومان",
-                    reply_markup=B.partner_kb(st.get("lang","fa")),
-                )
-        st["mode"]="p_phone"
-        st.pop("phone",None)
-        st.pop("partner_active",None)
-        return await q.message.reply_text(
-            "👥 ورود به پنل همکاران\n\n📱 لطفاً شماره موبایل اختصاصی همکار را وارد کنید:",
-            reply_markup=B.cancel_kb(st.get("lang","fa")),
-        )
+                st["partner_active"]=True;st["mode"]=None;st["partner_logged_out"]=False
+                return await q.message.reply_text(f"👥 پنل همکاران\n👤 {p['name']}\n📱 {p['phone']}\n💰 اعتبار: {int(p['balance'] or 0):,} تومان",reply_markup=B.partner_kb(st.get("lang","fa")))
+        st["mode"]="p_phone";st.pop("phone",None);st.pop("partner_active",None)
+        return await q.message.reply_text("👥 ورود به پنل همکاران\n\n📱 لطفاً شماره موبایل اختصاصی همکار را وارد کنید:",reply_markup=B.cancel_kb(st.get("lang","fa")))
     if label=="🚪 خروج از پنل":return await B.partner_exit(fake,context)
     if label=="🛠 پنل مدیریت بات":
         if not B.admin(uid): return await q.message.reply_text("❌ دسترسی مدیریت ندارید.",reply_markup=B.main(uid))
         import telegram_admin_plus as A; return await q.message.reply_text("🛠 پنل مدیریت کامل\n\nاز منوی زیر بخش موردنظر را انتخاب کنید:",reply_markup=A._admin_menu())
+    if label=="💬 ارتباط با مدیریت":
+        return await _management_chat(update,context,B,q,st)
     if label=="➕ شارژ حساب":
         fn=getattr(B,"topup",None)
         if fn:return await fn(fake,context)
@@ -148,7 +167,11 @@ async def _dispatch(update,context,B,label):
     if label=="📝 ثبت شکایت مشتریان":st["mode"]="ui2_complaint";return await q.message.reply_text("📝 ثبت شکایت مشتریان\n\nمتن شکایت یا انتقاد خود را ارسال کنید:",reply_markup=B.cancel_kb(st.get("lang","fa")))
     result=await B.router(fake,context)
     if result is not None:return result
-    return await q.message.reply_text("❌ این گزینه در حال حاضر در دسترس نیست.",reply_markup=B.main(uid))
+    if st.get("partner_id") and st.get("partner_active",True):
+        return await q.message.reply_text("⛔ این گزینه فعلاً اجرا نشد؛ پنل همکاران شما حفظ شد. لطفاً دوباره تلاش کنید.",reply_markup=B.partner_kb(st.get("lang","fa")))
+    if st.get("mode"):
+        return await q.message.reply_text("⛔ این گزینه فعلاً اجرا نشد؛ مرحله فعلی شما حفظ شد. لطفاً دوباره تلاش کنید.",reply_markup=B.cancel_kb(st.get("lang","fa")))
+    return await q.message.reply_text("⛔ این گزینه فعلاً اجرا نشد. لطفاً /start را بزنید.",reply_markup=B.main(uid))
 
 def install(app,B):
     if getattr(B,"_inline_ui_v2",False):return
@@ -194,5 +217,5 @@ def install(app,B):
             log.exception("ui2 callback failed label=%r",row["label"])
             return await q.message.reply_text("❌ اجرای گزینه با خطا مواجه شد.\nلطفاً «🔄 شروع مجدد» را بزنید.",reply_markup=restart_keyboard())
     app.add_handler(CallbackQueryHandler(callback,pattern=r"^ui2:"),group=-10)
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,lambda u,c:_complaint_text(u,c,B)),group=-9)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,_complaint_text),group=30)
     B._inline_ui_v2=True
