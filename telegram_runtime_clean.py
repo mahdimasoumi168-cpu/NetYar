@@ -7,8 +7,33 @@ log=logging.getLogger("netyar.telegram_runtime")
 WELCOME=("👋 سلام!\n\n" "به سامانه خدمات آنلاین بات، کمک یار مهاجر خوش آمدید. 🌟\n\n" "اینجا تلاش کرده‌ایم خدمات موردنیاز شما را به‌صورت سریع، ساده و آنلاین در اختیارتان قرار دهیم تا بدون سردرگمی بتوانید خدمت موردنظر خود را دریافت یا پیگیری کنید.\n\n" "🚀 بات، کمک یار مهاجر؛ خدماتی برای شما، درآمدی برای همه\n\n" "📌 برای شروع دریافت خدمات، روی دکمه «🛎 استفاده از خدمات» بزنید.")
 RESTART="🔄 شروع مجدد"
 USE_SERVICES="🛎 استفاده از خدمات"
+
 def _restart_keyboard(): return ReplyKeyboardMarkup([[RESTART]],resize_keyboard=True,is_persistent=True)
 def _services_keyboard(): return InlineKeyboardMarkup([[InlineKeyboardButton(USE_SERVICES,callback_data="start:services")]])
+
+def _offhours_state():
+    """Return canonical closed-hours helpers; fail closed if unavailable."""
+    try:
+        from telegram_offhours_partner_gate_v2 import _is_open, _closed_text, _closed_markup
+        return (not bool(_is_open(B))), _closed_text(B), _closed_markup()
+    except Exception:
+        log.exception("canonical off-hours gate unavailable")
+        return True, "❌ ربات در حال حاضر خارج از ساعت کاری است.\n\n🚫 خدمات عمومی در این زمان مجاز نیست.", InlineKeyboardMarkup([
+            [InlineKeyboardButton(RESTART, callback_data="off:restart")],
+            [InlineKeyboardButton("👥 پنل همکاران", callback_data="off:partner")],
+        ])
+
+def _is_offhours():
+    closed, _, _ = _offhours_state()
+    return closed
+
+async def _reply_closed(message):
+    closed, text, markup = _offhours_state()
+    if closed:
+        await message.reply_text(text, reply_markup=markup)
+        return True
+    return False
+
 async def _safe_call(fn, update, context, *extra):
     try:
         result=fn(update,context,*extra)
@@ -18,9 +43,15 @@ async def _safe_call(fn, update, context, *extra):
     except Exception:
         log.exception("Telegram handler failed: %r",fn)
         return None
+
 async def _start(update, context):
     user=update.effective_user
     if not user:return
+    # IMPORTANT: this check must happen before the normal welcome/menu flow.
+    # The runtime /start handler is installed at a higher priority than the
+    # generic off-hours callback/message gates, so it must hard-stop itself.
+    if await _reply_closed(update.effective_message):
+        raise ApplicationHandlerStop
     uid=user.id
     try:B.db.user("telegram",uid,user.username,user.full_name)
     except Exception:log.exception("user persistence")
@@ -35,25 +66,53 @@ async def _start(update, context):
         await update.message.reply_text(WELCOME,reply_markup=_services_keyboard())
         await update.message.reply_text(RESTART,reply_markup=_restart_keyboard())
     raise ApplicationHandlerStop
-async def _restart(update, context): return await _start(update,context)
+
+async def _restart(update, context):
+    # Keep restart completely blocked outside working hours.
+    if update.effective_message and await _reply_closed(update.effective_message):
+        raise ApplicationHandlerStop
+    return await _start(update,context)
+
 async def _services_callback(update,context):
     q=getattr(update,"callback_query",None)
     if not q or q.data!="start:services":return
+    if _is_offhours():
+        try: await q.answer("❌ خارج از ساعت کاری است.",show_alert=True)
+        except Exception: pass
+        if q.message: await _reply_closed(q.message)
+        raise ApplicationHandlerStop
     await q.answer(); uid=q.from_user.id; st=B.S.setdefault(uid,{})
     st["lang"]="fa"; st.pop("mode",None)
     await q.message.reply_text("نوع کاربری خود را انتخاب کنید:",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🪪 اتباع هستم",callback_data="st:foreign"),InlineKeyboardButton("🇮🇷 ایرانی هستم",callback_data="st:iranian")]]))
     raise ApplicationHandlerStop
+
 async def _blocked_language_callback(update,context):
     q=getattr(update,"callback_query",None)
     if not q:return
     data=str(q.data or "").strip()
     if not (data.startswith("lang:") or data.startswith("language:")):return
+    if _is_offhours():
+        try: await q.answer("❌ خارج از ساعت کاری است.",show_alert=True)
+        except Exception: pass
+        if q.message: await _reply_closed(q.message)
+        raise ApplicationHandlerStop
     uid=q.from_user.id; B.S.setdefault(uid,{})["lang"]="fa"
     await q.answer("زبان فارسی است.")
     await q.message.reply_text("لطفاً از دکمه «🛎 استفاده از خدمات» استفاده کنید.",reply_markup=_services_keyboard())
     raise ApplicationHandlerStop
+
 def _install_features(app):
     B.start=_start
+    # Install the canonical off-hours stack explicitly in the actual runtime.
+    # These guards must exist in the live Application, not only in entrypoint.
+    try:
+        import telegram_offhours_partner_gate_v2 as OH
+        OH.install(app,B)
+    except Exception:log.exception("off-hours partner gate unavailable")
+    try:
+        import telegram_offhours_absolute_start_guard as OAS
+        OAS.install(app,B)
+    except Exception:log.exception("absolute off-hours start guard unavailable")
     try:
         import telegram_startup_button_firewall as SBF;SBF.install(app,B)
     except Exception:log.exception("startup button firewall unavailable")
@@ -105,10 +164,12 @@ def _install_features(app):
     app.add_handler(CallbackQueryHandler(_blocked_language_callback,pattern=r"^(lang|language):"),group=-9999998)
     app.add_handler(CallbackQueryHandler(_services_callback,pattern=r"^start:services$"),group=-9999997)
     log.info("Telegram Persian-only authoritative startup handlers installed")
+
 def _self_check():
     required=("main","partner","fida","gov","prt","ptrack","phistory","media","router","admin","cancel")
     missing=[name for name in required if not callable(getattr(B,name,None))]
     if missing:log.error("Telegram runtime self-check FAILED; missing hooks: %s",missing)
+
 def build():
     token=str(getattr(B,"BOT_TOKEN","") or "").strip()
     if not token:raise RuntimeError("Telegram bot token is missing")
