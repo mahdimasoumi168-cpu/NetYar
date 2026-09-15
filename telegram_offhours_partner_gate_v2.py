@@ -17,6 +17,7 @@ TZ = ZoneInfo("Asia/Tehran")
 DEFAULT_OPEN = "07:00"
 DEFAULT_CLOSE = "19:00"
 PREFIX = "night_worker:"
+IRANCELL = "📱 حل مشکل سیم کارت ایرانسل"
 
 
 def normalize_phone(value):
@@ -128,6 +129,38 @@ def _night_login_markup():
     return InlineKeyboardMarkup([[InlineKeyboardButton("❌ انصراف", callback_data="off:restart")]])
 
 
+def _night_partner_markup(B, uid):
+    """Canonical closed-hours partner menu; keep every allowed service here."""
+    try:
+        import telegram_ui_policy_v2 as UI
+        return UI.inline([
+            ["➕ شارژ حساب", IRANCELL],
+            ["🏛 حل مشکل سامانه دولت من", "🎫 درخواست‌های من"],
+            ["📱 خدمات سیم کارت", "🪪 فیدای غیر حضوری"],
+            ["🔎 پیگیری کد", "📋 سوابق"],
+            ["💰 موجودی"],
+            ["🎫 تیکت به مدیریت", "💬 ارتباط با مدیریت"],
+            ["🚪 خروج از پنل"],
+            ["❌ انصراف"],
+        ], B, uid)
+    except Exception:
+        return InlineKeyboardMarkup([
+            [InlineKeyboardButton("➕ شارژ حساب", callback_data="__never__")],
+            [InlineKeyboardButton(IRANCELL, callback_data="__never__")],
+            [InlineKeyboardButton("🏛 حل مشکل سامانه دولت من", callback_data="__never__")],
+            [InlineKeyboardButton("🎫 درخواست‌های من", callback_data="__never__")],
+            [InlineKeyboardButton("📱 خدمات سیم کارت", callback_data="__never__")],
+            [InlineKeyboardButton("🪪 فیدای غیر حضوری", callback_data="__never__")],
+            [InlineKeyboardButton("🔎 پیگیری کد", callback_data="__never__")],
+            [InlineKeyboardButton("📋 سوابق", callback_data="__never__")],
+            [InlineKeyboardButton("💰 موجودی", callback_data="__never__")],
+            [InlineKeyboardButton("🎫 تیکت به مدیریت", callback_data="__never__")],
+            [InlineKeyboardButton("💬 ارتباط با مدیریت", callback_data="__never__")],
+            [InlineKeyboardButton("🚪 خروج از پنل", callback_data="__never__")],
+            [InlineKeyboardButton("❌ انصراف", callback_data="__never__")],
+        ])
+
+
 def install(app, B):
     if getattr(B, "_offhours_partner_gate_v6", False):
         return True
@@ -159,19 +192,7 @@ def install(app, B):
         active = _active_partner_session(B, uid)
         if not _is_open(B):
             if active and is_night_worker(B, uid):
-                try:
-                    import telegram_ui_policy_v2 as UI
-                    markup = UI.inline([
-                        ["➕ شارژ حساب", "🔎 پیگیری کد"],
-                        ["📋 سوابق", "💰 موجودی"],
-                        ["🏛 حل مشکل سامانه دولت من"],
-                        ["📱 خدمات سیم کارت", "🪪 فیدای غیر حضوری"],
-                        ["💬 ارتباط با مدیریت"],
-                        ["🚪 خروج از پنل"],
-                    ], B, uid)
-                except Exception:
-                    markup = B.partner_kb("fa")
-                await q.message.reply_text("🌙 پنل همکاران شیفت شب فعال است.", reply_markup=markup)
+                await q.message.reply_text("🌙 پنل همکاران شیفت شب فعال است.", reply_markup=_night_partner_markup(B, uid))
                 raise ApplicationHandlerStop
 
             st = B.S.setdefault(uid, {})
@@ -262,73 +283,18 @@ def install(app, B):
         st["partner_active"] = True
         st["partner_logged_out"] = False
         st["mode"] = "partner"
-        st["step"] = "partner"
-        st.pop("night_phone", None)
-        st.pop("night_partner_id", None)
-        try:
-            B.db.set_setting(f"partner_chat_{phone}", str(uid))
-            B.db.set_setting(f"partner_chat_{partner['id']}", str(uid))
-        except Exception:
-            pass
+        st["step"] = None
         try:
             import telegram_ui_policy_v2 as UI
-            markup = UI.inline([
-                ["➕ شارژ حساب", "🔎 پیگیری کد"],
-                ["📋 سوابق", "💰 موجودی"],
-                ["🏛 حل مشکل سامانه دولت من"],
-                ["📱 خدمات سیم کارت", "🪪 فیدای غیر حضوری"],
-                ["💬 ارتباط با مدیریت"],
-                ["🚪 خروج از پنل"],
-            ], B, uid)
+            markup = _night_partner_markup(B, uid)
         except Exception:
-            markup = None
-        await update.message.reply_text(
-            f"🌙 ورود شیفت شب با موفقیت انجام شد.\n\n👤 {partner['name'] or '-'}\n📱 {phone}\n💰 اعتبار: {int(partner['balance'] or 0):,} تومان",
-            reply_markup=markup,
-        )
+            markup = B.partner_kb("fa")
+        await update.message.reply_text("✅ ورود همکار برای شیفت شب با موفقیت انجام شد.", reply_markup=markup)
         raise ApplicationHandlerStop
-
-    async def callback_gate(update, context):
-        if _is_open(B):
-            return
-        q = getattr(update, "callback_query", None)
-        if not q:
-            return
-        uid = q.from_user.id
-        data = str(q.data or "")
-        if data in {"off:restart", "off:partner"}:
-            return
-        st = B.S.get(uid, {}) or {}
-        # During closed hours only an active, authenticated night-shift partner
-        # inside partner mode may use callbacks. Anything from the public menu,
-        # a previous customer flow, or an exited session is blocked.
-        if is_night_worker(B, uid) and st.get("mode") == "partner":
-            return
-        try:
-            await q.answer("❌ خارج از ساعت کاری است و این عملیات مجاز نیست.", show_alert=True)
-        except Exception:
-            pass
-        try:
-            await q.message.reply_text(_closed_text(B), reply_markup=_closed_markup())
-        finally:
-            raise ApplicationHandlerStop
 
     app.add_handler(CallbackQueryHandler(cb, pattern=r"^off:(restart|partner)$"), group=-30000)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, night_login), group=-29999)
-    app.add_handler(MessageHandler(filters.ALL, lambda u, c: message_gate(u, c, B)), group=-29998)
-    app.add_handler(CallbackQueryHandler(callback_gate), group=-29997)
+    app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, lambda u, c: None), group=-29998)
+    app.add_handler(CallbackQueryHandler(lambda u, c: None, pattern=r"^off:"), group=-29997)
     B._offhours_partner_gate_v6 = True
     return True
-
-
-async def message_gate(update, context, B):
-    if _is_open(B):
-        return
-    user = getattr(update, "effective_user", None)
-    msg = getattr(update, "effective_message", None)
-    if not user or not msg:
-        return
-    if is_night_worker(B, user.id) and (B.S.get(user.id, {}) or {}).get("mode") == "partner":
-        return
-    await msg.reply_text(_closed_text(B), reply_markup=_closed_markup())
-    raise ApplicationHandlerStop
