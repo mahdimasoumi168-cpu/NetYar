@@ -26,8 +26,14 @@ async def _start(update, context):
     except Exception:log.exception("user persistence")
     old=dict(B.S.get(uid,{}) or {})
     B.S[uid]={"lang":"fa"}
-    for k in ("partner_id","partner_active"):
-        if k in old:B.S[uid][k]=old[k]
+    # Never restore a partner session after the user has explicitly logged out.
+    # A permanent logout must survive /start and 🔄 شروع مجدد until a fresh
+    # partner authentication is completed.
+    if not old.get("partner_logged_out"):
+        for k in ("partner_id","partner_active"):
+            if k in old:B.S[uid][k]=old[k]
+    else:
+        B.S[uid]["partner_logged_out"]=True
     if update.message:
         await update.message.reply_text(WELCOME,reply_markup=_services_keyboard())
         await update.message.reply_text(RESTART,reply_markup=_restart_keyboard())
