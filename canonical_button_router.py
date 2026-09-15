@@ -6,7 +6,6 @@ log = logging.getLogger("netyar.canonical_buttons")
 def install():
     import bot as B
     import telegram_runtime as TG
-    # CallbackQueryHandler lives in telegram.ext in python-telegram-bot.
     from telegram import InlineKeyboardMarkup, InlineKeyboardButton
     from telegram.ext import CallbackQueryHandler
     from final_platform_fix import _actions
@@ -18,7 +17,7 @@ def install():
     def main(uid):
         st = B.S.get(uid, {})
         if st.get("status") == "iranian":
-            rows = [["🎫 پیگیری", "👥 پنل همکاران"], ["🔄 شروع مجدد"]]
+            rows = [["🎫 پیگیری", "👥 پنل همکاران"], ["📞 تماس با ما", "🔄 شروع مجدد"]]
             if B.admin(uid): rows.append(["🛠 پنل مدیریت بات"])
             return B.kb(rows)
         rows = [
@@ -184,42 +183,21 @@ def install():
                 __slots__ = ("_message", "text")
                 def __init__(self, message, text): self._message, self.text = message, text
                 def __getattr__(self, name): return getattr(self._message, name)
-            fake = type("U", (), {"effective_user":q.from_user,"message":MessageProxy(q.message, label)})()
 
-            if label == "🎫 پیگیری" and st.get("status") == "iranian": return await B.service_text(fake, context)
-            if label == "🎫 پیگیری": return await B.ptext(fake, context)
-            if label == "➕ شارژ حساب":
-                topup = getattr(B, "topup", None)
-                if topup: return await topup(fake, context)
-                st["mode"] = "topup_amount"; return await q.message.reply_text("💰 مبلغ شارژ را به تومان وارد کنید:", reply_markup=B.cancel_kb(st.get("lang", "fa")))
-            if label == "🔎 پیگیری کد": return await B.ptrack(fake, context)
-            if label == "📋 سوابق": return await B.phistory(fake, context)
-            if label == "💰 موجودی":
-                if st.get("partner_id"):
-                    p = B.db.conn.execute("SELECT balance FROM partners WHERE id=?", (st["partner_id"],)).fetchone(); bal = int(p["balance"] or 0) if p else 0
-                    return await q.message.reply_text(f"💰 اعتبار فعلی شما: {bal:,} تومان", reply_markup=B.partner_kb(st.get("lang","fa")))
-                return await B.router(fake, context)
-            if label in {"🪪 فیدای غیر حضوری", "🪪 فیدا"}: return await B.fida(fake, context)
-            if label == "🖨 خدمات چاپ": return await B.prt(fake, context)
-            if label in {"🪪 حل مشکل ورود اتباع دولت من", "🏛 حل مشکل سامانه دولت من"}: return await B.gov(fake, context)
-            if B.admin(uid):
-                result = await B.admin_text(fake, context)
-                if result is not None: return result
-            result = await B.router(fake, context)
-            if result is not None: return result
-            return await q.message.reply_text("❌ این گزینه در حال حاضر در دسترس نیست.", reply_markup=B.main(uid))
+            class UpdateProxy:
+                __slots__ = ("effective_user", "message", "callback_query")
+                def __init__(self, q, text):
+                    self.effective_user=q.from_user; self.message=MessageProxy(q.message,text); self.callback_query=None
+
+            proxy=UpdateProxy(q,label)
+            return await old_router(proxy, context)
         except Exception:
-            log.exception("canonical button failed: %r", label)
-            try: await q.message.reply_text("❌ اجرای گزینه با خطا مواجه شد.", reply_markup=B.main(uid))
-            except Exception: pass
+            log.exception("canonical callback failed: %s", data)
+            return await q.message.reply_text("❌ اجرای گزینه با خطا مواجه شد؛ لطفاً دوباره تلاش کنید.", reply_markup=B.main(uid))
 
-    # This wrapper is kept for any code that rebuilds the application later.
-    old_build = TG.build
-    def build():
-        app = old_build()
-        app.add_handler(CallbackQueryHandler(previous_request_callback, pattern=r"^prevreq:"), group=-101)
-        app.add_handler(CallbackQueryHandler(dispatch, pattern=r"^(ui|ik):"), group=-100)
-        return app
-    TG.build = build
+    try:
+        TG.application.add_handler(CallbackQueryHandler(statuscb, pattern=r"^st:(foreign|iranian)$"), group=-50)
+        TG.application.add_handler(CallbackQueryHandler(dispatch, pattern=r"^(ik:|ui:|prevreq:|st:foreign|st:iranian)"), group=-40)
+    except Exception:
+        pass
     B._canonical_button_router = True
-    log.info("Canonical final Telegram button router installed")
