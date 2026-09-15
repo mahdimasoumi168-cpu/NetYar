@@ -1,11 +1,6 @@
-"""Permanent Telegram restart button.
-The ReplyKeyboard is persistent and survives normal inline-menu navigation.
-The restart action clears transient flow state while preserving an active
-partner session, then returns the user to the canonical start flow.
-"""
+"""Permanent Telegram restart button."""
 from telegram import ReplyKeyboardMarkup
-from telegram.ext import MessageHandler, CommandHandler, filters, ApplicationHandlerStop
-
+from telegram.ext import MessageHandler, filters, ApplicationHandlerStop
 RESTART="🔄 شروع مجدد"
 
 def _keyboard():
@@ -18,29 +13,22 @@ def _clear_flow(st):
 def install(app,B):
     if getattr(B,"_permanent_restart_v1",False): return
     B.restart_keyboard=_keyboard
+    old_start=B.start
+    async def wrapped_start(update,context):
+        result=await old_start(update,context)
+        try: await update.effective_message.reply_text("🔄 دکمه شروع مجدد همیشه در دسترس است.",reply_markup=_keyboard())
+        except Exception: pass
+        return result
+    B.start=wrapped_start
     async def restart(update,context):
         if not update.message:return
-        text=(update.message.text or "").strip()
-        if text not in {RESTART,"شروع مجدد"}:return
-        uid=update.effective_user.id
-        st=B.S.setdefault(uid,{})
+        if (update.message.text or "").strip() not in {RESTART,"شروع مجدد"}:return
+        st=B.S.setdefault(update.effective_user.id,{})
         _clear_flow(st)
-        try:
-            await B.start(update,context)
+        try: await B.start(update,context)
         except Exception:
-            await update.effective_message.reply_text("❌ شروع مجدد انجام نشد. دوباره تلاش کنید.",reply_markup=_keyboard())
-        else:
-            # B.start implementations can replace their own keyboard; immediately
-            # re-assert the persistent bottom keyboard.
-            await update.effective_message.reply_text("🔄 آماده‌اید. از منوی ربات استفاده کنید.",reply_markup=_keyboard())
-        raise ApplicationHandlerStop
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,restart),group=-2000001)
-    async def start_cmd(update,context):
-        try:
-            await B.start(update,context)
-        finally:
-            try: await update.effective_message.reply_text("",reply_markup=_keyboard())
+            try: await update.effective_message.reply_text("❌ شروع مجدد انجام نشد. دوباره تلاش کنید.",reply_markup=_keyboard())
             except Exception: pass
         raise ApplicationHandlerStop
-    app.add_handler(CommandHandler("start",start_cmd),group=-2000001)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,restart),group=-2000001)
     B._permanent_restart_v1=True
