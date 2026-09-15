@@ -86,12 +86,12 @@ async def _complaint_text(update,context,B):
     st["mode"]=None; await update.message.reply_text("✅ شکایت شما برای مدیریت ارسال شد.",reply_markup=B.main(uid)); raise ApplicationHandlerStop
 
 async def _management_chat(update,context,B,q,st):
-    """Open the partner's direct management chat without passing through legacy routing."""
+    """Open the partner's direct management chat without raising through ui2."""
     uid=q.from_user.id
     pid=st.get("partner_id")
     if not pid or not st.get("partner_active", True) or st.get("partner_logged_out"):
         await q.message.reply_text("⛔ ابتدا وارد پنل همکاران شوید.", reply_markup=B.main(uid))
-        raise ApplicationHandlerStop
+        return None
     try:
         row=B.db.conn.execute("SELECT * FROM partners WHERE id=? AND active=1 LIMIT 1",(int(pid),)).fetchone()
     except Exception:
@@ -101,23 +101,22 @@ async def _management_chat(update,context,B,q,st):
         st.pop("partner_id",None)
         st["partner_active"]=False
         st["mode"]=None
-        await q.message.reply_text("⛔ حساب همکار فعال نیست. لطفاً دوباره وارد شوید.",reply_markup=B.main(uid))
-        raise ApplicationHandlerStop
+        await q.message.reply_text("⛔ حساب همکار فعال نیست. لطفاً دوباره وارد شوید.", reply_markup=B.main(uid))
+        return None
     try:
         B.db.set_setting(f"partner_chat_{pid}",str(uid))
-        if row["phone"]:
-            B.db.set_setting(f"partner_chat_{row['phone']}",str(uid))
-    except Exception:
-        pass
-    st.update(mode="final_partner_chat", final_chat_admin=None, final_chat_partner_id=int(pid))
+        if row["phone"]: B.db.set_setting(f"partner_chat_{row['phone']}",str(uid))
+    except Exception: pass
+    st.update(mode="final_partner_chat", final_chat_admin=None, final_chat_partner_id=int(pid), chat_reply_pending=False)
     await q.message.reply_text(
         "💬 ارتباط با مدیریت فعال شد.\n\n"
-        "پیام، عکس، فایل، ویس یا ویدیو را ارسال کنید.\n"
-        "همه پیام‌ها برای مدیریت ارسال می‌شوند.\n\n"
-        "برای خروج، «❌ انصراف» را بزنید.",
+        "حالا پیام خود را ارسال کنید.\n"
+        "متن، عکس، فایل، ویس یا ویدیو قابل ارسال است.\n\n"
+        "⏳ تا وقتی چیزی ارسال نکنید، هیچ پیامی برای مدیریت فرستاده نمی‌شود.\n"
+        "برای پایان ارتباط، «❌ انصراف» را بزنید.",
         reply_markup=B.cancel_kb(st.get("lang","fa")),
     )
-    raise ApplicationHandlerStop
+    return None
 
 async def _dispatch(update,context,B,label):
     q=update.callback_query; uid=q.from_user.id; st=B.S.setdefault(uid,{}); fake=_fake(update,label)
@@ -139,8 +138,7 @@ async def _dispatch(update,context,B,label):
     if label=="🛠 پنل مدیریت بات":
         if not B.admin(uid): return await q.message.reply_text("❌ دسترسی مدیریت ندارید.",reply_markup=B.main(uid))
         import telegram_admin_plus as A; return await q.message.reply_text("🛠 پنل مدیریت کامل\n\nاز منوی زیر بخش موردنظر را انتخاب کنید:",reply_markup=A._admin_menu())
-    if label=="💬 ارتباط با مدیریت":
-        return await _management_chat(update,context,B,q,st)
+    if label==MANAGEMENT:return await _management_chat(update,context,B,q,st)
     if label=="➕ شارژ حساب":
         fn=getattr(B,"topup",None)
         if fn:return await fn(fake,context)
