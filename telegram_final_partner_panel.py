@@ -3,7 +3,7 @@
 Rules:
 - Every explicit entry into the partner panel starts a fresh authentication.
 - Logout clears all partner credentials/session state and returns to the public UI.
-- The partner panel keeps the complete legacy option set.
+- The partner panel keeps the complete legacy option set plus the Irancell SIM problem service.
 - ui2 callback routing is wrapped once, without registering duplicate callback handlers.
 """
 import logging
@@ -17,6 +17,7 @@ LOGOUT_LABELS = {
     "🚪 خروج از پنل", "🚪 Exit panel", "🔒 خروج دائمی",
     "🔒 Permanent logout", "🔒 تسجيل الخروج الدائم"
 }
+IRANCELL_LABEL = "📱 حل مشکل سیم کارت ایرانسل"
 
 
 def _clear_partner_session(B, uid):
@@ -34,7 +35,7 @@ def _clear_partner_session(B, uid):
 def _partner_keyboard(UI, B, uid):
     return UI.inline([
         ["➕ شارژ حساب", "🏛 حل مشکل سامانه دولت من"],
-        ["📱 خدمات سیم کارت", "🪪 فیدای غیر حضوری"],
+        [IRANCELL_LABEL, "🪪 فیدای غیر حضوری"],
         ["🔎 پیگیری کد", "📋 سوابق"],
         ["💰 موجودی", "🎫 تیکت به مدیریت"],
         ["🚪 خروج از پنل"],
@@ -94,6 +95,10 @@ def install(app, B):
                     reply_markup=bot.cancel_kb(st.get("lang", "fa")),
                 )
 
+        # The dedicated Irancell module owns the service flow (phone -> ID
+        # document -> balance debit -> admin notification). Delegating here
+        # preserves that implementation while keeping the button visible in
+        # the final canonical partner keyboard.
         return await original_dispatch(update, context, bot, label)
 
     UI._dispatch = dispatch
