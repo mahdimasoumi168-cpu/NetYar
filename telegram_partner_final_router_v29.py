@@ -1,12 +1,9 @@
-"""Final partner router v29.
-
-This layer is intentionally installed last. It owns the visible partner menu
-and directly handles the three routes that were being intercepted by legacy
-callback wrappers: Irancell, management chat, and SIM services.
+"""Final canonical partner router v29.
+This layer is installed last and also wraps telegram_ui_policy_v2._dispatch,
+so legacy captured dispatch chains cannot bypass the final partner routes.
 """
 import inspect
 import logging
-from telegram import InlineKeyboardMarkup
 from telegram.ext import CallbackQueryHandler, ApplicationHandlerStop
 
 log = logging.getLogger("netyar.telegram.partner_final_router_v29")
@@ -15,19 +12,6 @@ MANAGEMENT = "💬 ارتباط با مدیریت"
 SIM_SERVICE = "📱 خدمات سیم کارت"
 CANCEL = "❌ انصراف"
 PRICE = 980_000
-
-
-def _maybe(result):
-    return result
-
-
-async def _call(fn, *args):
-    if not callable(fn):
-        return None
-    result = fn(*args)
-    if inspect.isawaitable(result):
-        return await result
-    return result
 
 
 def _menu(B, uid):
@@ -45,12 +29,15 @@ def _menu(B, uid):
 
 
 def _admin(B):
-    vals = list(getattr(B, "ADM", ()) or getattr(B, "ADMINS", ()) or [])
-    for value in vals:
-        try:
-            return int(value)
-        except Exception:
-            continue
+    for attr in ("ADM", "ADMINS"):
+        vals = getattr(B, attr, ()) or ()
+        if isinstance(vals, (str, int)):
+            vals = (vals,)
+        for value in vals:
+            try:
+                return int(value)
+            except Exception:
+                pass
     return None
 
 
@@ -58,19 +45,19 @@ async def _management(update, context, B, st):
     q = update.callback_query
     uid = q.from_user.id
     pid = st.get("partner_id")
-    if not pid or not st.get("partner_active", True) or st.get("partner_logged_out"):
+    if not pid or not st.get("partner_active") or st.get("partner_logged_out"):
         await q.message.reply_text("⛔ ابتدا وارد پنل همکاران شوید.", reply_markup=B.main(uid))
-        return
+        raise ApplicationHandlerStop
     row = B.db.conn.execute("SELECT id,name,phone FROM partners WHERE id=? AND active=1 LIMIT 1", (int(pid),)).fetchone()
     if not row:
-        st.update(partner_active=False, mode=None)
+        st.update(partner_active=False, mode=None, partner_logged_out=True)
         st.pop("partner_id", None)
         await q.message.reply_text("⛔ حساب همکار فعال نیست. لطفاً دوباره وارد شوید.", reply_markup=B.main(uid))
-        return
+        raise ApplicationHandlerStop
     aid = _admin(B)
     if not aid:
         await q.message.reply_text("❌ مدیر برای ارتباط با مدیریت تنظیم نشده است.", reply_markup=_menu(B, uid))
-        return
+        raise ApplicationHandlerStop
     try:
         B.db.set_setting(f"partner_chat_{int(pid)}", str(uid))
         if row["phone"]:
@@ -80,31 +67,27 @@ async def _management(update, context, B, st):
         log.exception("management mapping failed")
     st.update(mode="final_partner_chat", final_chat_admin=int(aid), final_chat_partner_id=int(pid), chat_reply_pending=False)
     try:
-        await context.bot.send_message(
-            chat_id=aid,
-            text=(f"💬 ارتباط با مدیریت از طرف همکار فعال شد.\n\n"
-                  f"👤 همکار: {row['name'] or '-'}\n"
-                  f"📱 شماره همکار: {row['phone'] or '-'}\n"
-                  f"🆔 شناسه همکار: {int(pid)}\n\n"
-                  "پیام، عکس، فایل، ویس یا ویدیو همکار برای شما ارسال می‌شود."),
-        )
+        await context.bot.send_message(chat_id=aid, text=(
+            f"💬 ارتباط با مدیریت از طرف همکار فعال شد.\n\n"
+            f"👤 همکار: {row['name'] or '-'}\n📱 شماره همکار: {row['phone'] or '-'}\n"
+            f"🆔 شناسه همکار: {int(pid)}\n\nپیام، عکس، فایل، ویس یا ویدیو همکار برای شما ارسال می‌شود."
+        ))
     except Exception:
         log.exception("management notification failed")
     await q.message.reply_text(
-        "💬 ارتباط با مدیریت فعال شد.\n\n"
-        "حالا پیام، عکس، فایل، ویس یا ویدیو را ارسال کنید.\n"
-        "برای پایان ارتباط، «❌ انصراف» را بزنید.",
+        "💬 ارتباط با مدیریت فعال شد.\n\nحالا پیام، عکس، فایل، ویس یا ویدیو را ارسال کنید.\nبرای پایان، «❌ انصراف» را بزنید.",
         reply_markup=B.cancel_kb(st.get("lang", "fa")),
     )
+    raise ApplicationHandlerStop
 
 
 async def _irancell(update, context, B, st):
     q = update.callback_query
     uid = q.from_user.id
     pid = st.get("partner_id")
-    if not pid or not st.get("partner_active", True) or st.get("partner_logged_out"):
+    if not pid or not st.get("partner_active") or st.get("partner_logged_out"):
         await q.message.reply_text("⛔ ابتدا وارد پنل همکاران شوید.", reply_markup=B.main(uid))
-        return
+        raise ApplicationHandlerStop
     try:
         import telegram_irancell_partner_service as IRS
         IRS.PRICE = PRICE
@@ -126,35 +109,56 @@ async def _irancell(update, context, B, st):
         "بعد از ثبت، درخواست همراه با مدرک و جزئیات برای مدیریت ارسال می‌شود.",
         reply_markup=B.cancel_kb(st.get("lang", "fa")),
     )
+    raise ApplicationHandlerStop
 
 
 async def _sim_service(update, context, B, st):
     q = update.callback_query
-    uid = q.from_user.id
-    fake = getattr(__import__("telegram_ui_policy_v2"), "_fake")(update, SIM_SERVICE)
     fn = getattr(B, "sim_start", None)
     if fn:
-        await _call(fn, fake, context)
-        return
-    await q.message.reply_text("📱 خدمات سیم کارت\n\nاین خدمت در حال حاضر برای پنل همکاران فعال نشده است.", reply_markup=_menu(B, uid))
+        import telegram_ui_policy_v2 as UI
+        fake = UI._fake(update, SIM_SERVICE)
+        result = fn(fake, context)
+        if inspect.isawaitable(result):
+            await result
+        raise ApplicationHandlerStop
+    await q.message.reply_text("📱 خدمات سیم کارت\n\nاین خدمت در حال حاضر برای پنل همکاران فعال نشده است.", reply_markup=_menu(B, q.from_user.id))
+    raise ApplicationHandlerStop
 
 
 def install(app, B):
     if getattr(B, "_partner_final_router_v29", False):
         return
-    try:
-        import telegram_ui_policy_v2 as UI
-        UI.MANAGEMENT = MANAGEMENT
-        UI.IRANCELL = IRANCELL
-    except Exception:
-        log.exception("UI constants setup failed")
+    import telegram_ui_policy_v2 as UI
+    UI.MANAGEMENT = MANAGEMENT
+    UI.IRANCELL = IRANCELL
 
-    def partner_kb(lang="fa"):
-        try:
-            return _menu(B, int(getattr(__import__("telegram_ui_policy_v2"), "_uid")() or 0))
-        except Exception:
-            return None
-    B.partner_kb = partner_kb
+    # Critical fix: old modules captured UI._dispatch before v29 was loaded.
+    # Replace it now so even those stale wrappers cannot reach the broken
+    # NameError path in telegram_ui_policy_v2.
+    old_dispatch = UI._dispatch
+
+    async def final_dispatch(update, context, bot, label):
+        label = str(label or "").strip()
+        q = getattr(update, "callback_query", None)
+        if q:
+            uid = q.from_user.id
+            st = bot.S.setdefault(uid, {})
+            if label == IRANCELL:
+                return await _irancell(update, context, bot, st)
+            if label == MANAGEMENT:
+                return await _management(update, context, bot, st)
+            if label == SIM_SERVICE:
+                return await _sim_service(update, context, bot, st)
+        result = old_dispatch(update, context, bot, label)
+        if inspect.isawaitable(result):
+            return await result
+        return result
+
+    UI._dispatch = final_dispatch
+    UI._final_partner_router_v29_dispatch = True
+
+    B.partner_kb = lambda lang="fa": _menu(B, int(UI._uid() or 0))
     B._partner_service_price = PRICE
 
     async def callback(update, context):
@@ -169,44 +173,31 @@ def install(app, B):
                 for rr in getattr(q.message.reply_markup, "inline_keyboard", []) or []:
                     for button in rr or []:
                         if getattr(button, "callback_data", None) == str(q.data):
-                            label = str(getattr(button, "text", "") or "").strip()
-                            break
+                            label = str(getattr(button, "text", "") or "").strip(); break
             except Exception:
                 pass
         if not label:
             await q.answer("این دکمه دیگر معتبر نیست؛ لطفاً پنل همکاران را دوباره باز کنید.", show_alert=True)
             raise ApplicationHandlerStop
-        if row and row["user_id"] and str(row["user_id"]) != str(q.from_user.id):
-            await q.answer("این گزینه برای کاربر دیگری است.", show_alert=True)
-            raise ApplicationHandlerStop
         await q.answer()
         st = B.S.setdefault(q.from_user.id, {})
-        if row and row["lang"]:
-            st["lang"] = row["lang"]
-        if row and row["status"]:
-            st["status"] = row["status"]
+        if row and row["lang"]: st["lang"] = row["lang"]
+        if row and row["status"]: st["status"] = row["status"]
         try:
-            if label == IRANCELL:
-                await _irancell(update, context, B, st)
-            elif label == MANAGEMENT:
-                await _management(update, context, B, st)
-            elif label == SIM_SERVICE:
-                await _sim_service(update, context, B, st)
-            else:
-                import telegram_ui_policy_v2 as UI
-                result = UI._dispatch(update, context, B, label)
-                if inspect.isawaitable(result):
-                    await result
+            result = final_dispatch(update, context, B, label)
+            if inspect.isawaitable(result):
+                await result
         except ApplicationHandlerStop:
             raise
         except Exception:
             log.exception("v29 callback failed label=%r", label)
-            if st.get("partner_id") and st.get("partner_active", True) and not st.get("partner_logged_out"):
-                await q.message.reply_text("❌ خطا در اجرای گزینه؛ پنل همکاران حفظ شد.", reply_markup=_menu(B, q.from_user.id))
+            if st.get("partner_id") and st.get("partner_active") and not st.get("partner_logged_out"):
+                await q.message.reply_text("❌ خطای موقت در اجرای گزینه؛ پنل همکاران حفظ شد.", reply_markup=_menu(B, q.from_user.id))
             else:
-                await q.message.reply_text("❌ اجرای گزینه با خطا مواجه شد. لطفاً دوباره تلاش کنید.", reply_markup=B.main(q.from_user.id))
+                await q.message.reply_text("❌ لطفاً دوباره تلاش کنید.", reply_markup=B.main(q.from_user.id))
+            raise ApplicationHandlerStop
         raise ApplicationHandlerStop
 
     app.add_handler(CallbackQueryHandler(callback, pattern=r"^ui2:"), group=-1000000)
     B._partner_final_router_v29 = True
-    log.info("FINAL partner router v29 installed: Irancell 980000 + management + SIM service")
+    log.info("FINAL partner router v29 installed: canonical dispatch + Irancell 980000 + management + SIM service")
