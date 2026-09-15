@@ -43,10 +43,10 @@ async def _show_persian_start(update, context, B):
         WELCOME_FA,
         reply_markup=_start_keyboard(),
     )
-    # Restart remains permanently available as a reply-keyboard button;
-    # do not send a separate helper message after the welcome text.
+    # Telegram does not allow an empty message. Use a zero-width character only
+    # to attach the permanent reply keyboard without displaying helper text.
     await update.effective_message.reply_text(
-        "",
+        "\u200b",
         reply_markup=_keyboard(),
     )
 
