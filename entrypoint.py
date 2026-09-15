@@ -15,29 +15,21 @@ import production_stability
 import rubika_bootstrap_final
 import server
 
-NETYAR_TELEGRAM_BUILD = "2026-09-15-offhours-stable-v23"
+NETYAR_TELEGRAM_BUILD = "2026-09-15-offhours-stable-v25"
 
 bale_bootstrap.install(server)
 rubika_bootstrap_final.install(server)
 production_stability.install()
 
-# Early/global Telegram guards. These must run before the normal service UI.
 PRE_TELEGRAM_MODULES = (
     "telegram_global_cancel_v4",
     "request_language_actions",
     "telegram_partner_logout_fix",
     "telegram_language_consistency",
     "telegram_cancel_policy",
-    # Absolute start/restart hard gate is intentionally first in the Telegram
-    # runtime. Outside working hours it blocks /start and restart before any
-    # ordinary public menu/service handler can run.
     "telegram_offhours_absolute_start_guard",
 )
 
-# Existing service/UI layers. Keep the existing menu/service stack intact.
-# The canonical off-hours gate remains in telegram_offhours_partner_gate_v2;
-# telegram_offhours_api_fix only repairs its public clock helper before the
-# night-shift logout module imports it.
 TELEGRAM_MODULES = (
     "telegram_government_phone_final",
     "telegram_phone_registry_and_stability",
@@ -104,7 +96,6 @@ TELEGRAM_MODULES = (
     "telegram_partner_ticket_fix",
     "telegram_ticket_reliability",
     "telegram_ticket_media",
-    # Existing requested document/request delivery layers remain last.
     "telegram_government_final_override_v18",
     "telegram_final_request_delivery_v17",
 )
@@ -116,46 +107,25 @@ def _install_module(name, app, bot, logger, *, pre=False):
         fn = getattr(module, "install", None)
         if not callable(fn):
             raise AttributeError("install() not found")
-
         sig = inspect.signature(fn)
-        positional = [
-            p
-            for p in sig.parameters.values()
-            if p.kind in (
-                inspect.Parameter.POSITIONAL_ONLY,
-                inspect.Parameter.POSITIONAL_OR_KEYWORD,
-            )
-        ]
+        positional = [p for p in sig.parameters.values() if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)]
         required = [p for p in positional if p.default is inspect.Parameter.empty]
-
         if len(required) >= 2 or len(positional) >= 2:
             fn(app, bot)
         elif len(required) == 1 or len(positional) == 1:
             fn(bot)
         else:
             fn()
-
-        logger.info(
-            "Telegram %s layer installed: %s",
-            "pre-build" if pre else "runtime",
-            name,
-        )
+        logger.info("Telegram %s layer installed: %s", "pre-build" if pre else "runtime", name)
     except Exception:
-        logger.exception(
-            "Telegram %s layer unavailable: %s",
-            "pre-build" if pre else "runtime",
-            name,
-        )
+        logger.exception("Telegram %s layer unavailable: %s", "pre-build" if pre else "runtime", name)
 
 
 def _install_telegram_layers(app, bot, logger):
     for name in PRE_TELEGRAM_MODULES:
         _install_module(name, app, bot, logger, pre=True)
-
     for name in TELEGRAM_MODULES:
         _install_module(name, app, bot, logger)
-
-    # Legacy hardening modules remain loaded for backward compatibility.
     for name in (
         "telegram_government_strict_validation",
         "telegram_government_flow_hardening_v4",
@@ -166,9 +136,13 @@ def _install_telegram_layers(app, bot, logger):
     ):
         _install_module(name, app, bot, logger)
 
-    # Absolute final safety net: legacy modules above may call B.main(uid) on
-    # an error/cancel. An authenticated partner must remain inside the partner
-    # panel, so install this wrapper only after every other Telegram layer.
+    # Highest-priority partner management entry guard. It must run before all
+    # ui2 callback handlers so ApplicationHandlerStop from legacy layers can
+    # never be converted into a false "execution failed" message.
+    _install_module("telegram_partner_management_hotfix_v25", app, bot, logger)
+
+    # Final partner session safety net: authenticated partners never fall back
+    # to the public menu on internal errors.
     _install_module("telegram_partner_main_guard", app, bot, logger)
 
     try:
@@ -177,19 +151,13 @@ def _install_telegram_layers(app, bot, logger):
         logger.info("Telegram complete-request notification finalizer installed")
     except Exception:
         logger.exception("Telegram complete-request notification finalizer unavailable")
-
     _install_module("desktop_agent_api_clean", app, bot, logger)
 
 
 def main():
     logger = logging.getLogger("netyar.entrypoint")
     logger.info("NetYar Telegram build=%s", NETYAR_TELEGRAM_BUILD)
-    uvicorn.run(
-        server.api,
-        host="0.0.0.0",
-        port=int(os.getenv("PORT", "8000")),
-        lifespan="on",
-    )
+    uvicorn.run(server.api, host="0.0.0.0", port=int(os.getenv("PORT", "8000")), lifespan="on")
 
 
 if __name__ == "__main__":
