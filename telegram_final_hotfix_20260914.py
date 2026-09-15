@@ -1,8 +1,7 @@
 """Deterministic Telegram hotfix layer.
 
-This layer runs before generic Telegram text routers. It protects active phone-input
-states from being swallowed by menu/fallback handlers and synchronizes the Irancell
-service price to 990,000 toman.
+Protect active phone-input states from being swallowed by generic routers and
+keep the Irancell partner-service price synchronized to 980,000 toman.
 """
 import re
 from telegram.ext import MessageHandler, filters, ApplicationHandlerStop
@@ -15,7 +14,7 @@ PHONE_MODES = {
     "irancell_partner_phone": ("irancell_phone", "irancell_partner_document", "📸 حالا عکس مدرک شناسایی مشترک را ارسال کنید:\n\nمدرک باید واضح و خوانا باشد."),
 }
 
-PRICE = 990_000
+PRICE = 980_000
 
 def _digits(v):
     return str(v or "").translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "0123456789"))
@@ -52,7 +51,6 @@ def install(app, B):
         mode = str(st.get("mode") or "")
         if mode not in PHONE_MODES:
             return
-
         p = _phone(msg.text)
         if not p:
             if mode.startswith("gov"):
@@ -60,7 +58,6 @@ def install(app, B):
             else:
                 await msg.reply_text("❌ شماره موبایل صحیح نیست.\n\n📱 لطفاً شماره ۱۱ رقمی ایرانسل را با ۰۹ وارد کنید:", reply_markup=B.cancel_kb(st.get("lang", "fa")))
             raise ApplicationHandlerStop
-
         key, next_mode, prompt = PHONE_MODES[mode]
         if mode.startswith("gov"):
             st["gov_phone"] = p
@@ -69,6 +66,5 @@ def install(app, B):
         st["mode"] = next_mode
         await msg.reply_text(prompt, reply_markup=B.cancel_kb(st.get("lang", "fa")))
         raise ApplicationHandlerStop
-
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handler), group=-10000000)
     B._final_hotfix_20260914 = True
