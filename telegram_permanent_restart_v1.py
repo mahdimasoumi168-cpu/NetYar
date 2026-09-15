@@ -1,20 +1,27 @@
-"""Telegram Persian-only start/restart and persistent restart button."""
-from telegram import ReplyKeyboardMarkup
+"""Telegram Persian-only start/restart and permanently available restart button."""
+from telegram import ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import MessageHandler, filters, ApplicationHandlerStop
 
 RESTART = "🔄 شروع مجدد"
 USE_SERVICES = "🛎 استفاده از خدمات"
 
 
-def _keyboard():
-    # Both controls stay permanently available. The restart button is always
-    # present below the service entry button.
+def _keyboard(rows=None):
+    """Return a reply keyboard that always keeps restart available."""
+    base = [list(r) for r in (rows or [])]
+    # Avoid duplicate restart/service rows when an existing menu already has them.
+    base = [r for r in base if RESTART not in r]
+    base.append([RESTART])
     return ReplyKeyboardMarkup(
-        [[USE_SERVICES], [RESTART]],
+        base,
         resize_keyboard=True,
         one_time_keyboard=False,
         is_persistent=True,
     )
+
+
+def _start_keyboard():
+    return _keyboard([[USE_SERVICES]])
 
 
 def _clear_flow(st):
@@ -39,7 +46,7 @@ async def _show_persian_start(update, context, B):
         "سلام و خوش آمدید 🌷\n\n"
         "به «کمک یار مهاجر» خوش آمدید.\n"
         "برای دریافت خدمات، روی دکمه زیر بزنید.",
-        reply_markup=_keyboard(),
+        reply_markup=_start_keyboard(),
     )
 
 
@@ -47,12 +54,23 @@ def install(app, B):
     if getattr(B, "_permanent_restart_v2", False):
         return
 
+    # Patch the central keyboard factory so the restart button remains present
+    # after ordinary menus, cancel menus, partner menus and service menus.
+    old_kb = getattr(B, "kb", None)
+    if callable(old_kb) and not getattr(B, "_restart_kb_wrapped", False):
+        def persistent_kb(rows):
+            base = [list(r) for r in (rows or [])]
+            base = [r for r in base if RESTART not in r]
+            base.append([RESTART])
+            return old_kb(base)
+        B.kb = persistent_kb
+        B._restart_kb_wrapped = True
+
     old_start = B.start
 
     async def wrapped_start(update, context):
         uid = update.effective_user.id
         st = B.S.setdefault(uid, {})
-        # Do not let /start or an internal restart erase a partner login.
         partner_keep = {
             k: st[k]
             for k in ("partner_id", "partner_active", "partner_phone", "partner_username", "status")
@@ -65,8 +83,7 @@ def install(app, B):
         try:
             await _show_persian_start(update, context, B)
         except Exception:
-            # Fall back to the original start only if the custom Persian start
-            # cannot be rendered; never break the Telegram receiver.
+            # Only use the original implementation as a safety fallback.
             await old_start(update, context)
         return None
 
@@ -92,7 +109,6 @@ def install(app, B):
         st = B.S.setdefault(uid, {})
         st["lang"] = "fa"
         st["mode"] = None
-        from telegram import InlineKeyboardMarkup, InlineKeyboardButton
         await update.message.reply_text(
             "نوع کاربر را انتخاب کنید:",
             reply_markup=InlineKeyboardMarkup([
@@ -101,11 +117,9 @@ def install(app, B):
                     InlineKeyboardButton("🇮🇷 ایرانی هستم", callback_data="st:iranian"),
                 ]
             ]),
-            # Keep the persistent reply keyboard visible below the conversation.
         )
         raise ApplicationHandlerStop
 
-    # Highest priority: these two controls must win over generic text handlers.
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, restart), group=-2000001)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, use_services), group=-2000000)
     B._permanent_restart_v2 = True
