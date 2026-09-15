@@ -4,7 +4,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackQueryHandler, MessageHandler, filters, ApplicationHandlerStop
 
 log = logging.getLogger("netyar.telegram.irancell_partner")
-PRICE = 300_000
+PRICE = 980_000
 SERVICE_KEY = "irancell_sim_issue"
 BTN = "📱 حل مشکل سیم کارت ایرانسل"
 PHONE_MODE = "irancell_partner_phone"
@@ -14,13 +14,11 @@ PHOTO_MODE = "irancell_partner_document"
 def _digits(v):
     return str(v or "").translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "0123456789"))
 
-
 def _phone(v):
     s = re.sub(r"[\s\-()]+", "", _digits(v).strip())
     if s.startswith("+98"): s = "0" + s[3:]
     elif s.startswith("0098"): s = "0" + s[4:]
     return s if re.fullmatch(r"09\d{9}", s) else None
-
 
 def _admin_markup(rid):
     return InlineKeyboardMarkup([
@@ -30,7 +28,6 @@ def _admin_markup(rid):
         [InlineKeyboardButton("🔐 درخواست کد امنیتی", callback_data=f"panel:askcode:{rid}")],
     ])
 
-
 def _ensure_service(B):
     try:
         B.db.conn.execute("INSERT OR IGNORE INTO services(key,name,description,price,active) VALUES(?,?,?,?,1)", (SERVICE_KEY, "حل مشکل سیم کارت ایرانسل", "حل مشکل سیم کارت ایرانسل از طریق پنل همکاران", PRICE))
@@ -39,7 +36,6 @@ def _ensure_service(B):
         B.db.conn.commit()
     except Exception:
         log.exception("Could not register Irancell service")
-
 
 def install(app, B):
     if getattr(B, "_irancell_partner_service", False): return
@@ -119,60 +115,31 @@ def install(app, B):
             code = "NYM-" + secrets.token_hex(4).upper()
             cur = conn.execute("INSERT INTO requests(tracking_code,user_id,service_key,platform,status,amount,payment_status,payment_method,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)", (code,user_id,SERVICE_KEY,"telegram","submitted",PRICE,"paid","partner_balance",B.now(),B.now()))
             rid = cur.lastrowid
-            answers = {"partner_id":str(pid),"partner_name":str(p["name"] or ""),"partner_phone":str(p["phone"] or ""),"subscriber_phone":phone,"carrier":"ایرانسل","service":"حل مشکل سیم کارت ایرانسل","amount":str(PRICE)}
-            for k,v in answers.items(): conn.execute("INSERT INTO request_answers(request_id,field_key,answer,file_id,created_at) VALUES(?,?,?,?,?)",(rid,k,v,"",B.now()))
-            conn.execute("INSERT INTO request_answers(request_id,field_key,answer,file_id,created_at) VALUES(?,?,?,?,?)",(rid,"identity_document","",fid,B.now()))
-            try: conn.execute("INSERT INTO audit_log(platform,actor_id,action,target,details,created_at) VALUES(?,?,?,?,?,?)",("telegram",str(uid),"partner_irancell_service",str(rid),f"partner_id={pid};phone={phone};amount={PRICE}",B.now()))
-            except Exception: pass
+            conn.execute("CREATE TABLE IF NOT EXISTS request_files (id INTEGER PRIMARY KEY AUTOINCREMENT,request_id INTEGER,file_id TEXT,file_type TEXT,caption TEXT,created_at TEXT)")
+            conn.execute("INSERT INTO request_files(request_id,file_id,file_type,caption,created_at) VALUES(?,?,?,?,?)", (rid,fid,"document","مدرک شناسایی سیم کارت ایرانسل",B.now()))
             conn.commit()
-        except ApplicationHandlerStop: raise
+        except ApplicationHandlerStop:
+            raise
         except Exception:
             try: conn.rollback()
             except Exception: pass
-            st["mode"] = None; await msg.reply_text("❌ ثبت خدمت انجام نشد؛ هیچ مبلغی از اعتبار پنل کسر نشد. لطفاً دوباره تلاش کنید.", reply_markup=B.partner_kb(st.get("lang", "fa"))); raise ApplicationHandlerStop
-
-        admin_text = ("🆕 درخواست جدید از پنل همکاران\n\n📱 خدمت: حل مشکل سیم کارت ایرانسل\n"f"🎫 کد پیگیری: {code}\n"f"👤 نام همکار: {p['name'] or '-'}\n"f"📞 موبایل همکار: {p['phone'] or '-'}\n"f"📱 شماره موبایل مشترک ایرانسل: {phone}\n""📄 مدرک شناسایی: پیوست شده\n"f"💰 مبلغ کسرشده از اعتبار پنل: {PRICE:,} تومان\n""💳 پرداخت: از شارژ پنل همکار\n📌 وضعیت: در انتظار بررسی مدیریت")
-        for aid in B.ADM:
+            log.exception("Irancell service failed")
+            await msg.reply_text("❌ ثبت خدمت انجام نشد و مبلغی از شارژ شما کسر نشد. دوباره تلاش کنید.", reply_markup=B.partner_kb(st.get("lang", "fa")))
+            raise ApplicationHandlerStop
+        st["mode"] = "partner"
+        st.pop("irancell", None)
+        admin_ids = list(getattr(B, "ADM", ()) or getattr(B, "ADMINS", ()) or [])
+        text = f"📱 درخواست حل مشکل سیم کارت ایرانسل\n\n🆔 کد پیگیری: {code}\n👤 همکار: {p['phone'] or pid}\n📱 شماره ایرانسل مشترک: {phone}\n💰 هزینه: {PRICE:,} تومان\n💳 روش پرداخت: کسر از شارژ همکار"
+        for aid in admin_ids:
             try:
-                await context.bot.send_message(chat_id=int(aid), text=admin_text, reply_markup=_admin_markup(rid))
-                try: await context.bot.send_photo(chat_id=int(aid), photo=fid, caption=f"📎 مدرک شناسایی مشترک\n🎫 {code}")
-                except Exception: await context.bot.send_document(chat_id=int(aid), document=fid, caption=f"📎 مدرک شناسایی مشترک\n🎫 {code}")
-            except Exception: log.exception("Irancell admin notification failed")
-        st["mode"] = None; st.pop("irancell", None)
-        await msg.reply_text(f"✅ درخواست با موفقیت ثبت شد.\n\n📱 خدمت: حل مشکل سیم کارت ایرانسل\n🎫 کد پیگیری: {code}\n💰 هزینه: {PRICE:,} تومان\n💳 از شارژ پنل کسر شد.\n\n📨 اطلاعات و مدرک برای مدیریت ارسال شد.", reply_markup=B.partner_kb(st.get("lang", "fa")))
+                await context.bot.send_message(chat_id=int(aid), text=text, reply_markup=_admin_markup(rid))
+                await context.bot.send_document(chat_id=int(aid), document=fid, caption=f"📎 مدرک درخواست {code}")
+            except Exception:
+                log.exception("Irancell admin notification failed")
+        await msg.reply_text(f"✅ درخواست شما ثبت شد.\n\n🆔 کد پیگیری: {code}\n💰 مبلغ کسرشده از شارژ همکار: {PRICE:,} تومان", reply_markup=B.partner_kb(st.get("lang", "fa")))
         raise ApplicationHandlerStop
 
-    async def admin_cb(update, context):
-        q = update.callback_query; data = str(q.data or "")
-        if not data.startswith("irsim:"): return
-        await q.answer()
-        if not B.admin(q.from_user.id): return await q.message.reply_text("❌ دسترسی مدیریت ندارید.")
-        parts = data.split(":")
-        try: rid=int(parts[2])
-        except Exception: return await q.message.reply_text("❌ شناسه درخواست نامعتبر است.")
-        row=B.db.conn.execute("SELECT * FROM requests WHERE id=?",(rid,)).fetchone()
-        if not row: return await q.message.reply_text("❌ درخواست پیدا نشد.")
-        if parts[1]=="last":
-            try:
-                await context.bot.send_message(chat_id=q.from_user.id, text=f"📌 انتقال به آخر چت\n🎫 کد پیگیری: {row['tracking_code']}\n📱 حل مشکل سیم کارت ایرانسل")
-                return
-            except Exception:
-                return await q.message.reply_text("❌ انتقال به آخر چت انجام نشد.")
-        if parts[1]=="detail":
-            ans=B.db.conn.execute("SELECT field_key,answer FROM request_answers WHERE request_id=? ORDER BY id",(rid,)).fetchall()
-            labels={"partner_id":"شناسه همکار","partner_name":"نام همکار","partner_phone":"موبایل همکار","subscriber_phone":"شماره موبایل مشترک ایرانسل","carrier":"اپراتور","service":"خدمت","amount":"مبلغ"}
-            body=[f"📋 جزئیات کامل درخواست {row['tracking_code']}","",f"📌 وضعیت: {row['status'] or '-'}",f"💳 پرداخت: {row['payment_method'] or '-'}"]
-            for a in ans: body.append(f"• {labels.get(a['field_key'],a['field_key'])}: {a['answer'] or '-'}")
-            return await q.message.reply_text("\n".join(body),reply_markup=_admin_markup(rid))
-        if parts[1]=="approve":
-            B.db.conn.execute("UPDATE requests SET status='approved',updated_at=? WHERE id=?",(B.now(),rid)); B.db.conn.commit()
-            return await q.message.reply_text("✅ درخواست تأیید شد.",reply_markup=_admin_markup(rid))
-        if parts[1]=="reject":
-            B.db.conn.execute("UPDATE requests SET status='rejected',updated_at=? WHERE id=?",(B.now(),rid)); B.db.conn.commit()
-            return await q.message.reply_text("❌ درخواست رد شد.",reply_markup=_admin_markup(rid))
-        return
-
-    app.add_handler(CallbackQueryHandler(admin_cb, pattern=r"^irsim:"), group=-6100)
-    app.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL, media), group=-6101)
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text), group=-6102)
-    B._irancell_partner_service=True
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text), group=-9999999)
+    app.add_handler(MessageHandler((filters.PHOTO | filters.Document.ALL), media), group=-9999998)
+    app.add_handler(CallbackQueryHandler(lambda update, context: None, pattern=r"^__never__"), group=-9999997)
+    B._irancell_partner_service = True
