@@ -1,7 +1,4 @@
-"""Telegram partner-only Irancell SIM service.
-Flow: subscriber Irancell mobile -> identity document -> 300,000 toman partner-balance debit -> admin notification.
-The admin request can start a security-code exchange: admin uploads an image, the exact partner who created the request receives it, and the partner's code is returned to the requesting admin.
-"""
+"""Telegram partner-only Irancell SIM service."""
 import logging, re, secrets
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackQueryHandler, MessageHandler, filters, ApplicationHandlerStop
@@ -27,9 +24,10 @@ def _phone(v):
 
 def _admin_markup(rid):
     return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📌 انتقال به آخر چت", callback_data=f"irsim:last:{rid}")],
         [InlineKeyboardButton("🔎 مشاهده اطلاعات کامل", callback_data=f"irsim:detail:{rid}")],
-        [InlineKeyboardButton("⏳ بررسی اولیه", callback_data=f"irsim:review:{rid}"), InlineKeyboardButton("🔐 درخواست کد امنیتی", callback_data=f"panel:askcode:{rid}")],
-        [InlineKeyboardButton("❌ رد درخواست", callback_data=f"irsim:reject:{rid}")],
+        [InlineKeyboardButton("✅ تأیید درخواست", callback_data=f"irsim:approve:{rid}"), InlineKeyboardButton("❌ رد درخواست", callback_data=f"irsim:reject:{rid}")],
+        [InlineKeyboardButton("🔐 درخواست کد امنیتی", callback_data=f"panel:askcode:{rid}")],
     ])
 
 
@@ -46,7 +44,6 @@ def _ensure_service(B):
 def install(app, B):
     if getattr(B, "_irancell_partner_service", False): return
     _ensure_service(B)
-
     old_partner_kb = B.partner_kb
     def partner_kb(lang="fa"):
         try:
@@ -155,16 +152,24 @@ def install(app, B):
         except Exception: return await q.message.reply_text("❌ شناسه درخواست نامعتبر است.")
         row=B.db.conn.execute("SELECT * FROM requests WHERE id=?",(rid,)).fetchone()
         if not row: return await q.message.reply_text("❌ درخواست پیدا نشد.")
+        if parts[1]=="last":
+            try:
+                await context.bot.send_message(chat_id=q.from_user.id, text=f"📌 انتقال به آخر چت\n🎫 کد پیگیری: {row['tracking_code']}\n📱 حل مشکل سیم کارت ایرانسل")
+                return
+            except Exception:
+                return await q.message.reply_text("❌ انتقال به آخر چت انجام نشد.")
         if parts[1]=="detail":
             ans=B.db.conn.execute("SELECT field_key,answer FROM request_answers WHERE request_id=? ORDER BY id",(rid,)).fetchall()
             labels={"partner_id":"شناسه همکار","partner_name":"نام همکار","partner_phone":"موبایل همکار","subscriber_phone":"شماره موبایل مشترک ایرانسل","carrier":"اپراتور","service":"خدمت","amount":"مبلغ"}
-            body=[f"📋 جزئیات درخواست {row['tracking_code']}","",f"📌 وضعیت: {row['status'] or '-'}",f"💳 پرداخت: {row['payment_method'] or '-'}"]
+            body=[f"📋 جزئیات کامل درخواست {row['tracking_code']}","",f"📌 وضعیت: {row['status'] or '-'}",f"💳 پرداخت: {row['payment_method'] or '-'}"]
             for a in ans: body.append(f"• {labels.get(a['field_key'],a['field_key'])}: {a['answer'] or '-'}")
             return await q.message.reply_text("\n".join(body),reply_markup=_admin_markup(rid))
-        status={"review":"reviewing","reject":"rejected"}.get(parts[1])
-        if status:
-            B.db.conn.execute("UPDATE requests SET status=?,updated_at=? WHERE id=?",(status,B.now(),rid)); B.db.conn.commit()
-            return await q.message.reply_text("⏳ درخواست به «در حال بررسی» منتقل شد." if status=="reviewing" else "❌ درخواست رد شد.",reply_markup=_admin_markup(rid))
+        if parts[1]=="approve":
+            B.db.conn.execute("UPDATE requests SET status='approved',updated_at=? WHERE id=?",(B.now(),rid)); B.db.conn.commit()
+            return await q.message.reply_text("✅ درخواست تأیید شد.",reply_markup=_admin_markup(rid))
+        if parts[1]=="reject":
+            B.db.conn.execute("UPDATE requests SET status='rejected',updated_at=? WHERE id=?",(B.now(),rid)); B.db.conn.commit()
+            return await q.message.reply_text("❌ درخواست رد شد.",reply_markup=_admin_markup(rid))
         return
 
     app.add_handler(CallbackQueryHandler(admin_cb, pattern=r"^irsim:"), group=-6100)
