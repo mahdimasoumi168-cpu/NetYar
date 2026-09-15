@@ -26,8 +26,17 @@ def partner_menu(B, uid):
         ], B, uid)
     except Exception:
         return InlineKeyboardMarkup([
+            [InlineKeyboardButton("➕ شارژ حساب", callback_data="__never__")],
             [InlineKeyboardButton(IRANCELL, callback_data="__never__")],
+            [InlineKeyboardButton("🏛 حل مشکل سامانه دولت من", callback_data="__never__")],
+            [InlineKeyboardButton("🎫 درخواست‌های من", callback_data="__never__")],
+            [InlineKeyboardButton("📱 خدمات سیم کارت", callback_data="__never__")],
+            [InlineKeyboardButton("🪪 فیدای غیر حضوری", callback_data="__never__")],
+            [InlineKeyboardButton("🔎 پیگیری کد", callback_data="__never__")],
+            [InlineKeyboardButton("📋 سوابق", callback_data="__never__")],
+            [InlineKeyboardButton("💰 موجودی", callback_data="__never__")],
             [InlineKeyboardButton(MANAGEMENT, callback_data="__never__")],
+            [InlineKeyboardButton("🚪 خروج از پنل", callback_data="__never__")],
             [InlineKeyboardButton(CANCEL, callback_data="__never__")],
         ])
 
@@ -82,6 +91,43 @@ def install(app, B):
     except Exception:
         log.exception("management-only dispatch patch failed")
 
+    # Absolute admin callback owner: adm:* must be consumed here before the
+    # legacy admin callback group can run. On any exception, return to the
+    # admin menu rather than falling through to a generic partner error.
+    try:
+        import telegram_admin_plus as A
+        if not getattr(A, "_management_admin_hardened_v32", False):
+            async def admin_callback_owner(update, context):
+                q = getattr(update, "callback_query", None)
+                if not q or not str(q.data or "").startswith("adm:"):
+                    return
+                uid = q.from_user.id
+                if not B.admin(uid):
+                    try:
+                        await q.answer("❌ دسترسی مدیریت ندارید.", show_alert=True)
+                    except Exception:
+                        pass
+                    raise ApplicationHandlerStop
+                try:
+                    await A._callback(update, context, B)
+                except ApplicationHandlerStop:
+                    raise
+                except Exception:
+                    log.exception("admin callback owner failed data=%s", q.data)
+                    try:
+                        await q.answer("خطای موقت؛ پنل مدیریت باز شد.", show_alert=True)
+                    except Exception:
+                        pass
+                    await q.message.reply_text(
+                        "⚠️ این بخش با خطای موقت روبه‌رو شد.\n\nپنل مدیریت شما حفظ شد؛ لطفاً از گزینه دیگری استفاده کنید.",
+                        reply_markup=A._admin_menu(),
+                    )
+                raise ApplicationHandlerStop
+            app.add_handler(CallbackQueryHandler(admin_callback_owner, pattern=r"^adm:"), group=-21)
+            A._management_admin_hardened_v32 = True
+    except Exception:
+        log.exception("admin callback hardening unavailable")
+
     try:
         async def off_partner_clean(update, context):
             q = getattr(update, "callback_query", None)
@@ -104,9 +150,6 @@ def install(app, B):
     except Exception:
         log.exception("off-hours management-only callback patch failed")
 
-    # Do not let a broken optional hardening import make the management UI
-    # report a false startup/runtime failure. The actual government flow is
-    # already installed by the authoritative Telegram runtime layers.
     try:
         import telegram_government_final_hardening_v19 as G19
         G19.install(app, B)
