@@ -15,7 +15,7 @@ import production_stability
 import rubika_bootstrap_final
 import server
 
-NETYAR_TELEGRAM_BUILD = "2026-09-15-partner-services-v29-final"
+NETYAR_TELEGRAM_BUILD = "2026-09-15-partner-services-v30-callback-hardening"
 
 bale_bootstrap.install(server)
 rubika_bootstrap_final.install(server)
@@ -150,12 +150,14 @@ def _install_telegram_layers(app, bot, logger):
         logger.exception("Telegram complete-request notification finalizer unavailable")
     _install_module("desktop_agent_api_clean", app, bot, logger)
 
-    # ABSOLUTE FINAL LAYER:
-    # No legacy/optional layer is allowed to overwrite the canonical partner
-    # menu or callback routing after v29. This is intentionally the last
-    # Telegram install in the entrypoint.
+    # v29 owns the final partner menu and service implementation.
     _install_module("telegram_partner_final_router_v29", app, bot, logger)
-    logger.info("Telegram v29 is the absolute final partner routing layer")
+
+    # v30 is the absolute callback owner.  It must be installed last and uses
+    # a very early handler group to prevent any legacy ui2 handler from
+    # intercepting the callback first.
+    _install_module("telegram_absolute_callback_hardening_v30", app, bot, logger)
+    logger.info("Telegram v30 is the absolute ui2 callback owner")
 
 
 def main():
