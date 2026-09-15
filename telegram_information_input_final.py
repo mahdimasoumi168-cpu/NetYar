@@ -32,10 +32,6 @@ def install(app, B):
         t = msg.text.strip()
         d = _digits(t)
 
-        # Government service phone ownership is based on the active government
-        # workflow state as well as its nominal mode. Some older navigation layers
-        # can rewrite mode while leaving gov_doc_type set; in that case the phone
-        # must still be consumed here instead of falling through silently.
         gov_phone_modes = {"govv2_phone", "gov_phone", "government_phone", "gov_phone_input"}
         if mode in gov_phone_modes or (
             st.get("gov_doc_type")
@@ -51,7 +47,6 @@ def install(app, B):
                 await msg.reply_text("🎂 تاریخ تولد مشترک را وارد کنید:")
             raise ApplicationHandlerStop
 
-        # Partner login is handled before every legacy text router.
         if mode == "p_phone" or st.get("step") == "partner_phone":
             phone = _normalize_phone(t)
             if not re.fullmatch(r"09\d{9}", phone):
@@ -169,18 +164,21 @@ def install(app, B):
             else:
                 st["gov_special"] = d
                 typ = st.get("gov_doc_type")
-                if typ == "card":
+                # Both Amayesh and temporary-card workflows use household ID
+                # after identity verification. They must never ask for the
+                # temporary-card number at this stage.
+                if typ in {"card", "temporary_card"}:
                     st["mode"] = "govv2_family"
-                    await msg.reply_text("👨‍👩‍👧‍👦 کد خانوار مشترک را وارد کنید (فقط برای کارت آمایش):")
+                    await msg.reply_text("👨‍👩‍👧‍👦 شناسه خانوار مشترک را وارد کنید:")
                 else:
                     st["mode"] = "govv2_identity_number"
-                    prompt = {"passport": "🛂 شماره گذرنامه مشترک را وارد کنید:", "residence_booklet": "📗 شماره دفترچه اقامت مشترک را وارد کنید:", "temporary_card": "🪪 شماره کارت موقت مشترک را وارد کنید:"}.get(typ, "🪪 شماره مدرک مشترک را وارد کنید:")
+                    prompt = {"passport": "🛂 شماره گذرنامه مشترک را وارد کنید:", "residence_booklet": "📗 شماره دفترچه اقامت مشترک را وارد کنید:"}.get(typ, "🪪 شماره مدرک مشترک را وارد کنید:")
                     await msg.reply_text(prompt)
             raise ApplicationHandlerStop
 
         if mode == "govv2_family":
             if not d.isdigit():
-                await msg.reply_text("❌ کد خانوار باید عددی باشد.")
+                await msg.reply_text("❌ شناسه خانوار باید عددی باشد.\n\n👨‍👩‍👧‍👦 لطفاً شناسه خانوار مشترک را دوباره وارد کنید:")
             else:
                 st["gov_family_code"] = d; st["mode"] = "govv2_postal"
                 await msg.reply_text("📮 کد پستی ۱۰ رقمی منزل مشترک را وارد کنید:")
