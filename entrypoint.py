@@ -15,7 +15,7 @@ import production_stability
 import rubika_bootstrap_final
 import server
 
-NETYAR_TELEGRAM_BUILD = "2026-09-15-partner-services-v30-callback-hardening"
+NETYAR_TELEGRAM_BUILD = "2026-09-16-partner-services-v31-stability"
 
 bale_bootstrap.install(server)
 rubika_bootstrap_final.install(server)
@@ -150,12 +150,13 @@ def _install_telegram_layers(app, bot, logger):
         logger.exception("Telegram complete-request notification finalizer unavailable")
     _install_module("desktop_agent_api_clean", app, bot, logger)
 
-    # v29 owns the final partner menu and service implementation.
     _install_module("telegram_partner_final_router_v29", app, bot, logger)
 
-    # v30 is the absolute callback owner.  It must be installed last and uses
-    # a very early handler group to prevent any legacy ui2 handler from
-    # intercepting the callback first.
+    # This is deliberately the final partner logout owner before v30 takes
+    # ownership of ui2 callbacks. v30 calls B.partner_exit, so the binding is
+    # honored by every ui2 route without requiring legacy exit-choice flows.
+    _install_module("telegram_partner_logout_hardening_v31", app, bot, logger)
+
     _install_module("telegram_absolute_callback_hardening_v30", app, bot, logger)
     logger.info("Telegram v30 is the absolute ui2 callback owner")
 
