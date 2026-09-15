@@ -21,6 +21,7 @@ _RUBIKA_LAYERS = (
     "rubika_final_hardening",
     "rubika_final_stability",
     "rubika_language_global",
+    "rubika_final_safe_overlay_v1",
 )
 
 _RB_LOCKS = {}
@@ -94,10 +95,6 @@ def _telegram_initializer(server_module):
             server_module.telegram_app = tg.build()
             await server_module.telegram_app.initialize()
             await server_module.telegram_app.start()
-
-            # Railway is an HTTP service. Webhook mode gives Telegram a single
-            # authoritative receiver and eliminates getUpdates 409 conflicts
-            # caused by another polling process using the same bot token.
             endpoint = server_module.public_url("/telegram/update")
             await server_module.telegram_app.bot.set_webhook(
                 url=endpoint,
