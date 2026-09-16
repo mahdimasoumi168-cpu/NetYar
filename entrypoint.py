@@ -15,7 +15,7 @@ import production_stability
 import rubika_bootstrap_final
 import server
 
-NETYAR_TELEGRAM_BUILD = "2026-09-16-partner-services-v31-stability"
+NETYAR_TELEGRAM_BUILD = "2026-09-16-partner-services-v32-navigation"
 
 bale_bootstrap.install(server)
 rubika_bootstrap_final.install(server)
@@ -159,6 +159,13 @@ def _install_telegram_layers(app, bot, logger):
 
     _install_module("telegram_absolute_callback_hardening_v30", app, bot, logger)
     logger.info("Telegram v30 is the absolute ui2 callback owner")
+
+    # v32 is intentionally the last partner-navigation owner. It fixes only
+    # two edge cases and does not replace any service implementation:
+    # explicit partner-panel entry always asks for credentials again, while a
+    # Cancel from an authenticated partner flow returns to the partner panel.
+    _install_module("telegram_partner_navigation_final_v32", app, bot, logger)
+    logger.info("Telegram v32 partner navigation hardening installed")
 
 
 def main():
