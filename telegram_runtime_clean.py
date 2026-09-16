@@ -140,6 +140,20 @@ def _install_features(app):
         V33.install(app,B)
         log.info("REAL runtime: session/context hardening v33 installed")
     except Exception:log.exception("session/context hardening v33 unavailable")
+    # Final deterministic admin navigation: exposes «➕ افزودن همکار جدید»
+    # inside the real management panel, not only in an unused loader.
+    try:
+        import telegram_final_admin_navigation_v3 as AN
+        AN.install(app,B)
+        log.info("REAL runtime: final admin navigation v3 installed")
+    except Exception:log.exception("final admin navigation v3 unavailable")
+    # Final partner navigation: always re-authenticate on panel entry and keep
+    # cancel/back actions inside the partner panel context.
+    try:
+        import telegram_partner_navigation_final_v33 as PN
+        PN.install(app,B)
+        log.info("REAL runtime: partner navigation v33 installed")
+    except Exception:log.exception("partner navigation v33 unavailable")
     if getattr(B,"_partner_final_router_v29",False) and getattr(B,"_absolute_callback_v30",False):
         log.info("REAL runtime final layers OK: v29 + v30 + v33")
     else:
