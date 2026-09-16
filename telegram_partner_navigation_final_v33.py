@@ -22,7 +22,9 @@ def install(app,B):
     import telegram_ui_policy_v2 as UI
     old_dispatch=UI._dispatch; old_partner_kb=B.partner_kb
     def partner_kb(lang="fa"):
-        uid=getattr(UI,"_ui_current_uid",None) or 0; return _add_partner_markup(B,uid,old_partner_kb(lang))
+        try: uid=int(UI._uid())
+        except Exception: uid=getattr(UI,"_ui_current_uid",None) or 0
+        return _add_partner_markup(B,uid,old_partner_kb(lang))
     B.partner_kb=partner_kb
     async def dispatch(update,context,bot,label):
         label=str(label or "").strip(); q=getattr(update,"callback_query",None); uid=int(q.from_user.id if q else update.effective_user.id); st=bot.S.setdefault(uid,{})
