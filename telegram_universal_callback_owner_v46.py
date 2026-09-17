@@ -1,17 +1,15 @@
-"""Universal Telegram callback owner v47.
+"""Universal Telegram callback owner v48.
 
-Single owner for ui2 callbacks. The callback query object from python-telegram-bot
-is immutable, so runtime state is passed explicitly instead of attaching custom
-attributes to Telegram objects. This prevents valid partner/public buttons from
-falling through to the legacy generic-error handler.
+Single owner for ui2 callbacks. Telegram callback objects are treated as
+immutable; runtime state is passed explicitly. The trust entry intentionally
+contains only the eNAMAD verification link and no site/payment link.
 """
 import logging
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackQueryHandler, ApplicationHandlerStop
 
-log = logging.getLogger("netyar.telegram.universal_owner_v47")
+log = logging.getLogger("netyar.telegram.universal_owner_v48")
 TRUST_URL = "https://trustseal.enamad.ir/?id=7717012&Code=hEHTsn6HzG7ZsxeorkqzvLbTkOTEpRbH"
-SITE_URL = "https://netyarmohajer.sizpay.ir"
 TRUST = {"🛡 اعتماد", "🛡️ اعتماد"}
 ALIASES = {
     "🎫 درخواست‌های من": "📋 سوابق",
@@ -38,9 +36,7 @@ def _label(q, B):
     try:
         if data.startswith("ui2:"):
             token = data[4:]
-            row = B.db.conn.execute(
-                "SELECT user_id,label,lang,status FROM ui2_callbacks WHERE token=? LIMIT 1", (token,)
-            ).fetchone()
+            row = B.db.conn.execute("SELECT user_id,label,lang,status FROM ui2_callbacks WHERE token=? LIMIT 1", (token,)).fetchone()
             if row:
                 uid = str(q.from_user.id)
                 owner = str(row["user_id"] if hasattr(row, "keys") else row[0])
@@ -64,12 +60,10 @@ async def _trust(q):
         "🛡 نماد اعتماد الکترونیکی\n\n"
         "🏢 نام کسب‌وکار: نت یار مهاجر\n"
         "🔤 نام لاتین: NetYareMohajer\n"
-        "🌐 دامنه: netyarmohajer.sizpay.ir\n"
         "☎️ تلفن: 03135674350\n"
         "📧 ایمیل: netyaremohajer@gmail.com",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("🔎 مشاهده نماد در eNAMAD", url=TRUST_URL)],
-            [InlineKeyboardButton("🌐 وب‌سایت نت یار مهاجر", url=SITE_URL)],
         ]),
         disable_web_page_preview=True,
     )
@@ -92,7 +86,6 @@ async def callback(update, context, B):
         raise ApplicationHandlerStop
     if not data.startswith("ui2:"):
         return
-
     raw_label = _label(q, B)
     label = ALIASES.get(raw_label, raw_label)
     if not label:
@@ -100,39 +93,29 @@ async def callback(update, context, B):
     if label == "__FORBIDDEN__":
         await q.answer("این دکمه متعلق به حساب دیگری است.", show_alert=True)
         raise ApplicationHandlerStop
-
     if label in TRUST:
         await _trust(q)
         raise ApplicationHandlerStop
-
     try:
         await q.answer()
     except Exception:
         pass
-
     if label in KNOWN:
         try:
             from telegram_stable_callback import handle
-            result = await handle(update, context, B, label)
-            # A handler returning None is still a valid handled action; do not
-            # invoke legacy fallback merely because there is no return value.
+            await handle(update, context, B, label)
             raise ApplicationHandlerStop
         except ApplicationHandlerStop:
             raise
         except Exception:
             log.exception("stable route failed label=%r", label)
-            # Preserve the current partner context rather than falling into v30.
             uid = q.from_user.id
             st = B.S.setdefault(uid, {})
             if st.get("partner_id") and st.get("partner_active", True):
-                await q.message.reply_text(
-                    "❌ اجرای این گزینه با خطا روبه‌رو شد؛ پنل همکاران شما حفظ شد.",
-                    reply_markup=B.partner_kb(st.get("lang", "fa")),
-                )
+                await q.message.reply_text("❌ اجرای این گزینه با خطا روبه‌رو شد؛ پنل همکاران شما حفظ شد.", reply_markup=B.partner_kb(st.get("lang", "fa")))
             else:
                 await q.message.reply_text("❌ اجرای این گزینه با خطا روبه‌رو شد. لطفاً دوباره تلاش کنید.", reply_markup=B.main(uid))
             raise ApplicationHandlerStop
-
     try:
         import telegram_ui_policy_v2 as UI
         fn = getattr(UI, "_dispatch", None)
@@ -144,7 +127,6 @@ async def callback(update, context, B):
         raise
     except Exception:
         log.exception("canonical route failed label=%r", label)
-
     uid = q.from_user.id
     st = B.S.setdefault(uid, {})
     if st.get("partner_id") and st.get("partner_active", True):
@@ -156,13 +138,10 @@ async def callback(update, context, B):
     raise ApplicationHandlerStop
 
 def install(app, B):
-    if getattr(B, "_universal_callback_owner_v47", False):
+    if getattr(B, "_universal_callback_owner_v48", False):
         return
     async def _bound(update, context):
         return await callback(update, context, B)
-    app.add_handler(
-        CallbackQueryHandler(_bound, pattern=r"^(ui2:|enamad:trust|iranian:back)"),
-        group=-8000000,
-    )
-    B._universal_callback_owner_v47 = True
-    log.info("UNIVERSAL Telegram callback owner v47 installed (immutable-safe runtime)")
+    app.add_handler(CallbackQueryHandler(_bound, pattern=r"^(ui2:|enamad:trust|iranian:back)"), group=-8000000)
+    B._universal_callback_owner_v48 = True
+    log.info("UNIVERSAL Telegram callback owner v48 installed (no site link)")
