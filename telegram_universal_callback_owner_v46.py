@@ -100,12 +100,17 @@ async def callback(update, context, B):
         await q.answer("این دکمه متعلق به حساب دیگری است.", show_alert=True)
         raise ApplicationHandlerStop
 
+    # اعتماد is a ui2 button in some menus and a named callback in others.
+    # It must never enter the legacy fallback path.
+    if label in TRUST:
+        await _trust(q)
+        raise ApplicationHandlerStop
+
     try:
         await q.answer()
     except Exception:
         pass
 
-    # Stable router owns the labels it explicitly implements.
     if label in KNOWN:
         try:
             from telegram_stable_callback import handle
@@ -117,8 +122,6 @@ async def callback(update, context, B):
             log.exception("stable route failed label=%r", label)
 
     # Every other ui2 callback must still reach the canonical dispatcher.
-    # Previously these labels were dropped here and a later legacy layer
-    # produced the generic "این گزینه فعلاً اجرا نشد" response.
     try:
         import telegram_ui_policy_v2 as UI
         fn = getattr(UI, "_dispatch", None)
@@ -131,9 +134,6 @@ async def callback(update, context, B):
     except Exception:
         log.exception("canonical route failed label=%r", label)
 
-    # Let legacy handlers get a final opportunity for service-specific actions.
-    # Do not synthesize the old generic error here; the user should remain in
-    # the current context if a stale callback is encountered.
     raise ApplicationHandlerStop
 
 def install(app, B):
