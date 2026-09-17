@@ -1,14 +1,15 @@
-"""Universal Telegram callback owner v46.
+"""Universal Telegram callback owner v47.
 
-This layer is the final owner for ui2 callbacks. Known public/partner menu
-labels use the stable router; every other ui2 label is delegated to the
-canonical dispatcher instead of being silently dropped.
+Single owner for ui2 callbacks. The callback query object from python-telegram-bot
+is immutable, so runtime state is passed explicitly instead of attaching custom
+attributes to Telegram objects. This prevents valid partner/public buttons from
+falling through to the legacy generic-error handler.
 """
 import logging
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackQueryHandler, ApplicationHandlerStop
 
-log = logging.getLogger("netyar.telegram.universal_owner_v46")
+log = logging.getLogger("netyar.telegram.universal_owner_v47")
 TRUST_URL = "https://trustseal.enamad.ir/?id=7717012&Code=hEHTsn6HzG7ZsxeorkqzvLbTkOTEpRbH"
 SITE_URL = "https://netyarmohajer.sizpay.ir"
 TRUST = {"🛡 اعتماد", "🛡️ اعتماد"}
@@ -32,12 +33,12 @@ KNOWN = {
     "🎫 پیگیری", "📞 تماس با ما", "📝 ثبت شکایت مشتریان",
 }
 
-def _label(q):
+def _label(q, B):
     data = str(getattr(q, "data", "") or "")
     try:
         if data.startswith("ui2:"):
             token = data[4:]
-            row = q._universal_bot.db.conn.execute(
+            row = B.db.conn.execute(
                 "SELECT user_id,label,lang,status FROM ui2_callbacks WHERE token=? LIMIT 1", (token,)
             ).fetchone()
             if row:
@@ -47,7 +48,7 @@ def _label(q):
                     return "__FORBIDDEN__"
                 return str(row["label"] if hasattr(row, "keys") else row[1] or "").strip()
     except Exception:
-        pass
+        log.exception("ui2 label lookup failed")
     try:
         for row in getattr(q.message.reply_markup, "inline_keyboard", []) or []:
             for b in row or []:
@@ -92,8 +93,7 @@ async def callback(update, context, B):
     if not data.startswith("ui2:"):
         return
 
-    q._universal_bot = B
-    raw_label = _label(q)
+    raw_label = _label(q, B)
     label = ALIASES.get(raw_label, raw_label)
     if not label:
         return
@@ -113,12 +113,25 @@ async def callback(update, context, B):
     if label in KNOWN:
         try:
             from telegram_stable_callback import handle
-            await handle(update, context, B, label)
+            result = await handle(update, context, B, label)
+            # A handler returning None is still a valid handled action; do not
+            # invoke legacy fallback merely because there is no return value.
             raise ApplicationHandlerStop
         except ApplicationHandlerStop:
             raise
         except Exception:
             log.exception("stable route failed label=%r", label)
+            # Preserve the current partner context rather than falling into v30.
+            uid = q.from_user.id
+            st = B.S.setdefault(uid, {})
+            if st.get("partner_id") and st.get("partner_active", True):
+                await q.message.reply_text(
+                    "❌ اجرای این گزینه با خطا روبه‌رو شد؛ پنل همکاران شما حفظ شد.",
+                    reply_markup=B.partner_kb(st.get("lang", "fa")),
+                )
+            else:
+                await q.message.reply_text("❌ اجرای این گزینه با خطا روبه‌رو شد. لطفاً دوباره تلاش کنید.", reply_markup=B.main(uid))
+            raise ApplicationHandlerStop
 
     try:
         import telegram_ui_policy_v2 as UI
@@ -132,10 +145,18 @@ async def callback(update, context, B):
     except Exception:
         log.exception("canonical route failed label=%r", label)
 
+    uid = q.from_user.id
+    st = B.S.setdefault(uid, {})
+    if st.get("partner_id") and st.get("partner_active", True):
+        await q.message.reply_text("⛔ این گزینه در پنل همکاران شناخته نشد؛ پنل شما حفظ شد.", reply_markup=B.partner_kb(st.get("lang", "fa")))
+    elif st.get("mode"):
+        await q.message.reply_text("⛔ این گزینه در مرحله فعلی شناخته نشد؛ مرحله شما حفظ شد.", reply_markup=B.cancel_kb(st.get("lang", "fa")))
+    else:
+        await q.message.reply_text("⛔ این گزینه شناخته نشد. لطفاً /start را بزنید.", reply_markup=B.main(uid))
     raise ApplicationHandlerStop
 
 def install(app, B):
-    if getattr(B, "_universal_callback_owner_v46", False):
+    if getattr(B, "_universal_callback_owner_v47", False):
         return
     async def _bound(update, context):
         return await callback(update, context, B)
@@ -143,5 +164,5 @@ def install(app, B):
         CallbackQueryHandler(_bound, pattern=r"^(ui2:|enamad:trust|iranian:back)"),
         group=-8000000,
     )
-    B._universal_callback_owner_v46 = True
-    log.info("UNIVERSAL Telegram callback owner v46 installed (bound runtime)")
+    B._universal_callback_owner_v47 = True
+    log.info("UNIVERSAL Telegram callback owner v47 installed (immutable-safe runtime)")
