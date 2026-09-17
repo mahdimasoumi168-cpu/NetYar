@@ -61,13 +61,20 @@ async def _night(update,context,B):
     if not _admin(B,q.from_user.id):await q.answer("❌ دسترسی مدیریت ندارید.",show_alert=True);raise ApplicationHandlerStop
     enabled=q.data=="adm:night_on"
     try:
-        B.db.set_setting("night_shift_enabled","1" if enabled else "0")
-        try:B.db.conn.commit()
-        except Exception:pass
+        value="1" if enabled else "0"
+        B.db.set_setting("night_shift_enabled",value)
+        saved=str(B.db.setting("night_shift_enabled",""))==value
+        if not saved:
+            raise RuntimeError("night_shift_enabled was not persisted")
         try:
-            import telegram_admin_cleanup_and_night_switch_v1 as N
-            N._patch_night_gate(B)
-        except Exception:log.exception("night gate refresh failed")
+            from telegram_offhours_partner_gate_v2 import _is_open
+            effective=bool(_is_open(B))
+        except Exception:
+            effective=None
+        # At night the effective gate must follow the switch; during 07:00-19:00
+        # it is naturally open regardless of this setting.
+        if effective is False and enabled:
+            raise RuntimeError("night switch is ON but effective gate remains closed")
         await q.answer("تنظیم شد")
         status="🟢 باز" if enabled else "🔴 بسته"
         await q.message.reply_text(f"🌙 کنترل ربات در شب\n\nوضعیت: {status}\n\n⏰ ساعت کاری روزانه همچنان ۰۷:۰۰ تا ۱۹:۰۰ است.\nاین گزینه فقط دسترسی خارج از ساعت کاری را کنترل می‌کند.\nدسترسی همکاران شب‌کار از بخش «🌙 همکاران شب‌کار» جداگانه مدیریت می‌شود.",reply_markup=menu())
@@ -115,7 +122,6 @@ def install(app,B):
         import telegram_admin_plus as A;A._admin_menu=menu
     except Exception:pass
     if getattr(B,"_canonical_admin_final_v6",False):return True
-    # Only exclusive callbacks are intercepted here. Other adm:* callbacks must reach feature handlers.
     app.add_handler(CallbackQueryHandler(lambda u,c:_add_partner(u,c,B),pattern=r"^adm:addpartner$"),group=-100000002)
     app.add_handler(CallbackQueryHandler(lambda u,c:_night(u,c,B),pattern=r"^adm:night_(on|off)$"),group=-100000001)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,lambda u,c:_text(u,c,B)),group=-100000000)
