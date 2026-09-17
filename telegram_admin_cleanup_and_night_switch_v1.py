@@ -2,7 +2,7 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackQueryHandler, ApplicationHandlerStop
 
-MARK = "_admin_cleanup_night_switch_v2"
+MARK = "_admin_cleanup_night_switch_v3"
 NIGHT_KEY = "night_shift_enabled"
 
 
@@ -27,8 +27,9 @@ def menu():
         [InlineKeyboardButton("🌙 بستن ربات در شب", callback_data="adm:night_off"), InlineKeyboardButton("☀️ باز کردن ربات در شب", callback_data="adm:night_on")],
         [InlineKeyboardButton("📋 درخواست‌ها", callback_data="adm:requests"), InlineKeyboardButton("💳 پرداخت‌ها", callback_data="adm:payments")],
         [InlineKeyboardButton("💰 شارژها", callback_data="adm:topups"), InlineKeyboardButton("⚙️ قیمت‌ها", callback_data="adm:prices")],
-        [InlineKeyboardButton("🟢 خدمات", callback_data="adm:services"), InlineKeyboardButton("💵 افزایش شارژ", callback_data="adm:creditup")],
-        [InlineKeyboardButton("💸 کاهش شارژ", callback_data="adm:creditdown"), InlineKeyboardButton("✏️ تغییر متن‌ها", callback_data="adm:texts")],
+        [InlineKeyboardButton("🟢 خدمات", callback_data="adm:services")],
+        [InlineKeyboardButton("💵 افزایش شارژ", callback_data="adm:creditup"), InlineKeyboardButton("💸 کاهش شارژ", callback_data="adm:creditdown")],
+        [InlineKeyboardButton("✏️ تغییر متن‌ها", callback_data="adm:texts")],
         [InlineKeyboardButton("📊 گزارش کامل", callback_data="adm:report"), InlineKeyboardButton("📣 اعلان همگانی", callback_data="adm:announce")],
         [InlineKeyboardButton("🤖 بات‌های متصل", callback_data="adm:bots"), InlineKeyboardButton("🧾 لاگ مدیریت", callback_data="adm:logs")],
         [InlineKeyboardButton("⚙️ تنظیمات", callback_data="adm:settings")],
@@ -60,6 +61,33 @@ def _patch_night_gate(B):
             continue
 
 
+def _patch_admin_menu_owners():
+    # Several legacy admin modules expose their own menu function. Point every
+    # known owner at the canonical menu so old/duplicate layouts cannot return.
+    for name in (
+        "telegram_admin_plus",
+        "telegram_final_admin_menu_fix",
+        "telegram_admin_power",
+        "telegram_final_admin_partner_fix",
+        "telegram_final_admin_navigation_v3",
+        "telegram_management_stability_final",
+        "telegram_final_requirements_patch",
+    ):
+        try:
+            m = __import__(name)
+            if hasattr(m, "_admin_menu"):
+                m._admin_menu = menu
+            if hasattr(m, "admin_menu"):
+                m.admin_menu = menu
+            if hasattr(m, "menu"):
+                # Only replace clearly named admin-menu functions; avoid generic
+                # UI modules whose menu symbol may have another meaning.
+                if "admin" in name:
+                    m.menu = menu
+        except Exception:
+            continue
+
+
 async def _set_night(B, q, enabled):
     try:
         B.db.set_setting(NIGHT_KEY, "1" if enabled else "0")
@@ -85,6 +113,7 @@ async def _callback(update, context, B):
     action = str(q.data).split(":", 1)[1]
     if action == "menu":
         await q.answer()
+        _patch_admin_menu_owners()
         await q.message.reply_text("🛠 پنل مدیریت\n\nگزینه موردنظر را انتخاب کنید:", reply_markup=menu())
         raise ApplicationHandlerStop
     if action == "nighttoggle":
@@ -100,6 +129,7 @@ def install(app, B):
     if getattr(B, MARK, False):
         return True
     _patch_night_gate(B)
+    _patch_admin_menu_owners()
     try:
         import telegram_admin_ui_final_v2 as A
         A.menu = menu
