@@ -91,9 +91,6 @@ def install(app, B):
     except Exception:
         log.exception("management-only dispatch patch failed")
 
-    # Absolute admin callback owner: adm:* must be consumed here before the
-    # legacy admin callback group can run. On any exception, return to the
-    # admin menu rather than falling through to a generic partner error.
     try:
         import telegram_admin_plus as A
         if not getattr(A, "_management_admin_hardened_v32", False):
@@ -150,13 +147,9 @@ def install(app, B):
     except Exception:
         log.exception("off-hours management-only callback patch failed")
 
-    try:
-        import telegram_government_final_hardening_v19 as G19
-        G19.install(app, B)
-        log.info("REAL runtime: Government hardening v19 installed")
-    except Exception as exc:
-        log.warning("Government hardening v19 skipped; continuing with installed government flow: %s", exc)
-
+    # v19 was referenced here but is not present in the repository. The
+    # installed government flow already provides the active validation layer;
+    # do not import a missing optional module on every startup.
     B._management_only_v32 = True
     log.info("Management-only partner UI v32 installed")
     return True
