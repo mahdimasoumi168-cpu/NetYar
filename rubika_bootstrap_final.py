@@ -1,8 +1,8 @@
 """Single-owner Rubika/Telegram integration bootstrap.
 
-Telegram uses webhook mode on Railway so there is exactly one update receiver and
-an old/local polling process cannot steal updates with getUpdates. Rubika remains
-webhook based as well.
+Rubika has one startup owner and one webhook registration path. Legacy
+compatibility layers may still patch the shared runtime, but registration is
+performed exactly once here.
 """
 import asyncio
 import logging
@@ -10,6 +10,7 @@ import logging
 log = logging.getLogger("netyar.rubika.bootstrap")
 
 _RUBIKA_LAYERS = (
+    "rubika_webhook_fix",
     "rubika_fix",
     "rubika_core_compat",
     "rubika_runtime_fix",
@@ -65,11 +66,12 @@ def _install_send_boundary_guard(rb):
                     fixed.append((str(item[0]), str(item[1])))
                 else:
                     fixed.append((str(len(fixed)), str(item)))
-            out.append(fixed)
+            if fixed:
+                out.append(fixed)
         return out
 
     def guarded_send(chat, text, rows=None):
-        return original_send(chat, text, normalise(rows) if rows else rows)
+        return original_send(chat, text, normalise(rows) if rows is not None else rows)
 
     rb.send = guarded_send
     rb._netyar_send_boundary_guard = True
