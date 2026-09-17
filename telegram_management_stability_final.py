@@ -1,7 +1,8 @@
 """Final management/partner/working-hours stability layer.
 
 Adds non-destructive management controls on top of the existing NetYar panels.
-It deliberately uses unique callback names so legacy admin handlers keep working.
+The working-hours decision uses the same persistent global night switch as the
+canonical off-hours gate, so imported references cannot become stale.
 """
 import re
 from datetime import datetime, time
@@ -20,11 +21,15 @@ def _set(B,key,value):
     except Exception:return False
 def _valid_hhmm(v):return bool(re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d",str(v or "")))
 def _is_open(B):
-    op=_setting(B,"work_open",DEFAULT_OPEN);cl=_setting(B,"work_close",DEFAULT_CLOSE)
     try:
-        o=time.fromisoformat(op);c=time.fromisoformat(cl);now=datetime.now(TZ).time()
-        return o<=now<c if o<c else (now>=o or now<c)
-    except Exception:return False
+        from telegram_offhours_partner_gate_v2 import _is_open as canonical_is_open
+        return bool(canonical_is_open(B))
+    except Exception:
+        op=_setting(B,"work_open",DEFAULT_OPEN);cl=_setting(B,"work_close",DEFAULT_CLOSE)
+        try:
+            o=time.fromisoformat(op);c=time.fromisoformat(cl);now=datetime.now(TZ).time()
+            return o<=now<c if o<c else (now>=o or now<c)
+        except Exception:return False
 def _admin_menu_with_stability(B):
     base=B.amenu() if callable(getattr(B,"amenu",None)) else None;rows=[]
     source=getattr(base,"inline_keyboard",None) if base is not None else None
