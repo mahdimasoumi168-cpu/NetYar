@@ -119,6 +119,22 @@ def _install_features(app):
             if inspect.isawaitable(result):asyncio.run(result)
             log.info("REAL runtime: %s installed",label)
         except Exception:log.exception("%s unavailable",label)
+
+    # IMPORTANT: server.py builds telegram_runtime_clean directly. Therefore
+    # the canonical admin owner must be installed here, after every legacy
+    # layer, not only from entrypoint.py (which is not on the Telegram build
+    # path). This is the single runtime source of truth for the admin UI.
+    try:
+        import telegram_canonical_admin_final as CAF
+        CAF.install(app,B)
+        import telegram_admin_ui_firewall_v1 as AF
+        AF.install(app,B)
+        log.info("RUNTIME ADMIN OWNER LOCKED: telegram_canonical_admin_final.menu")
+        log.info("RUNTIME ADMIN AMENU OWNER: %s.%s", getattr(B.amenu,"__module__","?"), getattr(B.amenu,"__name__","?"))
+    except Exception:
+        log.exception("CRITICAL: canonical admin owner/firewall unavailable")
+        raise
+
     B.start=_start
     app.add_handler(CommandHandler("start",_start),group=-10000000); app.add_handler(MessageHandler(filters.Regex(r"^🔄 شروع مجدد$"),_restart),group=-9999999); app.add_handler(CallbackQueryHandler(_blocked_language_callback,pattern=r"^(lang|language):"),group=-9999998); app.add_handler(CallbackQueryHandler(_services_callback,pattern=r"^start:services$"),group=-9999997)
 
