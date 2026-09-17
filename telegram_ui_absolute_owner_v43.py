@@ -1,12 +1,12 @@
-"""Final Telegram callback owner v43.
+"""Final Telegram callback/text owner v43.
 
-Routes every ui2 callback directly through the stable dispatcher and owns
-known trust/back callbacks so legacy fallback handlers cannot replace valid
-buttons with the old generic error message.
+Owns the Telegram menu actions before legacy handlers. Callback actions are
+sent through the canonical UI dispatcher so partner-specific routes installed
+by later compatibility layers are still respected.
 """
 import logging
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import CallbackQueryHandler, ApplicationHandlerStop
+from telegram.ext import CallbackQueryHandler, MessageHandler, filters, ApplicationHandlerStop
 
 log = logging.getLogger("netyar.telegram.ui_absolute_v43")
 TRUST_URL = "https://trustseal.enamad.ir/?id=7717012&Code=hEHTsn6HzG7ZsxeorkqzvLbTkOTEpRbH"
@@ -19,6 +19,16 @@ ALIASES = {
     "✉️ ارسال پیام به مدیریت": "💬 ارتباط با مدیریت",
     "📝 ثبت شکایت": "📝 ثبت شکایت مشتریان",
     "🪪 حل مشکل ورود اتباع دولت من": "🪪 فیدای غیر حضوری",
+}
+# Exact menu labels that must never fall into a legacy unknown-option handler.
+MENU_TEXTS = {
+    "➕ شارژ حساب", "🏛 حل مشکل سامانه دولت من", "🎫 درخواست‌های من",
+    "📋 سوابق", "🔎 پیگیری کد", "💰 موجودی", "💰 کیف پول من",
+    "🪪 فیدای غیر حضوری", "🪪 حل مشکل ورود اتباع دولت من", "🖨 خدمات چاپ",
+    "📱 خدمات سیم کارت", "📱 حل مشکل سیم کارت ایرانسل", "🎫 تیکت به مدیریت",
+    "📨 ارسال پیام به مدیریت", "✉️ ارسال تیکت به مدیریت", "💬 ارتباط با مدیریت",
+    "📝 ثبت شکایت", "📝 ثبت شکایت مشتریان", "🚪 خروج از پنل", "❌ انصراف",
+    "🔄 شروع مجدد", "🔄 شروع دوباره", "👥 پنل همکاران", "🛠 پنل مدیریت بات",
 }
 
 
@@ -65,6 +75,16 @@ async def _iranian_back(q, B):
     await q.message.reply_text("🇮🇷 بخش خدمات ایرانی\n\nگزینه موردنظر را انتخاب کنید:", reply_markup=markup)
 
 
+async def _dispatch_label(update, context, B, label):
+    """Use the canonical UI dispatch chain, preserving partner overlays."""
+    label = ALIASES.get(str(label or "").strip(), str(label or "").strip())
+    from telegram_ui_policy_v2 import _dispatch
+    result = _dispatch(update, context, B, label)
+    if hasattr(result, "__await__"):
+        return await result
+    return result
+
+
 async def install_callback(update, context, B):
     q = getattr(update, "callback_query", None)
     if not q:
@@ -98,8 +118,10 @@ async def install_callback(update, context, B):
                 await q.answer("این دکمه متعلق به حساب دیگری است.", show_alert=True)
                 raise ApplicationHandlerStop
             st = B.S.setdefault(q.from_user.id, {})
-            if lang: st["lang"] = lang
-            if status: st["status"] = status
+            if lang:
+                st["lang"] = lang
+            if status:
+                st["status"] = status
     except ApplicationHandlerStop:
         raise
     except Exception:
@@ -113,12 +135,11 @@ async def install_callback(update, context, B):
         raise ApplicationHandlerStop
 
     try:
-        from telegram_stable_callback import handle
-        await handle(update, context, B, label)
+        await _dispatch_label(update, context, B, label)
     except ApplicationHandlerStop:
         raise
     except Exception:
-        log.exception("v43 stable callback failed label=%r data=%r", label, data)
+        log.exception("v43 canonical callback failed label=%r data=%r", label, data)
         uid = q.from_user.id
         st = B.S.setdefault(uid, {})
         try:
@@ -129,9 +150,43 @@ async def install_callback(update, context, B):
         raise ApplicationHandlerStop
 
 
+async def install_text(update, context, B):
+    msg = getattr(update, "message", None)
+    if not msg:
+        return
+    text = str(getattr(msg, "text", "") or "").strip()
+    if text in TRUST_LABELS:
+        # Reply-keyboard trust button has no callback_data, so own it here too.
+        await msg.reply_text(
+            "🛡 نماد اعتماد الکترونیکی\n\n"
+            "🏢 نام کسب‌وکار: نت یار مهاجر\n"
+            "🔤 نام لاتین: NetYareMohajer\n"
+            "🌐 دامنه: netyarmohajer.sizpay.ir\n"
+            "☎️ تلفن: 03135674350\n"
+            "📧 ایمیل: netyaremohajer@gmail.com",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔎 مشاهده نماد در eNAMAD", url=TRUST_URL)],
+                [InlineKeyboardButton("🌐 وب‌سایت نت یار مهاجر", url=SITE_URL)],
+            ]),
+            disable_web_page_preview=True,
+        )
+        raise ApplicationHandlerStop
+    if text not in MENU_TEXTS:
+        return
+    try:
+        await B.router(update, context)
+    except ApplicationHandlerStop:
+        raise
+    except Exception:
+        log.exception("v43 text dispatch failed label=%r", text)
+        await msg.reply_text("❌ خطای داخلی در اجرای این گزینه؛ وضعیت فعلی شما حفظ شد.")
+    raise ApplicationHandlerStop
+
+
 def install(app, B):
     if getattr(B, "_absolute_ui_owner_v43", False):
         return
     app.add_handler(CallbackQueryHandler(install_callback), group=-6000000)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, install_text), group=-6000001)
     B._absolute_ui_owner_v43 = True
-    log.info("ABSOLUTE Telegram callback owner v43 installed")
+    log.info("ABSOLUTE Telegram callback/text owner v43 installed")
