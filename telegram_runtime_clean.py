@@ -237,7 +237,9 @@ def _install_features(app):
         log.exception("session/context hardening v33 unavailable")
     try:
         import telegram_final_admin_navigation_v3 as AN
-        asyncio.run(AN.install(app, B))
+        result = AN.install(app, B)
+        if inspect.isawaitable(result):
+            asyncio.run(result)
         log.info("REAL runtime: final admin navigation v3 installed")
     except Exception:
         log.exception("final admin navigation v3 unavailable")
