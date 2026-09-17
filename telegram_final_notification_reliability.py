@@ -1,14 +1,28 @@
 """Final Telegram notification reliability layer.
 
-Installed last so legacy notification wrappers cannot silently replace the
-canonical notification path. Every admin is attempted independently, request
-attachments are collected automatically, and request controls use the current
-req:* callbacks.
+Every request notification uses one canonical, verified request-action keyboard.
+Legacy/custom inline keyboards are ignored when request_id is present so stale
+callbacks cannot replace working controls.
 """
 import asyncio
 import logging
+from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 
 log = logging.getLogger("netyar.telegram.final_notification_reliability")
+
+
+def _request_markup(rid):
+    rid = int(rid)
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔎 مشاهده اطلاعات کامل", callback_data=f"req:v:{rid}")],
+        [InlineKeyboardButton("💰 تأیید دریافت وجه", callback_data=f"req:pay:{rid}"),
+         InlineKeyboardButton("⏳ بررسی اولیه", callback_data=f"req:review:{rid}")],
+        [InlineKeyboardButton("🔐 درخواست کد از همکار", callback_data=f"req:p:{rid}")],
+        [InlineKeyboardButton("✅ تأیید خدمت", callback_data=f"req:a:{rid}"),
+         InlineKeyboardButton("❌ رد خدمت", callback_data=f"req:x:{rid}")],
+        [InlineKeyboardButton("💬 ارتباط با همکار", callback_data=f"req:chat:{rid}"),
+         InlineKeyboardButton("📌 انتقال به آخر چت", callback_data=f"req:bottom:{rid}")],
+    ])
 
 
 def install(app, B):
@@ -28,37 +42,38 @@ def install(app, B):
         return False
 
     async def notify_admins(application, message, request_id=None, inline=None, files=None):
-        from telegram import InlineKeyboardMarkup, InlineKeyboardButton
-
         admins = list(dict.fromkeys(getattr(B, "ADM", set()) or []))
         if not admins:
             log.warning("No Telegram admins configured")
             return False
 
-        markup = inline
-        if request_id and markup is None:
-            rid = int(request_id)
-            markup = InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔎 مشاهده اطلاعات کامل", callback_data=f"req:v:{rid}")],
-                [InlineKeyboardButton("✅ تأیید خدمت", callback_data=f"req:a:{rid}"), InlineKeyboardButton("❌ رد خدمت", callback_data=f"req:x:{rid}")],
-                [InlineKeyboardButton("🔐 درخواست کد از همکار", callback_data=f"req:p:{rid}")],
-                [InlineKeyboardButton("🧩 درخواست کپچا", callback_data=f"req:captcha:{rid}"), InlineKeyboardButton("📝 درخواست نوشتار چکاپ", callback_data=f"req:checkup:{rid}")],
-                [InlineKeyboardButton("💬 ارتباط با همکار", callback_data=f"req:chat:{rid}"), InlineKeyboardButton("📌 انتقال به آخر چت", callback_data=f"req:bottom:{rid}")],
-                [InlineKeyboardButton("✉️ پاسخ", callback_data=f"req:r:{rid}")],
-            ])
+        # For a real request, always use verified req:* actions. This fixes the
+        # previous situation where a caller supplied a custom/legacy inline
+        # keyboard and the admin notification lost its working controls.
+        markup = _request_markup(request_id) if request_id else inline
 
         attachment_items = list(files or [])
         if request_id:
             try:
                 rows = B.db.conn.execute(
-                    "SELECT field_key,file_id FROM request_answers WHERE request_id=? AND file_id!='' ORDER BY id",
+                    "SELECT field_key,file_id FROM request_answers "
+                    "WHERE request_id=? AND file_id!='' ORDER BY id",
                     (int(request_id),),
                 ).fetchall()
-                known = {(str(x.get("file_id")) if isinstance(x, dict) else str(x)) for x in attachment_items if x}
+                known = set()
+                for item in attachment_items:
+                    if isinstance(item, dict):
+                        known.add(str(item.get("file_id") or "").strip())
+                    else:
+                        known.add(str(item or "").strip())
                 for row in rows:
                     fid = str(row["file_id"] or "").strip()
                     if fid and fid not in known:
-                        attachment_items.append({"type": "photo", "file_id": fid, "field_key": row["field_key"]})
+                        attachment_items.append({
+                            "type": "photo",
+                            "file_id": fid,
+                            "field_key": row["field_key"],
+                        })
                         known.add(fid)
             except Exception:
                 log.exception("request attachment lookup failed: request=%s", request_id)
@@ -66,7 +81,10 @@ def install(app, B):
         tracking = str(request_id or "")
         if request_id:
             try:
-                row = B.db.conn.execute("SELECT tracking_code FROM requests WHERE id=?", (int(request_id),)).fetchone()
+                row = B.db.conn.execute(
+                    "SELECT tracking_code FROM requests WHERE id=?",
+                    (int(request_id),),
+                ).fetchone()
                 if row and row["tracking_code"]:
                     tracking = str(row["tracking_code"])
             except Exception:
@@ -81,7 +99,10 @@ def install(app, B):
                 all_ok = False
                 continue
 
-            sent = await _send_with_retry(bot, bot.send_message, admin_id, text=str(message), reply_markup=markup)
+            sent = await _send_with_retry(
+                bot, bot.send_message, admin_id,
+                text=str(message), reply_markup=markup,
+            )
             if not sent:
                 all_ok = False
 
@@ -98,11 +119,18 @@ def install(app, B):
                     field = "فایل درخواست"
                 if not fid:
                     continue
+
                 caption = f"📎 {field} | درخواست {tracking}"
                 if kind == "document":
-                    sent_file = await _send_with_retry(bot, bot.send_document, admin_id, document=fid, caption=caption)
+                    sent_file = await _send_with_retry(
+                        bot, bot.send_document, admin_id,
+                        document=fid, caption=caption,
+                    )
                 else:
-                    sent_file = await _send_with_retry(bot, bot.send_photo, admin_id, photo=fid, caption=caption)
+                    sent_file = await _send_with_retry(
+                        bot, bot.send_photo, admin_id,
+                        photo=fid, caption=caption,
+                    )
                 if not sent_file:
                     all_ok = False
 
