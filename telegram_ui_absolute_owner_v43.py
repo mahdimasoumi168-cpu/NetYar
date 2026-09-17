@@ -1,14 +1,15 @@
-"""Final Telegram callback/text owner v44.
+"""Final Telegram callback/text owner v45.
 
-Owns Telegram menu callbacks before legacy handlers. The key rule is that a
-valid menu button is resolved from both ui2 storage and the actual inline
-keyboard, regardless of the callback-data format used by an older layer.
+Owns Telegram menu callbacks before legacy handlers. Valid buttons are resolved
+from ui2 storage or the visible keyboard and then dispatched through the
+canonical partner-aware dispatcher, so valid options never hit the legacy
+"این گزینه فعلاً اجرا نشد" fallback.
 """
 import logging
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackQueryHandler, MessageHandler, filters, ApplicationHandlerStop
 
-log = logging.getLogger("netyar.telegram.ui_absolute_v44")
+log = logging.getLogger("netyar.telegram.ui_absolute_v45")
 TRUST_URL = "https://trustseal.enamad.ir/?id=7717012&Code=hEHTsn6HzG7ZsxeorkqzvLbTkOTEpRbH"
 SITE_URL = "https://netyarmohajer.sizpay.ir"
 TRUST_LABELS = {"🛡 اعتماد", "🛡️ اعتماد"}
@@ -18,6 +19,11 @@ ALIASES = {
     "✉️ ارسال تیکت به مدیریت": "🎫 تیکت به مدیریت",
     "📝 ثبت شکایت": "📝 ثبت شکایت مشتریان",
     "🪪 حل مشکل ورود اتباع دولت من": "🪪 فیدای غیر حضوری",
+    "🔵 👥 پنل همکاران": "👥 پنل همکاران",
+    "👥 Partner panel": "👥 پنل همکاران",
+    "👥 لوحة الشركاء": "👥 پنل همکاران",
+    "🔵 🛠 پنل مدیریت بات": "🛠 پنل مدیریت بات",
+    "🛠 پنل مدیریت": "🛠 پنل مدیریت بات",
 }
 MENU_TEXTS = {
     "➕ شارژ حساب", "🏛 حل مشکل سامانه دولت من", "🎫 درخواست‌های من", "📋 سوابق",
@@ -26,7 +32,8 @@ MENU_TEXTS = {
     "📱 حل مشکل سیم کارت ایرانسل", "🎫 تیکت به مدیریت", "📨 ارسال پیام به مدیریت",
     "✉️ ارسال تیکت به مدیریت", "💬 ارتباط با مدیریت", "📝 ثبت شکایت",
     "📝 ثبت شکایت مشتریان", "🚪 خروج از پنل", "❌ انصراف", "🔄 شروع مجدد",
-    "🔄 شروع دوباره", "👥 پنل همکاران", "🛠 پنل مدیریت بات", *TRUST_LABELS,
+    "🔄 شروع دوباره", "👥 پنل همکاران", "🛠 پنل مدیریت بات", "🎫 پیگیری",
+    "📞 تماس با ما", "🛡 اعتماد", "🛡️ اعتماد",
 }
 
 def _label_from_markup(q, data):
@@ -36,7 +43,7 @@ def _label_from_markup(q, data):
                 if str(getattr(button, "callback_data", "") or "") == data:
                     return str(getattr(button, "text", "") or "").strip()
     except Exception:
-        log.exception("v44 markup label recovery failed")
+        log.exception("v45 markup label recovery failed")
     return ""
 
 async def _trust(q):
@@ -52,7 +59,9 @@ async def _trust(q):
             [InlineKeyboardButton("🔎 مشاهده نماد در eNAMAD", url=TRUST_URL)],
             [InlineKeyboardButton("🌐 وب‌سایت نت یار مهاجر", url=SITE_URL)],
             [InlineKeyboardButton("↩️ بازگشت به منوی ایرانی", callback_data="iranian:back")],
-        ]), disable_web_page_preview=True)
+        ],),
+        disable_web_page_preview=True,
+    )
 
 async def _iranian_back(q, B):
     uid = q.from_user.id
@@ -71,6 +80,25 @@ async def _dispatch_label(update, context, B, label):
     label = ALIASES.get(str(label or "").strip(), str(label or "").strip())
     if label in TRUST_LABELS:
         return await _trust(update.callback_query)
+
+    # The partner stability guard patches telegram_ui_policy_v2._dispatch with
+    # the real service handlers (Irancell, management chat, history, balance,
+    # etc.). Calling it here is critical: B.router is a text-message router and
+    # may return None for callback-only partner options, which used to trigger
+    # the generic "این گزینه فعلاً اجرا نشد" message.
+    try:
+        import telegram_ui_policy_v2 as UI
+        dispatcher = getattr(UI, "_dispatch", None)
+        if dispatcher:
+            result = await dispatcher(update, context, B, label)
+            return result
+    except ApplicationHandlerStop:
+        raise
+    except Exception:
+        log.exception("canonical callback dispatcher failed label=%r", label)
+
+    # Fallback only for labels whose implementation is owned by the stable
+    # router. This is deliberately after the canonical partner dispatcher.
     from telegram_stable_callback import handle
     return await handle(update, context, B, label)
 
@@ -88,7 +116,6 @@ async def install_callback(update, context, B):
         raise ApplicationHandlerStop
 
     label = ""
-    # First resolve the canonical ui2 token, when present.
     if data.startswith("ui2:"):
         token = data[4:]
         try:
@@ -110,13 +137,8 @@ async def install_callback(update, context, B):
         except ApplicationHandlerStop:
             raise
         except Exception:
-            log.exception("v44 ui2 lookup failed")
+            log.exception("v45 ui2 lookup failed")
 
-    # Critical compatibility fix: older menu builders used callback-data
-    # formats other than ui2. If the clicked button is a real menu option,
-    # resolve its visible label from the current keyboard and let the stable
-    # router execute it. This prevents valid options from falling into the
-    # legacy generic "این گزینه فعلاً اجرا نشد" recovery path.
     if not label:
         label = _label_from_markup(q, data)
     label = ALIASES.get(label, label)
@@ -128,14 +150,14 @@ async def install_callback(update, context, B):
     except ApplicationHandlerStop:
         raise
     except Exception:
-        log.exception("v44 stable callback failed label=%r data=%r", label, data)
+        log.exception("v45 callback failed label=%r data=%r", label, data)
         uid = q.from_user.id
         st = B.S.setdefault(uid, {})
         try:
             markup = B.partner_kb(st.get("lang", "fa")) if st.get("partner_id") and st.get("partner_active", True) else B.main(uid)
-            await q.message.reply_text("❌ خطای داخلی در اجرای این گزینه؛ وضعیت فعلی شما حفظ شد.", reply_markup=markup)
+            await q.message.reply_text("❌ اجرای این گزینه با خطای موقت روبه‌رو شد؛ وضعیت فعلی شما حفظ شد.", reply_markup=markup)
         except Exception:
-            log.exception("v44 recovery failed")
+            log.exception("v45 recovery failed")
     raise ApplicationHandlerStop
 
 async def install_text(update, context, B):
@@ -149,7 +171,9 @@ async def install_text(update, context, B):
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔎 مشاهده نماد در eNAMAD", url=TRUST_URL)],
                 [InlineKeyboardButton("🌐 وب‌سایت نت یار مهاجر", url=SITE_URL)],
-            ]), disable_web_page_preview=True)
+            ]),
+            disable_web_page_preview=True,
+        )
         raise ApplicationHandlerStop
     if text not in MENU_TEXTS:
         return
@@ -158,14 +182,14 @@ async def install_text(update, context, B):
     except ApplicationHandlerStop:
         raise
     except Exception:
-        log.exception("v44 text dispatch failed label=%r", text)
+        log.exception("v45 text dispatch failed label=%r", text)
         await msg.reply_text("❌ خطای داخلی در اجرای این گزینه؛ وضعیت فعلی شما حفظ شد.")
     raise ApplicationHandlerStop
 
 def install(app, B):
-    if getattr(B, "_absolute_ui_owner_v44", False):
+    if getattr(B, "_absolute_ui_owner_v45", False):
         return
     app.add_handler(CallbackQueryHandler(install_callback), group=-6000000)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, install_text), group=-6000001)
-    B._absolute_ui_owner_v44 = True
-    log.info("ABSOLUTE Telegram callback/text owner v44 installed")
+    B._absolute_ui_owner_v45 = True
+    log.info("ABSOLUTE Telegram callback/text owner v45 installed")
