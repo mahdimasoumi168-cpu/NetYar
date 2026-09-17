@@ -8,23 +8,39 @@ def install(app, B):
     if getattr(B, "_business_rules_final", False):
         return
 
-    # Permanent partner logout must destroy the in-memory authentication state.
-    # The next click on the partner panel therefore starts phone + password login.
+    # Any explicit exit from the partner panel is a real logout.
+    # The next click on the partner panel must require phone + password again.
     old_partner_exit_choice = B.partner_exit_choice
 
     async def partner_exit_choice(update, context):
         uid = update.effective_user.id
         st = B.S.setdefault(uid, {})
         text = (update.message.text or "").strip()
-        if st.get("mode") == "partner_exit_choice" and text == "🔒 خروج دائمی":
+        exit_labels = {
+            "⏸ خروج موقت",
+            "🔒 خروج دائمی",
+            "🚪 خروج از پنل",
+            "🚪 خروج",
+            "Exit panel",
+            "🚪 Exit partner panel",
+        }
+        if st.get("mode") == "partner_exit_choice" and text in exit_labels:
             lang = st.get("lang", "fa")
             status = st.get("status") or st.get("citizenship") or "foreign"
-            # Do not retain partner_id, phone, password/session flags or any
-            # partner-specific mode. This is a real logout, not a hidden pause.
-            B.S[uid] = {"lang": lang, "status": status, "citizenship": status}
+            # Remove every partner authentication/session field. Keep only the
+            # public identity/language state needed to render the main menu.
+            B.S[uid] = {
+                "lang": lang,
+                "status": status,
+                "citizenship": status,
+                "partner_logged_out": True,
+                "partner_active": False,
+                "mode": None,
+                "step": None,
+            }
             return await update.message.reply_text(
-                "🔒 خروج دائمی انجام شد.\n\n"
-                "برای ورود دوباره به «👥 پنل همکاران»، شماره موبایل و رمز عبور را دوباره وارد کنید.",
+                "🚪 خروج از پنل با موفقیت انجام شد.\n\n"
+                "برای ورود دوباره به «👥 پنل همکاران»، شماره موبایل اختصاصی و رمز عبور را دوباره وارد کنید.",
                 reply_markup=B.main(uid),
             )
         return await old_partner_exit_choice(update, context)
@@ -46,8 +62,6 @@ def install(app, B):
         st["status"] = status
         st["citizenship"] = status
         if status == "iranian":
-            lang = st.get("lang", "fa")
-            # Iranian path: no foreign-only services, but partner access remains.
             await q.message.reply_text(
                 "🇮🇷 فعلاً خدماتی برای ایرانی فعال نیست.\n\n"
                 "در صورت داشتن حساب همکار، می‌توانید از «👥 پنل همکاران» وارد شوید.",
@@ -58,11 +72,6 @@ def install(app, B):
 
     B.statuscb = statuscb
 
-    # Force payment policy at request creation: public customers use manual
-    # card-to-card; authenticated partners use only their prepaid balance.
-    # Existing service modules already implement the actual balance deduction;
-    # this guard prevents an authenticated partner from being offered a public
-    # payment path by a later UI layer.
     old_main = B.main
 
     def main(uid):
