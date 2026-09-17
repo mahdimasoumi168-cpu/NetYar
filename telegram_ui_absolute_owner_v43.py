@@ -59,7 +59,7 @@ async def _trust(q):
             [InlineKeyboardButton("🔎 مشاهده نماد در eNAMAD", url=TRUST_URL)],
             [InlineKeyboardButton("🌐 وب‌سایت نت یار مهاجر", url=SITE_URL)],
             [InlineKeyboardButton("↩️ بازگشت به منوی ایرانی", callback_data="iranian:back")],
-        ],),
+        ]),
         disable_web_page_preview=True,
     )
 
@@ -81,24 +81,36 @@ async def _dispatch_label(update, context, B, label):
     if label in TRUST_LABELS:
         return await _trust(update.callback_query)
 
-    # The partner stability guard patches telegram_ui_policy_v2._dispatch with
-    # the real service handlers (Irancell, management chat, history, balance,
-    # etc.). Calling it here is critical: B.router is a text-message router and
-    # may return None for callback-only partner options, which used to trigger
-    # the generic "این گزینه فعلاً اجرا نشد" message.
+    # Use the stable router first for actions it explicitly owns. This avoids
+    # wrappers that legitimately return None after completing a callback.
+    stable_labels = {
+        "➕ شارژ حساب", "🏛 حل مشکل سامانه دولت من", "🔎 پیگیری کد", "📋 سوابق",
+        "💰 موجودی", "💰 کیف پول من", "🪪 فیدای غیر حضوری", "🖨 خدمات چاپ",
+        "🪪 حل مشکل ورود اتباع دولت من", "📱 خدمات سیم کارت", "🎫 تیکت به مدیریت",
+        "💬 ارتباط با مدیریت", "📝 ثبت شکایت مشتریان", "🎫 پیگیری", "📞 تماس با ما",
+        "👥 پنل همکاران", "🛠 پنل مدیریت بات", "🚪 خروج از پنل", "❌ انصراف",
+        "🔄 شروع مجدد", "🔄 شروع دوباره", "📱 حل مشکل سیم کارت ایرانسل",
+    }
+    if label in stable_labels:
+        try:
+            from telegram_stable_callback import handle
+            return await handle(update, context, B, label)
+        except ApplicationHandlerStop:
+            raise
+        except Exception:
+            log.exception("stable callback dispatcher failed label=%r", label)
+
+    # Service-specific handlers installed later/elsewhere remain available.
     try:
         import telegram_ui_policy_v2 as UI
         dispatcher = getattr(UI, "_dispatch", None)
         if dispatcher:
-            result = await dispatcher(update, context, B, label)
-            return result
+            return await dispatcher(update, context, B, label)
     except ApplicationHandlerStop:
         raise
     except Exception:
         log.exception("canonical callback dispatcher failed label=%r", label)
 
-    # Fallback only for labels whose implementation is owned by the stable
-    # router. This is deliberately after the canonical partner dispatcher.
     from telegram_stable_callback import handle
     return await handle(update, context, B, label)
 
@@ -107,7 +119,6 @@ async def install_callback(update, context, B):
     if not q:
         return
     data = str(getattr(q, "data", "") or "")
-
     if data == "enamad:trust":
         await _trust(q)
         raise ApplicationHandlerStop
@@ -138,13 +149,11 @@ async def install_callback(update, context, B):
             raise
         except Exception:
             log.exception("v45 ui2 lookup failed")
-
     if not label:
         label = _label_from_markup(q, data)
     label = ALIASES.get(label, label)
     if not label or label not in MENU_TEXTS:
         return
-
     try:
         await _dispatch_label(update, context, B, label)
     except ApplicationHandlerStop:
@@ -193,3 +202,8 @@ def install(app, B):
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, install_text), group=-6000001)
     B._absolute_ui_owner_v45 = True
     log.info("ABSOLUTE Telegram callback/text owner v45 installed")
+    try:
+        import telegram_universal_callback_owner_v46 as V46
+        V46.install(app, B)
+    except Exception:
+        log.exception("Telegram universal callback owner v46 unavailable")
