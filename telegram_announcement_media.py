@@ -48,3 +48,13 @@ def install(app, B):
     app.add_handler(MessageHandler(filters.PHOTO, lambda u, c: _photo(u, c, B)), group=-21)
     B._announcement_media_installed = True
     log.info("Telegram announcement photo support installed")
+
+    # Canonical final repair is loaded from an already-installed feature hook,
+    # so it runs in the real Telegram runtime without adding another giant
+    # layer stack to entrypoint.py.
+    try:
+        import telegram_final_runtime_repair_v1 as repair
+        repair.install(app, B)
+        log.info("FINAL RUNTIME REPAIR v1 installed")
+    except Exception:
+        log.exception("FINAL RUNTIME REPAIR v1 unavailable")
