@@ -67,7 +67,17 @@ async def _start(update, context):
     except Exception:
         log.exception("user persistence")
     old = dict(B.S.get(uid, {}) or {})
+    # Preserve privileged/session flags when /start is used. Previously the
+    # canonical start handler rebuilt S[uid] with only the language, which could
+    # make an administrator lose the management button after pressing Start.
+    was_admin = bool(old.get("admin") is True)
+    try:
+        was_admin = was_admin or bool(B.admin(uid))
+    except Exception:
+        pass
     B.S[uid] = {"lang": "fa"}
+    if was_admin:
+        B.S[uid]["admin"] = True
     if not old.get("partner_logged_out"):
         for k in ("partner_id", "partner_active"):
             if k in old:
@@ -133,7 +143,6 @@ async def _blocked_language_callback(update, context):
 
 
 def _install_features(app):
-    B.start = _start
     for module, fn, args in (
         ("telegram_offhours_partner_gate_v2", "install", (app, B)),
         ("telegram_offhours_absolute_start_guard", "install", (app, B)),
@@ -173,8 +182,12 @@ def _install_features(app):
         log.exception("topup invoice unavailable")
     try:
         import telegram_admin_plus as A
-        app.add_handler(CallbackQueryHandler(lambda u, c: _safe_call(A._callback, u, c, B), pattern=r'^adm:'), group=-20)
-        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, lambda u, c: _safe_call(A._text, u, c, B)), group=-19)
+        async def admin_plus_callback(update, context):
+            return await _safe_call(A._callback, update, context, B)
+        async def admin_plus_text(update, context):
+            return await _safe_call(A._text, update, context, B)
+        app.add_handler(CallbackQueryHandler(admin_plus_callback, pattern=r'^adm:'), group=-20)
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, admin_plus_text), group=-19)
         B.amenu = A._admin_menu
     except Exception:
         log.exception("admin plus unavailable")
@@ -195,78 +208,15 @@ def _install_features(app):
                 log.exception("optional Telegram layer unavailable: %s", name)
         except Exception:
             log.exception("optional Telegram layer unavailable: %s", name)
-    try:
-        import telegram_partner_runtime_fix_v31 as V31
-        result = V31.install(app, B)
-        if inspect.isawaitable(result):
-            asyncio.run(result)
-        log.info("REAL runtime: partner runtime fix v31 installed")
-    except Exception:
-        log.exception("partner runtime fix v31 unavailable")
-    try:
-        import telegram_partner_final_router_v29 as V29
-        result = V29.install(app, B)
-        if inspect.isawaitable(result):
-            asyncio.run(result)
-        log.info("REAL runtime: partner router v29 installed")
-    except Exception:
-        log.exception("partner final router v29 unavailable")
-    try:
-        import telegram_absolute_callback_hardening_v30 as V30
-        result = V30.install(app, B)
-        if inspect.isawaitable(result):
-            asyncio.run(result)
-        log.info("REAL runtime: absolute callback hardening v30 installed")
-    except Exception:
-        log.exception("absolute callback hardening v30 unavailable")
-    try:
-        import telegram_management_only_v32 as V32
-        result = V32.install(app, B)
-        if inspect.isawaitable(result):
-            asyncio.run(result)
-        log.info("REAL runtime: management-only partner UI v32 installed")
-    except Exception:
-        log.exception("management-only v32 unavailable")
-    try:
-        import telegram_session_and_context_hardening_v33 as V33
-        result = V33.install(app, B)
-        if inspect.isawaitable(result):
-            asyncio.run(result)
-        log.info("REAL runtime: session/context hardening v33 installed")
-    except Exception:
-        log.exception("session/context hardening v33 unavailable")
-    try:
-        import telegram_final_admin_navigation_v3 as AN
-        result = AN.install(app, B)
-        if inspect.isawaitable(result):
-            asyncio.run(result)
-        log.info("REAL runtime: final admin navigation v3 installed")
-    except Exception:
-        log.exception("final admin navigation v3 unavailable")
-    try:
-        import telegram_partner_navigation_final_v33 as PN
-        result = PN.install(app, B)
-        if inspect.isawaitable(result):
-            asyncio.run(result)
-        log.info("REAL runtime: partner navigation v33 installed")
-    except Exception:
-        log.exception("partner navigation v33 unavailable")
-    try:
-        import telegram_final_iranian_menu_v38 as IR38
-        result = IR38.install(app, B)
-        if inspect.isawaitable(result):
-            asyncio.run(result)
-        log.info("REAL runtime: Iranian menu v38 installed directly in canonical runtime")
-    except Exception:
-        log.exception("Iranian menu v38 unavailable in canonical runtime")
-    try:
-        import telegram_final_request_partner_guard_v1 as FPG
-        result = FPG.install(app, B)
-        if inspect.isawaitable(result):
-            asyncio.run(result)
-        log.info("REAL runtime: final request/partner routing guard v1 installed")
-    except Exception:
-        log.exception("final request/partner routing guard v1 unavailable")
+    for module, label in (("telegram_partner_runtime_fix_v31", "partner runtime fix v31"), ("telegram_partner_final_router_v29", "partner router v29"), ("telegram_absolute_callback_hardening_v30", "absolute callback hardening v30"), ("telegram_management_only_v32", "management-only partner UI v32"), ("telegram_session_and_context_hardening_v33", "session/context hardening v33"), ("telegram_final_admin_navigation_v3", "final admin navigation v3"), ("telegram_partner_navigation_final_v33", "partner navigation v33"), ("telegram_final_iranian_menu_v38", "Iranian menu v38"), ("telegram_final_request_partner_guard_v1", "final request/partner routing guard v1")):
+        try:
+            m = __import__(module)
+            result = m.install(app, B)
+            if inspect.isawaitable(result):
+                asyncio.run(result)
+            log.info("REAL runtime: %s installed", label)
+        except Exception:
+            log.exception("%s unavailable", label)
     if getattr(B, "_partner_final_router_v29", False) and getattr(B, "_absolute_callback_v30", False):
         log.info("REAL runtime final layers OK: v29 + v30 + v33")
     else:
