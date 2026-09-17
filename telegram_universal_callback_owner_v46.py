@@ -1,9 +1,8 @@
 """Universal Telegram callback owner v46.
 
-This layer runs before legacy callback handlers. It resolves ui2 labels once,
-executes the stable router for known menu actions, and falls back to the
-canonical UI dispatcher for service-specific actions. It is intentionally
-small so it cannot reintroduce the old generic callback recovery path.
+This layer is the final owner for ui2 callbacks. Known public/partner menu
+labels use the stable router; every other ui2 label is delegated to the
+canonical dispatcher instead of being silently dropped.
 """
 import logging
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -93,7 +92,6 @@ async def callback(update, context, B):
     if not data.startswith("ui2:"):
         return
 
-    # Make the database available to the label resolver without global state.
     q._universal_bot = B
     label = ALIASES.get(_label(q), _label(q))
     if not label:
@@ -101,37 +99,41 @@ async def callback(update, context, B):
     if label == "__FORBIDDEN__":
         await q.answer("این دکمه متعلق به حساب دیگری است.", show_alert=True)
         raise ApplicationHandlerStop
-    if label not in KNOWN:
-        return
 
     try:
         await q.answer()
     except Exception:
         pass
 
-    # Known menu actions go straight to the stable implementation. This avoids
-    # the layered UI wrappers that previously returned None and produced the
-    # generic "این گزینه فعلاً اجرا نشد" response.
-    try:
-        from telegram_stable_callback import handle
-        await handle(update, context, B, label)
-        raise ApplicationHandlerStop
-    except ApplicationHandlerStop:
-        raise
-    except Exception:
-        log.exception("stable route failed label=%r", label)
+    # Stable router owns the labels it explicitly implements.
+    if label in KNOWN:
+        try:
+            from telegram_stable_callback import handle
+            await handle(update, context, B, label)
+            raise ApplicationHandlerStop
+        except ApplicationHandlerStop:
+            raise
+        except Exception:
+            log.exception("stable route failed label=%r", label)
 
-    # Service-specific actions that are not yet owned by the stable router are
-    # delegated to the current canonical dispatcher.
+    # Every other ui2 callback must still reach the canonical dispatcher.
+    # Previously these labels were dropped here and a later legacy layer
+    # produced the generic "این گزینه فعلاً اجرا نشد" response.
     try:
         import telegram_ui_policy_v2 as UI
         fn = getattr(UI, "_dispatch", None)
         if fn:
-            await fn(update, context, B, label)
+            result = await fn(update, context, B, label)
+            if result is not None:
+                raise ApplicationHandlerStop
     except ApplicationHandlerStop:
         raise
     except Exception:
         log.exception("canonical route failed label=%r", label)
+
+    # Let legacy handlers get a final opportunity for service-specific actions.
+    # Do not synthesize the old generic error here; the user should remain in
+    # the current context if a stale callback is encountered.
     raise ApplicationHandlerStop
 
 def install(app, B):
