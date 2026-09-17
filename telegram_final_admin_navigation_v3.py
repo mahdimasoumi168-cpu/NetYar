@@ -2,7 +2,7 @@
 
 Owns the few high-conflict admin actions that historically were intercepted by
 legacy handlers: complete admin logout, partner creation, sequential per-partner
-pricing, and the canonical text-editor entry.  It deliberately runs before
+pricing, and the canonical text-editor entry. It deliberately runs before
 legacy admin callbacks and keeps all existing service handlers intact.
 """
 from __future__ import annotations
@@ -37,7 +37,8 @@ def _set_mode(st, mode):
     st["admin_plus_mode"] = None
 
 
-async def install(app, B):
+def install(app, B):
+    """Synchronous installer: only registers handlers; callbacks remain async."""
     import telegram_admin_plus as A
     old_menu = A._admin_menu
 
@@ -46,7 +47,6 @@ async def install(app, B):
             base = old_menu()
             rows = [list(r) for r in base.inline_keyboard]
             labels = {str(b.text) for row in rows for b in row}
-            # Put management additions before the main-menu row.
             additions = []
             if "➕ افزودن همکار جدید" not in labels:
                 additions.append([InlineKeyboardButton("➕ افزودن همکار جدید", callback_data="adm:add_partner")])
@@ -72,31 +72,22 @@ async def install(app, B):
         await q.answer()
         uid = q.from_user.id
         st = B.S.setdefault(uid, {})
-
         if data == "adm:full_logout":
-            # Hard reset every privileged/partner flow key. Keep only language
-            # and identity-safe presentation state so the next click is public.
             lang = st.get("lang", "fa")
             for k in list(st):
                 if k != "lang":
                     st.pop(k, None)
-            st.update({"lang": lang, "mode": None, "partner_logged_out": True,
-                       "partner_active": False, "partner_id": None})
+            st.update({"lang": lang, "mode": None, "partner_logged_out": True, "partner_active": False, "partner_id": None})
             return await q.message.reply_text("🚪 خروج کامل از پنل مدیریت انجام شد.\n\nبه منوی مشترکین برگشتید.", reply_markup=B.main(uid))
-
         if data == "adm:ui_texts":
-            # Delegate to the comprehensive catalog editor; this is the single
-            # canonical editor already present in the repository.
             try:
                 import admin_editable_texts as E
                 return await q.message.reply_text("📝 ویرایش کامل متن‌های ربات\n\nاز فهرست زیر متن موردنظر را انتخاب کنید. متن‌ها از تمام ماژول‌های فعال ربات جمع‌آوری می‌شوند.", reply_markup=E._kb(E._page(B, 0)))
             except Exception:
                 return await q.message.reply_text("❌ ویرایشگر متن فعلاً آماده نیست. دوباره تلاش کنید.", reply_markup=_admin_menu(A))
-
         if data == "adm:add_partner":
             _set_mode(st, "add_partner_name")
             return await q.message.reply_text("➕ افزودن همکار جدید\n\n👤 نام همکار را وارد کنید:", reply_markup=_kb([[('❌ انصراف','adm:menu')]]))
-
         if data == "adm:partner_prices_seq":
             _set_mode(st, "ppseq_partner")
             return await q.message.reply_text("📋 قیمت‌گذاری تک‌تک خدمات همکار\n\n👤 شناسه، شماره موبایل یا نام همکار را وارد کنید:")
@@ -113,14 +104,12 @@ async def install(app, B):
         if t in {"❌ انصراف", "لغو", "انصراف"}:
             st["admin_final_mode"] = None
             return await update.message.reply_text("لغو شد.", reply_markup=_admin_menu(A))
-
         if mode == "add_partner_name":
             if len(t) < 2 or len(t) > 100:
                 return await update.message.reply_text("❌ نام همکار معتبر نیست. دوباره وارد کنید:")
             st["new_partner_name"] = t
             _set_mode(st, "add_partner_phone")
             return await update.message.reply_text("📱 شماره موبایل اختصاصی همکار را وارد کنید:")
-
         if mode == "add_partner_phone":
             phone = _norm_phone(t)
             if not re.fullmatch(r"09\d{9}", phone):
@@ -130,7 +119,6 @@ async def install(app, B):
             st["new_partner_phone"] = phone
             _set_mode(st, "add_partner_password")
             return await update.message.reply_text("🔐 رمز ورود همکار را وارد کنید (حداقل ۴ کاراکتر):")
-
         if mode == "add_partner_password":
             if len(t) < 4:
                 return await update.message.reply_text("❌ رمز باید حداقل ۴ کاراکتر باشد.")
@@ -147,7 +135,6 @@ async def install(app, B):
                     st.pop(k, None)
             st["admin_final_mode"] = None
             return await update.message.reply_text(f"✅ همکار جدید با موفقیت اضافه شد.\n\n👤 نام: {name}\n📱 موبایل: {phone}\n💰 اعتبار اولیه: 0 تومان", reply_markup=_admin_menu(A))
-
         if mode == "ppseq_partner":
             v = t
             if v.isdigit():
@@ -165,15 +152,12 @@ async def install(app, B):
             cur = B.db.conn.execute("SELECT price FROM partner_service_prices WHERE partner_id=? AND service_key=?", (int(p["id"]), str(r["key"]))).fetchone()
             current = int(cur["price"]) if cur else int(r["price"] or 0)
             return await update.message.reply_text(f"👤 همکار: {p['name'] or '-'}\n📱 {p['phone']}\n\n🔹 خدمت ۱ از {len(services)}: {r['name']}\n💰 قیمت فعلی: {current:,} تومان\n\nقیمت جدید همین خدمت را فقط به تومان وارد کنید:")
-
         if mode == "ppseq_price":
             raw = t.translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789"))
             raw = re.sub(r"[,٬\s]", "", raw)
             if not raw.isdigit():
                 return await update.message.reply_text("❌ فقط مبلغ را به عدد وارد کنید. مثال: 420000")
             amount = int(raw)
-            if amount < 0:
-                return await update.message.reply_text("❌ مبلغ نمی‌تواند منفی باشد.")
             idx = int(st.get("ppseq_index", 0))
             keys = st.get("ppseq_services", [])
             if idx >= len(keys):
@@ -196,10 +180,10 @@ async def install(app, B):
             p = B.db.conn.execute("SELECT name,phone FROM partners WHERE id=?", (pid,)).fetchone()
             count = len(st["ppseq_values"])
             st["admin_final_mode"] = None
-            st.pop("ppseq_values", None); st.pop("ppseq_services", None); st.pop("ppseq_names", None); st.pop("ppseq_index", None); st.pop("ppseq_partner_id", None)
+            for k in ("ppseq_values", "ppseq_services", "ppseq_names", "ppseq_index", "ppseq_partner_id"):
+                st.pop(k, None)
             return await update.message.reply_text(f"✅ قیمت‌گذاری تک‌تک کامل شد.\n\n👤 همکار: {p['name'] if p else '-'}\n📱 {p['phone'] if p else '-'}\n🔢 تعداد خدمات ثبت‌شده: {count}", reply_markup=_admin_menu(A))
 
-    # Must run before the legacy admin routers.
     app.add_handler(CallbackQueryHandler(callback, pattern=r"^adm:(add_partner|partner_prices_seq|full_logout|ui_texts)$"), group=-20000)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text), group=-19999)
     B._final_admin_nav_v3_installed = True
