@@ -249,6 +249,14 @@ def _install_features(app):
         log.info("REAL runtime: partner navigation v33 installed")
     except Exception:
         log.exception("partner navigation v33 unavailable")
+    try:
+        import telegram_final_iranian_menu_v38 as IR38
+        result = IR38.install(app, B)
+        if inspect.isawaitable(result):
+            asyncio.run(result)
+        log.info("REAL runtime: Iranian menu v38 installed directly in canonical runtime")
+    except Exception:
+        log.exception("Iranian menu v38 unavailable in canonical runtime")
     if getattr(B, "_partner_final_router_v29", False) and getattr(B, "_absolute_callback_v30", False):
         log.info("REAL runtime final layers OK: v29 + v30 + v33")
     else:
