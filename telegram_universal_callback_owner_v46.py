@@ -93,15 +93,14 @@ async def callback(update, context, B):
         return
 
     q._universal_bot = B
-    label = ALIASES.get(_label(q), _label(q))
+    raw_label = _label(q)
+    label = ALIASES.get(raw_label, raw_label)
     if not label:
         return
     if label == "__FORBIDDEN__":
         await q.answer("این دکمه متعلق به حساب دیگری است.", show_alert=True)
         raise ApplicationHandlerStop
 
-    # اعتماد is a ui2 button in some menus and a named callback in others.
-    # It must never enter the legacy fallback path.
     if label in TRUST:
         await _trust(q)
         raise ApplicationHandlerStop
@@ -121,7 +120,6 @@ async def callback(update, context, B):
         except Exception:
             log.exception("stable route failed label=%r", label)
 
-    # Every other ui2 callback must still reach the canonical dispatcher.
     try:
         import telegram_ui_policy_v2 as UI
         fn = getattr(UI, "_dispatch", None)
@@ -139,6 +137,11 @@ async def callback(update, context, B):
 def install(app, B):
     if getattr(B, "_universal_callback_owner_v46", False):
         return
-    app.add_handler(CallbackQueryHandler(callback, pattern=r"^(ui2:|enamad:trust|iranian:back)"), group=-8000000)
+    async def _bound(update, context):
+        return await callback(update, context, B)
+    app.add_handler(
+        CallbackQueryHandler(_bound, pattern=r"^(ui2:|enamad:trust|iranian:back)"),
+        group=-8000000,
+    )
     B._universal_callback_owner_v46 = True
-    log.info("UNIVERSAL Telegram callback owner v46 installed")
+    log.info("UNIVERSAL Telegram callback owner v46 installed (bound runtime)")
