@@ -26,17 +26,23 @@ def _best_chat(owner,db):
   import bot as B;c=[]
   for raw,st in getattr(B,"S",{}).items():
    if not isinstance(st,dict):continue
-   if str(st.get("partner_id"))==str(owner) or str(st.get("user_id"))==str(owner):
+   if str(st.get("partner_id"))==str(owner) or str(st.get("user_id"))==str(owner) or str(st.get("db_user_id"))==str(owner):
     uid=str(st.get("telegram_chat_id") or raw).strip()
     if uid.lstrip("-").isdigit():c.append((float(st.get("telegram_last_seen") or 0),uid))
   if c:return max(c,key=lambda x:x[0])[1]
-  r=db.conn.execute("SELECT external_id FROM users WHERE id=? AND platform='telegram' LIMIT 1",(owner,)).fetchone();return str(r["external_id"]).strip() if r else ""
- except Exception:return ""
+  r=db.conn.execute("SELECT external_id FROM users WHERE id=? AND lower(platform)='telegram' LIMIT 1",(owner,)).fetchone()
+  if r and str(r["external_id"] or "").strip().lstrip("-").isdigit():return str(r["external_id"]).strip()
+  if str(owner or "").strip().lstrip("-").isdigit():
+   x=str(owner).strip();r=db.conn.execute("SELECT 1 FROM users WHERE lower(platform)='telegram' AND external_id=? LIMIT 1",(x,)).fetchone()
+   if r:return x
+  return ""
+ except Exception:
+  log.exception("telegram requester resolution failed");return ""
 def _lang(owner):
  try:
   import bot as B;best=(0,"fa")
   for st in getattr(B,"S",{}).values():
-   if isinstance(st,dict) and (str(st.get("partner_id"))==str(owner) or str(st.get("user_id"))==str(owner)):
+   if isinstance(st,dict) and (str(st.get("partner_id"))==str(owner) or str(st.get("user_id"))==str(owner) or str(st.get("db_user_id"))==str(owner)):
     seen=float(st.get("telegram_last_seen") or 0);lang=normalize_lang(st.get("lang","fa"))
     if seen>=best[0]:best=(seen,lang)
   return best[1]
@@ -48,7 +54,9 @@ def _patch(db):
   out=old(user_id,service_key,platform,amount,*a,**kw)
   try:
    rid=int(out[0]);db.conn.execute("UPDATE requests SET language=? WHERE id=?",(_lang(user_id),rid))
-   if str(platform).lower()=="telegram":db.set_setting(f"request_chat_{rid}",_best_chat(user_id,db));db.set_setting(f"request_created_by_{rid}",_best_chat(user_id,db))
+   if str(platform).lower()=="telegram":
+    chat=_best_chat(user_id,db);db.set_setting(f"request_chat_{rid}",chat);db.set_setting(f"request_created_by_{rid}",chat)
+    if chat:db.set_setting(f"request_platform_{rid}","telegram")
    db.conn.commit()
   except Exception:log.exception("request identity persistence failed")
   return out
@@ -61,7 +69,16 @@ def install(app=None,B=None,*a,**kw):
 def request_language(db,rid):
  try:r=db.conn.execute("SELECT language FROM requests WHERE id=?",(rid,)).fetchone();return normalize_lang(r["language"] if r else "fa")
  except Exception:return "fa"
-def request_chat(db,rid):return str(db.setting(f"request_chat_{rid}","") or "").strip()
+def request_chat(db,rid):
+ try:
+  x=str(db.setting(f"request_chat_{rid}","") or "").strip()
+  if x and x.lstrip("-").isdigit():return x
+  r=db.conn.execute("SELECT user_id,platform FROM requests WHERE id=? LIMIT 1",(int(rid),)).fetchone()
+  if r and str(r["platform"] or "").lower()=="telegram":
+   x=_best_chat(r["user_id"],db)
+   if x:db.set_setting(f"request_chat_{rid}",x);db.set_setting(f"request_created_by_{rid}",x);return x
+ except Exception:pass
+ return ""
 def admin_markup(rid,lang,include_view=True):
  from telegram import InlineKeyboardMarkup,InlineKeyboardButton
  l=labels(lang);rows=[]
