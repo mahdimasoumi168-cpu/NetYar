@@ -1,9 +1,8 @@
-"""Absolute canonical Telegram admin panel owner.
+"""Single authoritative Telegram admin panel.
 
-This is the single source of truth for the admin reply-keyboard entry and
-canonical inline admin menu. It deliberately uses an extremely early handler
-group and an authoritative admin-id fallback so legacy layers cannot replace
-this panel for configured administrators.
+This layer owns the admin reply-keyboard entry and the inline admin menu.
+It intentionally runs at the earliest possible handler groups so legacy admin
+layers cannot replace the visible panel or swallow its buttons.
 """
 import os
 import re
@@ -11,11 +10,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import MessageHandler, CallbackQueryHandler, filters, ApplicationHandlerStop
 
 ADMIN_IDS = {"159039104", "7165912028"}
-ADMIN_TEXTS = {
-    "🛠 پنل مدیریت بات", "🛠 پنل مدیریت", "پنل مدیریت بات", "پنل مدیریت",
-    "🔵 🛠 پنل مدیریت بات", "🔵 🛠 پنل مدیریت",
-}
-
+ADMIN_TEXTS = {"🛠 پنل مدیریت بات", "🛠 پنل مدیریت", "پنل مدیریت بات", "پنل مدیریت", "🔵 🛠 پنل مدیریت بات", "🔵 🛠 پنل مدیریت"}
 
 def _admin(B, uid):
     sid = str(uid)
@@ -29,9 +24,8 @@ def _admin(B, uid):
     except Exception:
         return False
 
-
 def menu():
-    return InlineKeyboardMarkup([
+    rows = [
         [InlineKeyboardButton("👤 کاربران", callback_data="adm:users"), InlineKeyboardButton("👥 همکاران", callback_data="adm:partners")],
         [InlineKeyboardButton("➕ افزودن همکار", callback_data="adm:addpartner")],
         [InlineKeyboardButton("🌙 همکاران شب‌کار", callback_data="night2:menu")],
@@ -45,8 +39,8 @@ def menu():
         [InlineKeyboardButton("🤖 بات‌های متصل", callback_data="adm:bots"), InlineKeyboardButton("🧾 لاگ مدیریت", callback_data="adm:logs")],
         [InlineKeyboardButton("⚙️ تنظیمات", callback_data="adm:settings")],
         [InlineKeyboardButton("⬅️ منوی اصلی", callback_data="adm:main")],
-    ])
-
+    ]
+    return InlineKeyboardMarkup(rows)
 
 async def _text(update, context, B):
     msg = getattr(update, "effective_message", None)
@@ -58,9 +52,8 @@ async def _text(update, context, B):
     st = B.S.setdefault(user.id, {})
     st.clear()
     st.update({"mode": "main", "admin_plus_mode": None, "night_mode": None})
-    await msg.reply_text("🛠 پنل مدیریت\n\nگزینه موردنظر را انتخاب کنید:", reply_markup=menu())
+    await msg.reply_text("🛠 پنل مدیریت کامل\n\nاز منوی زیر بخش موردنظر را انتخاب کنید:", reply_markup=menu())
     raise ApplicationHandlerStop
-
 
 async def _callback(update, context, B):
     q = getattr(update, "callback_query", None)
@@ -71,24 +64,21 @@ async def _callback(update, context, B):
     await q.answer()
     st = B.S.setdefault(q.from_user.id, {})
     st.update({"mode": "main", "admin_plus_mode": None, "night_mode": None})
-    await q.message.reply_text("🛠 پنل مدیریت\n\nگزینه موردنظر را انتخاب کنید:", reply_markup=menu())
+    await q.message.reply_text("🛠 پنل مدیریت کامل\n\nاز منوی زیر بخش موردنظر را انتخاب کنید:", reply_markup=menu())
     raise ApplicationHandlerStop
 
-
 def install(app, B):
-    if getattr(B, "_canonical_admin_final_v2", False):
+    if getattr(B, "_canonical_admin_final_v3", False):
         return True
     B.amenu = menu
     B.admin_menu_final = menu
     try:
-        import telegram_admin_ui_final_v2 as A
-        A.menu = menu
+        import telegram_admin_plus as A
         A._admin_menu = menu
     except Exception:
         pass
-    # Must be earlier than every legacy handler. This module is installed last
-    # in entrypoint.py, so no later layer can register a lower group.
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, lambda u, c: _text(u, c, B)), group=-1000000)
-    app.add_handler(CallbackQueryHandler(lambda u, c: _callback(u, c, B), pattern=r"^adm:menu$"), group=-1000001)
-    B._canonical_admin_final_v2 = True
+    # Installed last by entrypoint; extremely early groups beat all legacy handlers.
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, lambda u, c: _text(u, c, B)), group=-100000000)
+    app.add_handler(CallbackQueryHandler(lambda u, c: _callback(u, c, B), pattern=r"^adm:menu$"), group=-100000001)
+    B._canonical_admin_final_v3 = True
     return True
