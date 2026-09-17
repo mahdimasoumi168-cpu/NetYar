@@ -2,7 +2,7 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackQueryHandler, ApplicationHandlerStop
 
-MARK = "_admin_cleanup_night_switch_v1"
+MARK = "_admin_cleanup_night_switch_v2"
 NIGHT_KEY = "night_shift_enabled"
 
 
@@ -23,7 +23,8 @@ def _enabled(B):
 def menu():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("👤 کاربران", callback_data="adm:users"), InlineKeyboardButton("👥 همکاران", callback_data="adm:partners")],
-        [InlineKeyboardButton("➕ افزودن همکار", callback_data="adm:addpartner"), InlineKeyboardButton("🌙 شیفت شب", callback_data="adm:nighttoggle")],
+        [InlineKeyboardButton("➕ افزودن همکار", callback_data="adm:addpartner")],
+        [InlineKeyboardButton("🌙 بستن ربات در شب", callback_data="adm:night_off"), InlineKeyboardButton("☀️ باز کردن ربات در شب", callback_data="adm:night_on")],
         [InlineKeyboardButton("📋 درخواست‌ها", callback_data="adm:requests"), InlineKeyboardButton("💳 پرداخت‌ها", callback_data="adm:payments")],
         [InlineKeyboardButton("💰 شارژها", callback_data="adm:topups"), InlineKeyboardButton("⚙️ قیمت‌ها", callback_data="adm:prices")],
         [InlineKeyboardButton("🟢 خدمات", callback_data="adm:services"), InlineKeyboardButton("💵 افزایش شارژ", callback_data="adm:creditup")],
@@ -36,9 +37,6 @@ def menu():
 
 
 def _patch_night_gate(B):
-    # Existing off-hours modules own the actual access policy. They all expose
-    # _is_open; wrap it so the admin switch can disable/enable the night gate
-    # without changing the configured 07:00-19:00 working hours.
     names = (
         "telegram_offhours_partner_gate_v2",
         "telegram_absolute_offhours_guard",
@@ -62,6 +60,24 @@ def _patch_night_gate(B):
             continue
 
 
+async def _set_night(B, q, enabled):
+    try:
+        B.db.set_setting(NIGHT_KEY, "1" if enabled else "0")
+        _patch_night_gate(B)
+    except Exception:
+        await q.answer("ذخیره وضعیت انجام نشد.", show_alert=True)
+        raise ApplicationHandlerStop
+    status = "🟢 باز" if enabled else "🔴 بسته"
+    await q.answer("تنظیم شد")
+    await q.message.reply_text(
+        f"🌙 کنترل ربات در شب\n\nوضعیت: {status}\n\n"
+        "⏰ ساعت کاری روزانه همچنان ۰۷:۰۰ تا ۱۹:۰۰ است.\n"
+        "این دکمه فقط اجازه یا عدم اجازه فعالیت خارج از ساعت کاری را کنترل می‌کند.",
+        reply_markup=menu(),
+    )
+    raise ApplicationHandlerStop
+
+
 async def _callback(update, context, B):
     q = update.callback_query
     if not q or not str(q.data or "").startswith("adm:") or not _admin(B, q.from_user.id):
@@ -71,25 +87,13 @@ async def _callback(update, context, B):
         await q.answer()
         await q.message.reply_text("🛠 پنل مدیریت\n\nگزینه موردنظر را انتخاب کنید:", reply_markup=menu())
         raise ApplicationHandlerStop
-    if action != "nighttoggle":
-        return
-    current = _enabled(B)
-    new = "0" if current else "1"
-    try:
-        B.db.set_setting(NIGHT_KEY, new)
-    except Exception:
-        await q.answer("ذخیره وضعیت انجام نشد.", show_alert=True)
-        raise ApplicationHandlerStop
-    _patch_night_gate(B)
-    await q.answer("وضعیت شیفت شب تغییر کرد.")
-    status = "🟢 فعال" if new == "1" else "🔴 غیرفعال"
-    text = (
-        f"🌙 کنترل شیفت شب\n\nوضعیت جدید: {status}\n\n"
-        "ساعت کاری ۰۷:۰۰ تا ۱۹:۰۰ تغییر نکرده است.\n"
-        "این گزینه فقط گیت خارج از ساعت کاری را فعال/غیرفعال می‌کند."
-    )
-    await q.message.reply_text(text, reply_markup=menu())
-    raise ApplicationHandlerStop
+    if action == "nighttoggle":
+        return await _set_night(B, q, not _enabled(B))
+    if action == "night_on":
+        return await _set_night(B, q, True)
+    if action == "night_off":
+        return await _set_night(B, q, False)
+    return
 
 
 def install(app, B):
@@ -104,6 +108,12 @@ def install(app, B):
         pass
     B.admin_menu_final = menu
     B.amenu = menu
-    app.add_handler(CallbackQueryHandler(lambda u, c: _callback(u, c, B), pattern=r"^adm:(menu|nighttoggle)$"), group=-40000)
+    app.add_handler(
+        CallbackQueryHandler(
+            lambda u, c: _callback(u, c, B),
+            pattern=r"^adm:(menu|nighttoggle|night_on|night_off)$",
+        ),
+        group=-40000,
+    )
     setattr(B, MARK, True)
     return True
