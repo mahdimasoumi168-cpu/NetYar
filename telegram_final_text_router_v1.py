@@ -5,7 +5,7 @@ labels and never steals arbitrary user data while a flow is collecting input.
 """
 from telegram.ext import MessageHandler, filters, ApplicationHandlerStop
 
-MARK = "_telegram_final_text_router_v2"
+MARK = "_telegram_final_text_router_v3"
 ADMIN = {"🛠 پنل مدیریت بات", "🛠 پنل مدیریت", "پنل مدیریت بات", "پنل مدیریت"}
 PARTNER = {"👥 پنل همکاران", "🔵 👥 پنل همکاران", "👥 Partner panel", "👥 لوحة الشركاء"}
 KNOWN = {
@@ -29,7 +29,6 @@ ALIASES = {
 
 
 def _in_data_entry(st):
-    # admin_plus_mode is deliberately treated as a data-entry state too.
     mode = str(st.get("mode") or "")
     if st.get("admin_plus_mode"):
         return True
@@ -83,20 +82,26 @@ async def _route(update, context, B):
     uid = user.id
     st = B.S.setdefault(uid, {})
 
-    # Never steal user-entered values during any active service/admin flow.
-    if _in_data_entry(st):
-        return
-
+    # Admin navigation is always allowed to reopen the canonical admin panel,
+    # even if a previous admin flow left admin_plus_mode/mode populated.
     if text in ADMIN:
         if not B.admin(uid):
             return
+        st["admin_plus_mode"] = None
+        st["mode"] = "main"
         try:
             import telegram_admin_ui_final_v2 as A
-            st["admin_plus_mode"] = None
             await msg.reply_text("🛠 پنل مدیریت کامل\n\nاز منوی زیر بخش موردنظر را انتخاب کنید:", reply_markup=A.menu())
         except Exception:
-            await msg.reply_text("❌ پنل مدیریت موقتاً در دسترس نیست.")
+            try:
+                await msg.reply_text("🛠 پنل مدیریت کامل\n\nاز منوی زیر بخش موردنظر را انتخاب کنید:", reply_markup=B.amenu())
+            except Exception:
+                await msg.reply_text("❌ پنل مدیریت موقتاً در دسترس نیست.")
         raise ApplicationHandlerStop
+
+    # Never steal user-entered values during any active service/admin flow.
+    if _in_data_entry(st):
+        return
 
     if text in PARTNER or text == "👥 پنل همکاران":
         await _partner(update, context, B)
@@ -116,9 +121,6 @@ async def _route(update, context, B):
         await msg.reply_text("🎫 کد پیگیری را وارد کنید:", reply_markup=B.cancel_kb(st.get("lang", "fa")))
         raise ApplicationHandlerStop
 
-    # These two services are intentionally handed to the existing service
-    # router, but now from one deterministic owner so they cannot be silently
-    # ignored by the final text layer.
     if text in {"🎫 کد رهگیری تمدید کارت‌ها", "📝 آزمون غربالگری"}:
         await _legacy_route(update, context, B)
         raise ApplicationHandlerStop
