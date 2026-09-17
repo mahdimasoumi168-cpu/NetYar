@@ -1,13 +1,14 @@
-"""Final Telegram callback/text owner v43.
+"""Final Telegram callback/text owner v44.
 
-Owns Telegram ui2 callbacks before legacy handlers. It resolves the label,
-then sends it to the stable callback router instead of the legacy UI dispatcher.
+Owns Telegram menu callbacks before legacy handlers. The key rule is that a
+valid menu button is resolved from both ui2 storage and the actual inline
+keyboard, regardless of the callback-data format used by an older layer.
 """
 import logging
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackQueryHandler, MessageHandler, filters, ApplicationHandlerStop
 
-log = logging.getLogger("netyar.telegram.ui_absolute_v43")
+log = logging.getLogger("netyar.telegram.ui_absolute_v44")
 TRUST_URL = "https://trustseal.enamad.ir/?id=7717012&Code=hEHTsn6HzG7ZsxeorkqzvLbTkOTEpRbH"
 SITE_URL = "https://netyarmohajer.sizpay.ir"
 TRUST_LABELS = {"🛡 اعتماد", "🛡️ اعتماد"}
@@ -25,7 +26,7 @@ MENU_TEXTS = {
     "📱 حل مشکل سیم کارت ایرانسل", "🎫 تیکت به مدیریت", "📨 ارسال پیام به مدیریت",
     "✉️ ارسال تیکت به مدیریت", "💬 ارتباط با مدیریت", "📝 ثبت شکایت",
     "📝 ثبت شکایت مشتریان", "🚪 خروج از پنل", "❌ انصراف", "🔄 شروع مجدد",
-    "🔄 شروع دوباره", "👥 پنل همکاران", "🛠 پنل مدیریت بات",
+    "🔄 شروع دوباره", "👥 پنل همکاران", "🛠 پنل مدیریت بات", *TRUST_LABELS,
 }
 
 def _label_from_markup(q, data):
@@ -35,7 +36,7 @@ def _label_from_markup(q, data):
                 if str(getattr(button, "callback_data", "") or "") == data:
                     return str(getattr(button, "text", "") or "").strip()
     except Exception:
-        log.exception("v43 markup label recovery failed")
+        log.exception("v44 markup label recovery failed")
     return ""
 
 async def _trust(q):
@@ -71,69 +72,76 @@ async def _dispatch_label(update, context, B, label):
     if label in TRUST_LABELS:
         return await _trust(update.callback_query)
     from telegram_stable_callback import handle
-    result = handle(update, context, B, label)
-    if hasattr(result, "__await__"):
-        return await result
-    return result
+    return await handle(update, context, B, label)
 
 async def install_callback(update, context, B):
     q = getattr(update, "callback_query", None)
     if not q:
         return
     data = str(getattr(q, "data", "") or "")
+
     if data == "enamad:trust":
         await _trust(q)
         raise ApplicationHandlerStop
     if data == "iranian:back":
         await _iranian_back(q, B)
         raise ApplicationHandlerStop
-    if not data.startswith("ui2:"):
-        return
-    token = data[4:]
+
     label = ""
-    try:
-        row = B.db.conn.execute("SELECT user_id,label,lang,status FROM ui2_callbacks WHERE token=? LIMIT 1", (token,)).fetchone()
-        if row:
-            try:
-                owner = row["user_id"]; label = str(row["label"] or "").strip(); lang = row["lang"]; status = row["status"]
-            except Exception:
-                owner, label, lang, status = row[0], str(row[1] or "").strip(), row[2], row[3]
-            if owner and str(owner) != str(q.from_user.id):
-                await q.answer("این دکمه متعلق به حساب دیگری است.", show_alert=True)
-                raise ApplicationHandlerStop
-            st = B.S.setdefault(q.from_user.id, {})
-            if lang: st["lang"] = lang
-            if status: st["status"] = status
-    except ApplicationHandlerStop:
-        raise
-    except Exception:
-        log.exception("v43 ui2 lookup failed")
+    # First resolve the canonical ui2 token, when present.
+    if data.startswith("ui2:"):
+        token = data[4:]
+        try:
+            row = B.db.conn.execute(
+                "SELECT user_id,label,lang,status FROM ui2_callbacks WHERE token=? LIMIT 1",
+                (token,),
+            ).fetchone()
+            if row:
+                try:
+                    owner = row["user_id"]; label = str(row["label"] or "").strip(); lang = row["lang"]; status = row["status"]
+                except Exception:
+                    owner, label, lang, status = row[0], str(row[1] or "").strip(), row[2], row[3]
+                if owner and str(owner) != str(q.from_user.id):
+                    await q.answer("این دکمه متعلق به حساب دیگری است.", show_alert=True)
+                    raise ApplicationHandlerStop
+                st = B.S.setdefault(q.from_user.id, {})
+                if lang: st["lang"] = lang
+                if status: st["status"] = status
+        except ApplicationHandlerStop:
+            raise
+        except Exception:
+            log.exception("v44 ui2 lookup failed")
+
+    # Critical compatibility fix: older menu builders used callback-data
+    # formats other than ui2. If the clicked button is a real menu option,
+    # resolve its visible label from the current keyboard and let the stable
+    # router execute it. This prevents valid options from falling into the
+    # legacy generic "این گزینه فعلاً اجرا نشد" recovery path.
     if not label:
         label = _label_from_markup(q, data)
     label = ALIASES.get(label, label)
-    if not label:
-        await q.answer("این دکمه منقضی شده است؛ لطفاً منو را دوباره باز کنید.", show_alert=True)
-        raise ApplicationHandlerStop
+    if not label or label not in MENU_TEXTS:
+        return
+
     try:
-        # v43 is the absolute owner of ui2 callbacks. Stop propagation after
-        # the real action so legacy handlers cannot execute a second time and
-        # emit the old generic recovery message.
         await _dispatch_label(update, context, B, label)
     except ApplicationHandlerStop:
         raise
     except Exception:
-        log.exception("v43 stable callback failed label=%r data=%r", label, data)
-        uid = q.from_user.id; st = B.S.setdefault(uid, {})
+        log.exception("v44 stable callback failed label=%r data=%r", label, data)
+        uid = q.from_user.id
+        st = B.S.setdefault(uid, {})
         try:
             markup = B.partner_kb(st.get("lang", "fa")) if st.get("partner_id") and st.get("partner_active", True) else B.main(uid)
             await q.message.reply_text("❌ خطای داخلی در اجرای این گزینه؛ وضعیت فعلی شما حفظ شد.", reply_markup=markup)
         except Exception:
-            log.exception("v43 recovery failed")
+            log.exception("v44 recovery failed")
     raise ApplicationHandlerStop
 
 async def install_text(update, context, B):
     msg = getattr(update, "message", None)
-    if not msg: return
+    if not msg:
+        return
     text = str(getattr(msg, "text", "") or "").strip()
     if text in TRUST_LABELS:
         await msg.reply_text(
@@ -143,19 +151,21 @@ async def install_text(update, context, B):
                 [InlineKeyboardButton("🌐 وب‌سایت نت یار مهاجر", url=SITE_URL)],
             ]), disable_web_page_preview=True)
         raise ApplicationHandlerStop
-    if text not in MENU_TEXTS: return
+    if text not in MENU_TEXTS:
+        return
     try:
         await B.router(update, context)
     except ApplicationHandlerStop:
         raise
     except Exception:
-        log.exception("v43 text dispatch failed label=%r", text)
+        log.exception("v44 text dispatch failed label=%r", text)
         await msg.reply_text("❌ خطای داخلی در اجرای این گزینه؛ وضعیت فعلی شما حفظ شد.")
     raise ApplicationHandlerStop
 
 def install(app, B):
-    if getattr(B, "_absolute_ui_owner_v43", False): return
+    if getattr(B, "_absolute_ui_owner_v44", False):
+        return
     app.add_handler(CallbackQueryHandler(install_callback), group=-6000000)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, install_text), group=-6000001)
-    B._absolute_ui_owner_v43 = True
-    log.info("ABSOLUTE Telegram callback/text owner v43 installed")
+    B._absolute_ui_owner_v44 = True
+    log.info("ABSOLUTE Telegram callback/text owner v44 installed")
