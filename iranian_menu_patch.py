@@ -3,9 +3,9 @@ import logging
 
 log = logging.getLogger("netyar.iranian_menu")
 
-FA_IRANIAN = ["🎫 پیگیری", "🔵 👥 پنل همکاران", "❌ انصراف"]
-EN_IRANIAN = ["🎫 Tracking", "🔵 👥 Partner panel", "❌ Cancel"]
-AR_IRANIAN = ["🎫 متابعة", "🔵 👥 لوحة الشركاء", "❌ إلغاء"]
+FA_IRANIAN = ["🎫 پیگیری", "🔵 👥 پنل همکاران", "🛡 اعتماد", "❌ انصراف"]
+EN_IRANIAN = ["🎫 Tracking", "🔵 👥 Partner panel", "🛡 Trust", "❌ Cancel"]
+AR_IRANIAN = ["🎫 متابعة", "🔵 👥 لوحة الشركاء", "🛡 اعتماد", "❌ إلغاء"]
 
 
 def _lang(bot, uid):
@@ -15,13 +15,13 @@ def _lang(bot, uid):
 def _iranian_keyboard(bot, uid):
     lang = _lang(bot, uid)
     labels = EN_IRANIAN if lang == "en" else AR_IRANIAN if lang == "ar" else FA_IRANIAN
-    return bot.kb([[labels[0]], [labels[1]], [labels[2]]])
+    return bot.kb([[labels[0]], [labels[1]], [labels[2]], [labels[3]]])
 
 
 def _rubika_iranian_rows(rb, uid):
     lang = rb.STATE.get(str(uid), {}).get("lang", "fa")
     labels = EN_IRANIAN if lang == "en" else AR_IRANIAN if lang == "ar" else FA_IRANIAN
-    return [[("1", labels[0])], [("2", labels[1])], [("0", labels[2])]]
+    return [[("1", labels[0])], [("2", labels[1])], [("3", labels[2])], [("0", labels[3])]]
 
 
 def install():
@@ -29,7 +29,6 @@ def install():
     if getattr(bot, "_iranian_menu_patch_installed", False):
         return
 
-    # Telegram: Iranian users get only tracking, partner panel and cancel.
     old_statuscb = bot.statuscb
 
     async def statuscb_fixed(update, context):
@@ -50,7 +49,6 @@ def install():
 
     bot.statuscb = statuscb_fixed
 
-    # Keep the existing main menu, but ensure admin sees a blue management row.
     old_main = bot.main
 
     def main_colored(uid):
@@ -73,8 +71,6 @@ def install():
 
     bot.main = main_colored
 
-    # Rubika has a separate state machine; intercept the Iranian branch before
-    # the general service menu can consume numeric choices.
     try:
         import rubika_v2 as rb
         old_rb_handle = rb.handle
@@ -104,7 +100,10 @@ def install():
                 if x in {"2", labels[1], "👥 پنل همکاران", "🔵 👥 پنل همکاران", "🔵 👥 Partner panel", "🔵 👥 لوحة الشركاء"}:
                     st["step"] = "menu"
                     return old_rb_handle(uid, chat, "👥 پنل همکاران", u)
-                if x in {"0", labels[2], "❌ انصراف"}:
+                if x in {"3", labels[2], "🛡 اعتماد", "🛡 Trust", "🛡 اعتماد"}:
+                    st["step"] = "iranian_menu"
+                    return rb.send(chat, "🛡 نماد اعتماد الکترونیکی\n\nبرای مشاهده و بررسی نماد اعتماد، از گزینه اعتماد در منو استفاده کنید.", _rubika_iranian_rows(rb, uid))
+                if x in {"0", labels[3], "❌ انصراف"}:
                     st["status"] = "iranian"
                     st["step"] = "iranian_menu"
                     return rb.send(chat, "❌ عملیات لغو شد.", _rubika_iranian_rows(rb, uid))
