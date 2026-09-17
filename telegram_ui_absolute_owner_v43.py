@@ -19,13 +19,13 @@ ALIASES = {
     "🪪 حل مشکل ورود اتباع دولت من": "🪪 فیدای غیر حضوری",
 }
 MENU_TEXTS = {
-    "➕ شارژ حساب", "🏛 حل مشکل سامانه دولت من", "🎫 درخواست‌های من",
-    "📋 سوابق", "🔎 پیگیری کد", "💰 موجودی", "💰 کیف پول من",
-    "🪪 فیدای غیر حضوری", "🪪 حل مشکل ورود اتباع دولت من", "🖨 خدمات چاپ",
-    "📱 خدمات سیم کارت", "📱 حل مشکل سیم کارت ایرانسل", "🎫 تیکت به مدیریت",
-    "📨 ارسال پیام به مدیریت", "✉️ ارسال تیکت به مدیریت", "💬 ارتباط با مدیریت",
-    "📝 ثبت شکایت", "📝 ثبت شکایت مشتریان", "🚪 خروج از پنل", "❌ انصراف",
-    "🔄 شروع مجدد", "🔄 شروع دوباره", "👥 پنل همکاران", "🛠 پنل مدیریت بات",
+    "➕ شارژ حساب", "🏛 حل مشکل سامانه دولت من", "🎫 درخواست‌های من", "📋 سوابق",
+    "🔎 پیگیری کد", "💰 موجودی", "💰 کیف پول من", "🪪 فیدای غیر حضوری",
+    "🪪 حل مشکل ورود اتباع دولت من", "🖨 خدمات چاپ", "📱 خدمات سیم کارت",
+    "📱 حل مشکل سیم کارت ایرانسل", "🎫 تیکت به مدیریت", "📨 ارسال پیام به مدیریت",
+    "✉️ ارسال تیکت به مدیریت", "💬 ارتباط با مدیریت", "📝 ثبت شکایت",
+    "📝 ثبت شکایت مشتریان", "🚪 خروج از پنل", "❌ انصراف", "🔄 شروع مجدد",
+    "🔄 شروع دوباره", "👥 پنل همکاران", "🛠 پنل مدیریت بات",
 }
 
 def _label_from_markup(q, data):
@@ -67,7 +67,6 @@ async def _iranian_back(q, B):
     await q.message.reply_text("🇮🇷 بخش خدمات ایرانی\n\nگزینه موردنظر را انتخاب کنید:", reply_markup=markup)
 
 async def _dispatch_label(update, context, B, label):
-    """Dispatch ui2 labels through the independent stable callback router."""
     label = ALIASES.get(str(label or "").strip(), str(label or "").strip())
     if label in TRUST_LABELS:
         return await _trust(update.callback_query)
@@ -83,9 +82,11 @@ async def install_callback(update, context, B):
         return
     data = str(getattr(q, "data", "") or "")
     if data == "enamad:trust":
-        await _trust(q); raise ApplicationHandlerStop
+        await _trust(q)
+        raise ApplicationHandlerStop
     if data == "iranian:back":
-        await _iranian_back(q, B); raise ApplicationHandlerStop
+        await _iranian_back(q, B)
+        raise ApplicationHandlerStop
     if not data.startswith("ui2:"):
         return
     token = data[4:]
@@ -98,7 +99,8 @@ async def install_callback(update, context, B):
             except Exception:
                 owner, label, lang, status = row[0], str(row[1] or "").strip(), row[2], row[3]
             if owner and str(owner) != str(q.from_user.id):
-                await q.answer("این دکمه متعلق به حساب دیگری است.", show_alert=True); raise ApplicationHandlerStop
+                await q.answer("این دکمه متعلق به حساب دیگری است.", show_alert=True)
+                raise ApplicationHandlerStop
             st = B.S.setdefault(q.from_user.id, {})
             if lang: st["lang"] = lang
             if status: st["status"] = status
@@ -110,8 +112,12 @@ async def install_callback(update, context, B):
         label = _label_from_markup(q, data)
     label = ALIASES.get(label, label)
     if not label:
-        await q.answer("این دکمه منقضی شده است؛ لطفاً منو را دوباره باز کنید.", show_alert=True); raise ApplicationHandlerStop
+        await q.answer("این دکمه منقضی شده است؛ لطفاً منو را دوباره باز کنید.", show_alert=True)
+        raise ApplicationHandlerStop
     try:
+        # v43 is the absolute owner of ui2 callbacks. Stop propagation after
+        # the real action so legacy handlers cannot execute a second time and
+        # emit the old generic recovery message.
         await _dispatch_label(update, context, B, label)
     except ApplicationHandlerStop:
         raise
@@ -123,7 +129,7 @@ async def install_callback(update, context, B):
             await q.message.reply_text("❌ خطای داخلی در اجرای این گزینه؛ وضعیت فعلی شما حفظ شد.", reply_markup=markup)
         except Exception:
             log.exception("v43 recovery failed")
-        raise ApplicationHandlerStop
+    raise ApplicationHandlerStop
 
 async def install_text(update, context, B):
     msg = getattr(update, "message", None)
