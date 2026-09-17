@@ -1,9 +1,8 @@
-"""Canonical Telegram off-hours gate with persistent night-worker sessions.
+"""Canonical Telegram off-hours gate.
 
-Single source of truth for working-hours state. The global setting
-``night_shift_enabled`` controls whether off-hours are open to the explicitly
-allowed night-shift partner path. All other modules import this function, so
-changing the setting never depends on late monkey-patching or stale closures.
+Public/customer access follows business hours only. The persistent
+``night_shift_enabled`` switch controls only the explicitly whitelisted
+night-worker partner path outside 07:00-19:00 Tehran time.
 """
 from datetime import datetime, time
 from zoneinfo import ZoneInfo
@@ -37,12 +36,6 @@ def _setting(B, key, default):
 
 
 def night_shift_enabled(B):
-    """Return the persistent global night-access switch.
-
-    Missing legacy rows intentionally default to enabled so existing installs
-    keep their previous behaviour until an administrator explicitly closes the
-    night access switch.
-    """
     return _setting(B, NIGHT_KEY, "1") == "1"
 
 
@@ -59,16 +52,8 @@ def _clock_is_open(B):
 
 
 def _is_open(B):
-    """Canonical effective availability used by every Telegram gate.
-
-    During 07:00-19:00 it is always open. Outside those hours the administrator
-    night switch decides whether the bot is globally open. This function is
-    deliberately stable and is never replaced at runtime, avoiding stale
-    imported-function closures in other guards.
-    """
-    if _clock_is_open(B):
-        return True
-    return night_shift_enabled(B)
+    """Public/customer availability; deliberately ignores the night switch."""
+    return bool(_clock_is_open(B))
 
 
 def _partner_by_phone(B, phone):
@@ -91,9 +76,7 @@ def _active_partner_session(B, uid):
     if not pid or st.get("partner_active") is not True:
         return None
     try:
-        return B.db.conn.execute(
-            "SELECT * FROM partners WHERE id=? AND active=1 LIMIT 1", (int(pid),)
-        ).fetchone()
+        return B.db.conn.execute("SELECT * FROM partners WHERE id=? AND active=1 LIMIT 1", (int(pid),)).fetchone()
     except Exception:
         return None
 
@@ -109,10 +92,7 @@ def is_night_worker(B, uid):
     pid = st.get("partner_id")
     try:
         if pid and str(B.db.setting(PREFIX + str(pid), "0")) == "1":
-            row = B.db.conn.execute(
-                "SELECT id FROM partners WHERE id=? AND active=1 LIMIT 1", (int(pid),)
-            ).fetchone()
-            return bool(row)
+            return bool(B.db.conn.execute("SELECT id FROM partners WHERE id=? AND active=1 LIMIT 1", (int(pid),)).fetchone())
         phone = normalize_phone(st.get("phone") or st.get("partner_phone"))
         if phone:
             row = _partner_by_phone(B, phone)
@@ -120,10 +100,6 @@ def is_night_worker(B, uid):
     except Exception:
         return False
     return False
-
-
-def _allowed_during_closed(B, uid):
-    return bool(is_night_worker(B, uid))
 
 
 def _closed_markup():
@@ -136,13 +112,10 @@ def _closed_markup():
 def _closed_text(B):
     op = _setting(B, "work_open", DEFAULT_OPEN)
     cl = _setting(B, "work_close", DEFAULT_CLOSE)
-    return (
-        "❌ ربات در حال حاضر خارج از ساعت کاری است.\n\n"
-        f"🕖 ساعت کاری: {op} تا {cl} به وقت تهران\n"
-        "🚫 هیچ‌یک از خدمات عمومی، دریافت اطلاعات یا شروع درخواست در این زمان مجاز نیست.\n\n"
-        "برای شیفت شب فقط همکارانی که در پنل مدیریت برای شیفت شب تعریف شده‌اند\n"
-        "می‌توانند از مسیر «👥 پنل همکاران» وارد شوند."
-    )
+    return ("❌ ربات در حال حاضر خارج از ساعت کاری است.\n\n"
+            f"🕖 ساعت کاری: {op} تا {cl} به وقت تهران\n"
+            "🚫 خدمات عمومی، دریافت اطلاعات و شروع درخواست در این زمان مجاز نیست.\n\n"
+            "برای شیفت شب فقط همکارانی که در پنل مدیریت مجاز شده‌اند می‌توانند وارد شوند.")
 
 
 def _night_login_markup():
@@ -163,33 +136,16 @@ def _night_partner_markup(B, uid):
             ["❌ انصراف"],
         ], B, uid)
     except Exception:
-        return InlineKeyboardMarkup([
-            [InlineKeyboardButton("➕ شارژ حساب", callback_data="__never__")],
-            [InlineKeyboardButton(IRANCELL, callback_data="__never__")],
-            [InlineKeyboardButton("🏛 حل مشکل سامانه دولت من", callback_data="__never__")],
-            [InlineKeyboardButton("🎫 درخواست‌های من", callback_data="__never__")],
-            [InlineKeyboardButton("📱 خدمات سیم کارت", callback_data="__never__")],
-            [InlineKeyboardButton("🪪 فیدای غیر حضوری", callback_data="__never__")],
-            [InlineKeyboardButton("🔎 پیگیری کد", callback_data="__never__")],
-            [InlineKeyboardButton("📋 سوابق", callback_data="__never__")],
-            [InlineKeyboardButton("💰 موجودی", callback_data="__never__")],
-            [InlineKeyboardButton("🎫 تیکت به مدیریت", callback_data="__never__")],
-            [InlineKeyboardButton("💬 ارتباط با مدیریت", callback_data="__never__")],
-            [InlineKeyboardButton("🚪 خروج از پنل", callback_data="__never__")],
-            [InlineKeyboardButton("❌ انصراف", callback_data="__never__")],
-        ])
+        return B.partner_kb("fa")
 
 
 def install(app, B):
-    if getattr(B, "_offhours_partner_gate_v7", False):
+    if getattr(B, "_offhours_partner_gate_v8", False):
         return True
 
     async def cb(update, context):
         q = update.callback_query
-        if not q:
-            return
-        data = str(q.data or "")
-        if data not in {"off:restart", "off:partner"}:
+        if not q or str(q.data or "") not in {"off:restart", "off:partner"}:
             return
         try:
             await q.answer()
@@ -197,15 +153,24 @@ def install(app, B):
             pass
         uid = q.from_user.id
 
-        if data == "off:restart":
+        if q.data == "off:restart":
             if not _is_open(B):
                 await q.message.reply_text(_closed_text(B), reply_markup=_closed_markup())
                 raise ApplicationHandlerStop
             await q.message.reply_text("🔄 شروع مجدد", reply_markup=B.main(uid))
             raise ApplicationHandlerStop
 
-        active = _active_partner_session(B, uid)
+        # Partner entry is allowed after hours only when the global night switch
+        # is ON and this partner is explicitly whitelisted.
         if not _is_open(B):
+            if not night_shift_enabled(B):
+                await q.message.reply_text(
+                    "🌙 شیفت شب در حال حاضر بسته است.\n\n"
+                    "دسترسی خارج از ساعت کاری توسط مدیریت بسته شده است.",
+                    reply_markup=_closed_markup(),
+                )
+                raise ApplicationHandlerStop
+            active = _active_partner_session(B, uid)
             if active and is_night_worker(B, uid):
                 await q.message.reply_text("🌙 پنل همکاران شیفت شب فعال است.", reply_markup=_night_partner_markup(B, uid))
                 raise ApplicationHandlerStop
@@ -217,7 +182,7 @@ def install(app, B):
             st["step"] = "night_phone"
             await q.message.reply_text(
                 "🌙 ورود به پنل همکاران شیفت شب\n\n"
-                "🔐 برای ورود باید دوباره اطلاعات همکار را وارد کنید.\n\n"
+                "🔐 برای ورود باید اطلاعات همکار را وارد کنید.\n\n"
                 "📱 شماره موبایل اختصاصی همکار را وارد کنید:",
                 reply_markup=_night_login_markup(),
             )
@@ -243,6 +208,12 @@ def install(app, B):
             st["mode"] = None
             st["step"] = None
             return
+        if not night_shift_enabled(B):
+            st["mode"] = None
+            st["step"] = None
+            await update.message.reply_text("🌙 شیفت شب توسط مدیریت بسته شده است.", reply_markup=_closed_markup())
+            raise ApplicationHandlerStop
+
         if mode == "night_phone":
             phone = normalize_phone(text)
             if not re.fullmatch(r"09\d{9}", phone):
@@ -254,9 +225,8 @@ def install(app, B):
                 raise ApplicationHandlerStop
             pid = partner["id"]
             if str(B.db.setting(PREFIX + str(pid), "0")) != "1":
-                st["mode"] = None
-                st["step"] = None
-                await update.message.reply_text("❌ این شماره برای شیفت شب مجاز نیست.")
+                st["mode"] = None; st["step"] = None
+                await update.message.reply_text("❌ این شماره برای شیفت شب مجاز نیست.", reply_markup=_closed_markup())
                 raise ApplicationHandlerStop
             st["night_phone"] = phone
             st["night_partner_id"] = pid
@@ -264,12 +234,12 @@ def install(app, B):
             st["step"] = "night_pass"
             await update.message.reply_text("🔐 رمز عبور همکار را وارد کنید:")
             raise ApplicationHandlerStop
+
         phone = normalize_phone(st.get("night_phone"))
         partner = _partner_by_phone(B, phone)
         if not partner or str(B.db.setting(PREFIX + str(partner["id"]), "0")) != "1":
-            st["mode"] = None
-            st["step"] = None
-            await update.message.reply_text("❌ دسترسی شیفت شب تأیید نشد.")
+            st["mode"] = None; st["step"] = None
+            await update.message.reply_text("❌ دسترسی شیفت شب تأیید نشد.", reply_markup=_closed_markup())
             raise ApplicationHandlerStop
         try:
             from core import check_password
@@ -277,27 +247,17 @@ def install(app, B):
         except Exception:
             ok = False
         if not ok:
-            st["mode"] = "night_pass"
-            st["step"] = "night_pass"
+            st["mode"] = "night_pass"; st["step"] = "night_pass"
             await update.message.reply_text("❌ رمز عبور نادرست است.\n\n🔐 رمز عبور را دوباره وارد کنید:")
             raise ApplicationHandlerStop
-        st["partner"] = phone
-        st["partner_phone"] = phone
-        st["partner_id"] = partner["id"]
-        st["partner_active"] = True
-        st["partner_logged_out"] = False
-        st["mode"] = "partner"
-        st["step"] = None
-        try:
-            markup = _night_partner_markup(B, uid)
-        except Exception:
-            markup = B.partner_kb("fa")
-        await update.message.reply_text("✅ ورود همکار برای شیفت شب با موفقیت انجام شد.", reply_markup=markup)
+        st["partner"] = phone; st["partner_phone"] = phone; st["partner_id"] = partner["id"]
+        st["partner_active"] = True; st["partner_logged_out"] = False
+        st["mode"] = "partner"; st["step"] = None
+        await update.message.reply_text("✅ ورود همکار برای شیفت شب با موفقیت انجام شد.", reply_markup=_night_partner_markup(B, uid))
         raise ApplicationHandlerStop
 
     app.add_handler(CallbackQueryHandler(cb, pattern=r"^off:(restart|partner)$"), group=-30000)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, night_login), group=-29999)
-    app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, lambda u, c: None), group=-29998)
     app.add_handler(CallbackQueryHandler(lambda u, c: None, pattern=r"^off:"), group=-29997)
-    B._offhours_partner_gate_v7 = True
+    B._offhours_partner_gate_v8 = True
     return True
