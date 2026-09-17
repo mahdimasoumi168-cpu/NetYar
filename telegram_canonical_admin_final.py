@@ -1,16 +1,21 @@
-"""Single authoritative Telegram admin panel.
+"""Single authoritative Telegram admin UI and dispatcher.
 
-This layer owns the admin reply-keyboard entry and the inline admin menu.
-It intentionally runs at the earliest possible handler groups so legacy admin
-layers cannot replace the visible panel or swallow its buttons.
+This module is the final owner of the admin entry point and all ``adm:*``
+callbacks. Legacy modules may provide business logic, but they do not own the
+visible admin menu or its dispatch path.
 """
 import os
 import re
+import inspect
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import MessageHandler, CallbackQueryHandler, filters, ApplicationHandlerStop
 
 ADMIN_IDS = {"159039104", "7165912028"}
-ADMIN_TEXTS = {"🛠 پنل مدیریت بات", "🛠 پنل مدیریت", "پنل مدیریت بات", "پنل مدیریت", "🔵 🛠 پنل مدیریت بات", "🔵 🛠 پنل مدیریت"}
+ADMIN_TEXTS = {
+    "🛠 پنل مدیریت بات", "🛠 پنل مدیریت", "پنل مدیریت بات", "پنل مدیریت",
+    "🔵 🛠 پنل مدیریت بات", "🔵 🛠 پنل مدیریت"
+}
+
 
 def _admin(B, uid):
     sid = str(uid)
@@ -24,52 +29,115 @@ def _admin(B, uid):
     except Exception:
         return False
 
+
 def menu():
     rows = [
-        [InlineKeyboardButton("👤 کاربران", callback_data="adm:users"), InlineKeyboardButton("👥 همکاران", callback_data="adm:partners")],
-        [InlineKeyboardButton("➕ افزودن همکار", callback_data="adm:addpartner")],
-        [InlineKeyboardButton("🌙 همکاران شب‌کار", callback_data="night2:menu")],
-        [InlineKeyboardButton("🌙 بستن ربات در شب", callback_data="adm:night_off"), InlineKeyboardButton("☀️ باز کردن ربات در شب", callback_data="adm:night_on")],
-        [InlineKeyboardButton("📋 درخواست‌ها", callback_data="adm:requests"), InlineKeyboardButton("💳 پرداخت‌ها", callback_data="adm:payments")],
-        [InlineKeyboardButton("💰 شارژها", callback_data="adm:topups"), InlineKeyboardButton("⚙️ قیمت‌ها", callback_data="adm:prices")],
-        [InlineKeyboardButton("🟢 خدمات", callback_data="adm:services")],
-        [InlineKeyboardButton("💵 افزایش شارژ", callback_data="adm:creditup"), InlineKeyboardButton("💸 کاهش شارژ", callback_data="adm:creditdown")],
-        [InlineKeyboardButton("✏️ تغییر متن‌ها", callback_data="adm:texts")],
-        [InlineKeyboardButton("📊 گزارش کامل", callback_data="adm:report"), InlineKeyboardButton("📣 اعلان همگانی", callback_data="adm:announce")],
-        [InlineKeyboardButton("🤖 بات‌های متصل", callback_data="adm:bots"), InlineKeyboardButton("🧾 لاگ مدیریت", callback_data="adm:logs")],
-        [InlineKeyboardButton("⚙️ تنظیمات", callback_data="adm:settings")],
-        [InlineKeyboardButton("⬅️ منوی اصلی", callback_data="adm:main")],
+        [("👤 کاربران", "adm:users"), ("👥 همکاران", "adm:partners")],
+        [("➕ افزودن همکار", "adm:addpartner")],
+        [("🌙 همکاران شب‌کار", "night2:menu")],
+        [("🌙 بستن ربات در شب", "adm:night_off"), ("☀️ باز کردن ربات در شب", "adm:night_on")],
+        [("📋 درخواست‌ها", "adm:requests"), ("💳 پرداخت‌ها", "adm:payments")],
+        [("💰 شارژها", "adm:topups"), ("⚙️ قیمت‌ها", "adm:prices")],
+        [("🟢 خدمات", "adm:services")],
+        [("💵 افزایش شارژ", "adm:creditup"), ("💸 کاهش شارژ", "adm:creditdown")],
+        [("✏️ تغییر متن‌ها", "adm:texts")],
+        [("📊 گزارش کامل", "adm:report"), ("📣 اعلان همگانی", "adm:announce")],
+        [("🤖 بات‌های متصل", "adm:bots"), ("🧾 لاگ مدیریت", "adm:logs")],
+        [("⚙️ تنظیمات", "adm:settings")],
+        [("⬅️ منوی اصلی", "adm:main")],
     ]
-    return InlineKeyboardMarkup(rows)
+    return InlineKeyboardMarkup([[InlineKeyboardButton(label, callback_data=data) for label, data in row] for row in rows])
 
-async def _text(update, context, B):
+
+def _reset_admin_state(B, uid):
+    st = B.S.setdefault(uid, {})
+    st.update({"mode": "main", "admin": True, "admin_plus_mode": None, "night_mode": None})
+    return st
+
+
+async def _send_menu(message, B):
+    await message.reply_text("🛠 پنل مدیریت کامل\n\nاز منوی زیر بخش موردنظر را انتخاب کنید:", reply_markup=menu())
+
+
+async def _entry(update, context, B):
     msg = getattr(update, "effective_message", None)
     user = getattr(update, "effective_user", None)
     if not msg or not user or not _admin(B, user.id):
         return
     if (getattr(msg, "text", "") or "").strip() not in ADMIN_TEXTS:
         return
-    st = B.S.setdefault(user.id, {})
-    st.clear()
-    st.update({"mode": "main", "admin_plus_mode": None, "night_mode": None})
-    await msg.reply_text("🛠 پنل مدیریت کامل\n\nاز منوی زیر بخش موردنظر را انتخاب کنید:", reply_markup=menu())
+    _reset_admin_state(B, user.id)
+    await _send_menu(msg, B)
     raise ApplicationHandlerStop
+
 
 async def _callback(update, context, B):
     q = getattr(update, "callback_query", None)
     if not q or not _admin(B, q.from_user.id):
         return
-    if str(q.data or "") != "adm:menu":
+    data = str(q.data or "")
+    if not data.startswith("adm:"):
         return
-    await q.answer()
-    st = B.S.setdefault(q.from_user.id, {})
-    st.update({"mode": "main", "admin_plus_mode": None, "night_mode": None})
-    await q.message.reply_text("🛠 پنل مدیریت کامل\n\nاز منوی زیر بخش موردنظر را انتخاب کنید:", reply_markup=menu())
+    try:
+        await q.answer()
+    except Exception:
+        pass
+
+    # ``telegram_admin_plus`` contains the real admin business actions.
+    # This owner only controls routing and menu ownership, then stops all
+    # lower-priority legacy callback handlers from competing with it.
+    try:
+        import telegram_admin_plus as A
+        result = A._callback(update, context, B)
+        if inspect.isawaitable(result):
+            await result
+    except Exception:
+        # Never leave a dead button. Give the admin a deterministic error and
+        # a route back to the canonical menu.
+        try:
+            await q.message.reply_text("❌ اجرای این گزینه با خطا مواجه شد.\n\nاز منوی مدیریت دوباره انتخاب کنید.", reply_markup=menu())
+        except Exception:
+            pass
     raise ApplicationHandlerStop
 
+
+async def _text(update, context, B):
+    msg = getattr(update, "effective_message", None)
+    user = getattr(update, "effective_user", None)
+    if not msg or not user or not _admin(B, user.id):
+        return
+    # First handle entry into the panel.
+    if (getattr(msg, "text", "") or "").strip() in ADMIN_TEXTS:
+        _reset_admin_state(B, user.id)
+        await _send_menu(msg, B)
+        raise ApplicationHandlerStop
+
+    # Admin text continuations (price, credit, text editing, announcement,
+    # partner creation, etc.) remain implemented by admin_plus, but are routed
+    # here so the legacy module cannot compete for the update.
+    try:
+        import telegram_admin_plus as A
+        result = A._text(update, context, B)
+        if inspect.isawaitable(result):
+            await result
+        # If admin_plus had no active mode it may return without doing anything;
+        # in that case do not consume unrelated customer text.
+        if B.S.get(user.id, {}).get("admin_plus_mode") is not None:
+            raise ApplicationHandlerStop
+    except ApplicationHandlerStop:
+        raise
+    except Exception:
+        # Only consume an admin continuation when one was actually active.
+        if B.S.get(user.id, {}).get("admin_plus_mode") is not None:
+            try:
+                await msg.reply_text("❌ ورود اطلاعات با خطا مواجه شد. دوباره تلاش کنید.", reply_markup=menu())
+            except Exception:
+                pass
+            raise ApplicationHandlerStop
+
+
 def install(app, B):
-    if getattr(B, "_canonical_admin_final_v3", False):
-        return True
+    # Idempotent: the runtime can safely call the owner more than once.
     B.amenu = menu
     B.admin_menu_final = menu
     try:
@@ -77,8 +145,14 @@ def install(app, B):
         A._admin_menu = menu
     except Exception:
         pass
-    # Installed last by entrypoint; extremely early groups beat all legacy handlers.
+
+    if getattr(B, "_canonical_admin_final_v4", False):
+        return True
+
+    # Extremely early groups make this the single dispatch owner. Legacy
+    # handlers may still be installed for service compatibility, but adm:*
+    # updates are stopped before they can compete.
+    app.add_handler(CallbackQueryHandler(lambda u, c: _callback(u, c, B), pattern=r"^adm:"), group=-100000001)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, lambda u, c: _text(u, c, B)), group=-100000000)
-    app.add_handler(CallbackQueryHandler(lambda u, c: _callback(u, c, B), pattern=r"^adm:menu$"), group=-100000001)
-    B._canonical_admin_final_v3 = True
+    B._canonical_admin_final_v4 = True
     return True
