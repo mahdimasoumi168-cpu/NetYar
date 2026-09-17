@@ -1,19 +1,33 @@
-"""Final Telegram admin entry/menu owner.
+"""Absolute canonical Telegram admin panel owner.
 
-This layer runs before legacy text/callback handlers so stale admin state or
-legacy admin menus cannot swallow the canonical admin-panel entry.
+This is the single source of truth for the admin reply-keyboard entry and
+canonical inline admin menu. It deliberately uses an extremely early handler
+group and an authoritative admin-id fallback so legacy layers cannot replace
+this panel for configured administrators.
 """
+import os
+import re
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import MessageHandler, CallbackQueryHandler, filters, ApplicationHandlerStop
 
+ADMIN_IDS = {"159039104", "7165912028"}
 ADMIN_TEXTS = {
-    "🛠 پنل مدیریت بات",
-    "🛠 پنل مدیریت",
-    "پنل مدیریت بات",
-    "پنل مدیریت",
-    "🔵 🛠 پنل مدیریت بات",
-    "🔵 🛠 پنل مدیریت",
+    "🛠 پنل مدیریت بات", "🛠 پنل مدیریت", "پنل مدیریت بات", "پنل مدیریت",
+    "🔵 🛠 پنل مدیریت بات", "🔵 🛠 پنل مدیریت",
 }
+
+
+def _admin(B, uid):
+    sid = str(uid)
+    configured = set()
+    for key in ("ADMIN_IDS", "ADMIN_ID_1", "ADMIN_ID_2", "TELEGRAM_ADMIN_IDS"):
+        configured.update(x.strip() for x in re.split(r"[;,\s]+", os.getenv(key, "")) if x.strip())
+    if sid in ADMIN_IDS or sid in configured:
+        return True
+    try:
+        return bool(B.admin(uid))
+    except Exception:
+        return False
 
 
 def menu():
@@ -34,26 +48,16 @@ def menu():
     ])
 
 
-def _admin(B, uid):
-    try:
-        return bool(B.admin(uid))
-    except Exception:
-        return False
-
-
 async def _text(update, context, B):
     msg = getattr(update, "effective_message", None)
     user = getattr(update, "effective_user", None)
     if not msg or not user or not _admin(B, user.id):
         return
-    text = (getattr(msg, "text", "") or "").strip()
-    if text not in ADMIN_TEXTS:
+    if (getattr(msg, "text", "") or "").strip() not in ADMIN_TEXTS:
         return
     st = B.S.setdefault(user.id, {})
     st.clear()
-    st["mode"] = "main"
-    st["admin_plus_mode"] = None
-    st["night_mode"] = None
+    st.update({"mode": "main", "admin_plus_mode": None, "night_mode": None})
     await msg.reply_text("🛠 پنل مدیریت\n\nگزینه موردنظر را انتخاب کنید:", reply_markup=menu())
     raise ApplicationHandlerStop
 
@@ -62,20 +66,17 @@ async def _callback(update, context, B):
     q = getattr(update, "callback_query", None)
     if not q or not _admin(B, q.from_user.id):
         return
-    data = str(q.data or "")
-    if data != "adm:menu":
+    if str(q.data or "") != "adm:menu":
         return
     await q.answer()
     st = B.S.setdefault(q.from_user.id, {})
-    st["mode"] = "main"
-    st["admin_plus_mode"] = None
-    st["night_mode"] = None
+    st.update({"mode": "main", "admin_plus_mode": None, "night_mode": None})
     await q.message.reply_text("🛠 پنل مدیریت\n\nگزینه موردنظر را انتخاب کنید:", reply_markup=menu())
     raise ApplicationHandlerStop
 
 
 def install(app, B):
-    if getattr(B, "_canonical_admin_final_v1", False):
+    if getattr(B, "_canonical_admin_final_v2", False):
         return True
     B.amenu = menu
     B.admin_menu_final = menu
@@ -85,7 +86,9 @@ def install(app, B):
         A._admin_menu = menu
     except Exception:
         pass
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, lambda u, c: _text(u, c, B)), group=-50000)
-    app.add_handler(CallbackQueryHandler(lambda u, c: _callback(u, c, B), pattern=r"^adm:menu$"), group=-50001)
-    B._canonical_admin_final_v1 = True
+    # Must be earlier than every legacy handler. This module is installed last
+    # in entrypoint.py, so no later layer can register a lower group.
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, lambda u, c: _text(u, c, B)), group=-1000000)
+    app.add_handler(CallbackQueryHandler(lambda u, c: _callback(u, c, B), pattern=r"^adm:menu$"), group=-1000001)
+    B._canonical_admin_final_v2 = True
     return True
