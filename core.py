@@ -32,6 +32,7 @@ class Database:
         CREATE TABLE IF NOT EXISTS requests(id INTEGER PRIMARY KEY AUTOINCREMENT, tracking_code TEXT UNIQUE, user_id INTEGER, service_key TEXT, platform TEXT, status TEXT DEFAULT 'new', amount INTEGER DEFAULT 0, payment_status TEXT DEFAULT 'unpaid', payment_method TEXT DEFAULT '', payment_note TEXT DEFAULT '', created_at TEXT, updated_at TEXT);
         CREATE TABLE IF NOT EXISTS request_answers(id INTEGER PRIMARY KEY AUTOINCREMENT, request_id INTEGER, field_key TEXT, answer TEXT DEFAULT '', file_id TEXT DEFAULT '', created_at TEXT);
         CREATE TABLE IF NOT EXISTS partners(id INTEGER PRIMARY KEY AUTOINCREMENT, phone TEXT UNIQUE, password_hash TEXT, name TEXT DEFAULT '', active INTEGER DEFAULT 1, balance INTEGER DEFAULT 0, created_at TEXT, updated_at TEXT);
+        CREATE TABLE IF NOT EXISTS partner_service_prices(partner_id INTEGER NOT NULL, service_key TEXT NOT NULL, price INTEGER NOT NULL DEFAULT 0, updated_at TEXT, PRIMARY KEY(partner_id,service_key));
         CREATE TABLE IF NOT EXISTS topups(id INTEGER PRIMARY KEY AUTOINCREMENT, partner_id INTEGER, amount INTEGER, receipt_file_id TEXT DEFAULT '', status TEXT DEFAULT 'pending', created_at TEXT, reviewed_at TEXT, note TEXT DEFAULT '');
         CREATE TABLE IF NOT EXISTS admins(platform TEXT, external_id TEXT, role TEXT DEFAULT 'owner', active INTEGER DEFAULT 1, PRIMARY KEY(platform,external_id));
         CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT);
