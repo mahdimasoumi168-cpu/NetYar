@@ -2,7 +2,7 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackQueryHandler, ApplicationHandlerStop
 
-MARK = "_admin_cleanup_night_switch_v4"
+MARK = "_admin_cleanup_night_switch_v5"
 NIGHT_KEY = "night_shift_enabled"
 
 
@@ -39,6 +39,13 @@ def menu():
 
 
 def _patch_night_gate(B):
+    """Keep every legacy off-hours gate consistent with the persistent switch.
+
+    The old implementation inverted the switch: disabling night access returned
+    True (open), which made "بستن ربات در شب" ineffective. The canonical rule is:
+    switch ON => legacy gate keeps its normal clock/night-worker behavior;
+    switch OFF => outside business hours the gate must be closed.
+    """
     names = (
         "telegram_offhours_partner_gate_v2",
         "telegram_absolute_offhours_guard",
@@ -50,14 +57,20 @@ def _patch_night_gate(B):
         try:
             m = __import__(name)
             original = getattr(m, "_is_open", None)
-            if not callable(original) or getattr(m, "_netyar_night_wrapped", False):
+            if not callable(original) or getattr(m, "_netyar_night_wrapped_v5", False):
                 continue
+
             def wrapped(B_, _orig=original):
-                if not _enabled(B_):
-                    return True
-                return _orig(B_)
+                if _enabled(B_):
+                    return _orig(B_)
+                try:
+                    from telegram_offhours_partner_gate_v2 import _clock_is_open
+                    return bool(_clock_is_open(B_))
+                except Exception:
+                    return False
+
             m._is_open = wrapped
-            m._netyar_night_wrapped = True
+            m._netyar_night_wrapped_v5 = True
         except Exception:
             continue
 
@@ -87,6 +100,9 @@ def _patch_admin_menu_owners():
 async def _set_night(B, q, enabled):
     try:
         B.db.set_setting(NIGHT_KEY, "1" if enabled else "0")
+        saved = str(B.db.setting(NIGHT_KEY, "")) == ("1" if enabled else "0")
+        if not saved:
+            raise RuntimeError("night switch was not persisted")
         _patch_night_gate(B)
     except Exception:
         await q.answer("ذخیره وضعیت انجام نشد.", show_alert=True)
@@ -124,6 +140,7 @@ async def _callback(update, context, B):
 
 def install(app, B):
     if getattr(B, MARK, False):
+        _patch_night_gate(B)
         return True
     _patch_night_gate(B)
     _patch_admin_menu_owners()
