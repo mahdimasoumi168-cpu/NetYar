@@ -137,6 +137,18 @@ def install(app, B):
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, trust_text), group=-10000001)
     app.add_handler(CallbackQueryHandler(trust_callback, pattern=r"^enamad:trust$"), group=-10000000)
     app.add_handler(CallbackQueryHandler(iranian_callback, pattern=r"^iranian:(?:back|services|partner|track|restart)$"), group=-9999999)
+
+    # The canonical runtime actually invokes v38 directly. Install the v46
+    # universal ui2 owner from here as well, so the fix is guaranteed to be
+    # present in the live Application even when entrypoint's optional layers
+    # are not used by the production runtime.
+    try:
+        import telegram_universal_callback_owner_v46 as V46
+        V46.install(app, B)
+        log.info("Universal Telegram callback owner v46 installed from canonical runtime")
+    except Exception:
+        log.exception("Universal Telegram callback owner v46 unavailable")
+
     B._iranian_menu_v38_installed = True
     log.info("Iranian menu v38 installed: B.main + direct text/callback routing + eNAMAD trust")
     return True
