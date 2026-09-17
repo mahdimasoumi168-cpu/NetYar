@@ -1,11 +1,9 @@
-"""Final Telegram off-hours gate with persistent night-worker sessions.
+"""Canonical Telegram off-hours gate with persistent night-worker sessions.
 
-Outside working hours, ordinary service flows are hard-blocked. /start and
-restart never open the public menu during the closed period. The only
-explicitly permitted closed-hours entry is the partner-panel button, followed
-by fresh night-shift partner authentication when needed. Authenticated
-night-shift partners may use their partner panel; public/customer flows remain
-blocked.
+Single source of truth for working-hours state. The global setting
+``night_shift_enabled`` controls whether off-hours are open to the explicitly
+allowed night-shift partner path. All other modules import this function, so
+changing the setting never depends on late monkey-patching or stale closures.
 """
 from datetime import datetime, time
 from zoneinfo import ZoneInfo
@@ -17,6 +15,7 @@ TZ = ZoneInfo("Asia/Tehran")
 DEFAULT_OPEN = "07:00"
 DEFAULT_CLOSE = "19:00"
 PREFIX = "night_worker:"
+NIGHT_KEY = "night_shift_enabled"
 IRANCELL = "📱 حل مشکل سیم کارت ایرانسل"
 
 
@@ -37,7 +36,17 @@ def _setting(B, key, default):
         return default
 
 
-def _is_open(B):
+def night_shift_enabled(B):
+    """Return the persistent global night-access switch.
+
+    Missing legacy rows intentionally default to enabled so existing installs
+    keep their previous behaviour until an administrator explicitly closes the
+    night access switch.
+    """
+    return _setting(B, NIGHT_KEY, "1") == "1"
+
+
+def _clock_is_open(B):
     op = _setting(B, "work_open", DEFAULT_OPEN)
     cl = _setting(B, "work_close", DEFAULT_CLOSE)
     try:
@@ -47,6 +56,19 @@ def _is_open(B):
         return o <= now < c if o < c else (now >= o or now < c)
     except Exception:
         return False
+
+
+def _is_open(B):
+    """Canonical effective availability used by every Telegram gate.
+
+    During 07:00-19:00 it is always open. Outside those hours the administrator
+    night switch decides whether the bot is globally open. This function is
+    deliberately stable and is never replaced at runtime, avoiding stale
+    imported-function closures in other guards.
+    """
+    if _clock_is_open(B):
+        return True
+    return night_shift_enabled(B)
 
 
 def _partner_by_phone(B, phone):
@@ -101,8 +123,6 @@ def is_night_worker(B, uid):
 
 
 def _allowed_during_closed(B, uid):
-    # Only a partner explicitly enabled for night shift may operate after
-    # hours. Administrators are not given an implicit public/service bypass.
     return bool(is_night_worker(B, uid))
 
 
@@ -130,7 +150,6 @@ def _night_login_markup():
 
 
 def _night_partner_markup(B, uid):
-    """Canonical closed-hours partner menu; keep every allowed service here."""
     try:
         import telegram_ui_policy_v2 as UI
         return UI.inline([
@@ -162,7 +181,7 @@ def _night_partner_markup(B, uid):
 
 
 def install(app, B):
-    if getattr(B, "_offhours_partner_gate_v6", False):
+    if getattr(B, "_offhours_partner_gate_v7", False):
         return True
 
     async def cb(update, context):
@@ -178,9 +197,6 @@ def install(app, B):
             pass
         uid = q.from_user.id
 
-        # Restart is always a hard stop outside working hours, even for an
-        # already authenticated night-shift partner. They must use the partner
-        # panel path explicitly; restart never opens a service menu.
         if data == "off:restart":
             if not _is_open(B):
                 await q.message.reply_text(_closed_text(B), reply_markup=_closed_markup())
@@ -188,20 +204,14 @@ def install(app, B):
             await q.message.reply_text("🔄 شروع مجدد", reply_markup=B.main(uid))
             raise ApplicationHandlerStop
 
-        # Explicit partner-panel entry is the ONLY closed-hours entry point.
         active = _active_partner_session(B, uid)
         if not _is_open(B):
             if active and is_night_worker(B, uid):
                 await q.message.reply_text("🌙 پنل همکاران شیفت شب فعال است.", reply_markup=_night_partner_markup(B, uid))
                 raise ApplicationHandlerStop
-
             st = B.S.setdefault(uid, {})
-            # Never reuse an old/stale partner authentication here.
-            st.pop("partner_id", None)
-            st.pop("partner_active", None)
-            st.pop("partner", None)
-            st.pop("partner_phone", None)
-            st.pop("phone", None)
+            for k in ("partner_id", "partner_active", "partner", "partner_phone", "phone"):
+                st.pop(k, None)
             st["partner_logged_out"] = True
             st["mode"] = "night_phone"
             st["step"] = "night_phone"
@@ -229,14 +239,10 @@ def install(app, B):
         text = (update.message.text or "").strip()
         if not text:
             return
-
-        # Do not accept credential entry unless the user explicitly entered
-        # the closed-hours partner panel flow.
         if _is_open(B):
             st["mode"] = None
             st["step"] = None
             return
-
         if mode == "night_phone":
             phone = normalize_phone(text)
             if not re.fullmatch(r"09\d{9}", phone):
@@ -258,7 +264,6 @@ def install(app, B):
             st["step"] = "night_pass"
             await update.message.reply_text("🔐 رمز عبور همکار را وارد کنید:")
             raise ApplicationHandlerStop
-
         phone = normalize_phone(st.get("night_phone"))
         partner = _partner_by_phone(B, phone)
         if not partner or str(B.db.setting(PREFIX + str(partner["id"]), "0")) != "1":
@@ -276,7 +281,6 @@ def install(app, B):
             st["step"] = "night_pass"
             await update.message.reply_text("❌ رمز عبور نادرست است.\n\n🔐 رمز عبور را دوباره وارد کنید:")
             raise ApplicationHandlerStop
-
         st["partner"] = phone
         st["partner_phone"] = phone
         st["partner_id"] = partner["id"]
@@ -285,7 +289,6 @@ def install(app, B):
         st["mode"] = "partner"
         st["step"] = None
         try:
-            import telegram_ui_policy_v2 as UI
             markup = _night_partner_markup(B, uid)
         except Exception:
             markup = B.partner_kb("fa")
@@ -296,5 +299,5 @@ def install(app, B):
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, night_login), group=-29999)
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, lambda u, c: None), group=-29998)
     app.add_handler(CallbackQueryHandler(lambda u, c: None, pattern=r"^off:"), group=-29997)
-    B._offhours_partner_gate_v6 = True
+    B._offhours_partner_gate_v7 = True
     return True
