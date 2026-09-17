@@ -1,8 +1,8 @@
-"""Canonical admin-menu cleanup and persistent night-shift switch."""
+"""Canonical admin menu plus persistent night-worker controls."""
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackQueryHandler, ApplicationHandlerStop
 
-MARK = "_admin_cleanup_night_switch_v3"
+MARK = "_admin_cleanup_night_switch_v4"
 NIGHT_KEY = "night_shift_enabled"
 
 
@@ -24,6 +24,7 @@ def menu():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("👤 کاربران", callback_data="adm:users"), InlineKeyboardButton("👥 همکاران", callback_data="adm:partners")],
         [InlineKeyboardButton("➕ افزودن همکار", callback_data="adm:addpartner")],
+        [InlineKeyboardButton("🌙 همکاران شب‌کار", callback_data="night2:menu")],
         [InlineKeyboardButton("🌙 بستن ربات در شب", callback_data="adm:night_off"), InlineKeyboardButton("☀️ باز کردن ربات در شب", callback_data="adm:night_on")],
         [InlineKeyboardButton("📋 درخواست‌ها", callback_data="adm:requests"), InlineKeyboardButton("💳 پرداخت‌ها", callback_data="adm:payments")],
         [InlineKeyboardButton("💰 شارژها", callback_data="adm:topups"), InlineKeyboardButton("⚙️ قیمت‌ها", callback_data="adm:prices")],
@@ -62,8 +63,6 @@ def _patch_night_gate(B):
 
 
 def _patch_admin_menu_owners():
-    # Several legacy admin modules expose their own menu function. Point every
-    # known owner at the canonical menu so old/duplicate layouts cannot return.
     for name in (
         "telegram_admin_plus",
         "telegram_final_admin_menu_fix",
@@ -79,11 +78,8 @@ def _patch_admin_menu_owners():
                 m._admin_menu = menu
             if hasattr(m, "admin_menu"):
                 m.admin_menu = menu
-            if hasattr(m, "menu"):
-                # Only replace clearly named admin-menu functions; avoid generic
-                # UI modules whose menu symbol may have another meaning.
-                if "admin" in name:
-                    m.menu = menu
+            if hasattr(m, "menu") and "admin" in name:
+                m.menu = menu
         except Exception:
             continue
 
@@ -100,7 +96,8 @@ async def _set_night(B, q, enabled):
     await q.message.reply_text(
         f"🌙 کنترل ربات در شب\n\nوضعیت: {status}\n\n"
         "⏰ ساعت کاری روزانه همچنان ۰۷:۰۰ تا ۱۹:۰۰ است.\n"
-        "این دکمه فقط اجازه یا عدم اجازه فعالیت خارج از ساعت کاری را کنترل می‌کند.",
+        "این دکمه فقط اجازه یا عدم اجازه فعالیت خارج از ساعت کاری را کنترل می‌کند.\n"
+        "دسترسی همکاران شب‌کار از بخش «🌙 همکاران شب‌کار» جداگانه مدیریت می‌شود.",
         reply_markup=menu(),
     )
     raise ApplicationHandlerStop
