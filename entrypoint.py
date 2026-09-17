@@ -12,7 +12,7 @@ import bale_bootstrap
 import production_stability
 import rubika_bootstrap_final
 import server
-NETYAR_TELEGRAM_BUILD="2026-09-17-request-actions-v35"
+NETYAR_TELEGRAM_BUILD="2026-09-17-request-actions-v36"
 bale_bootstrap.install(server); rubika_bootstrap_final.install(server); production_stability.install()
 PRE_TELEGRAM_MODULES=("telegram_global_cancel_v4","request_language_actions","telegram_partner_logout_fix","telegram_language_consistency","telegram_cancel_policy","telegram_offhours_absolute_start_guard")
 TELEGRAM_MODULES=("telegram_government_phone_final","telegram_phone_registry_and_stability","telegram_final_hotfix_20260914","telegram_fast_response_layer","telegram_critical_input_logout_fix","telegram_idle_session_reset","telegram_input_continuation_guard","telegram_admin_button_guard","telegram_partner_pricing_stable","telegram_partner_session_persistence","telegram_management_destination_guard","telegram_global_admin_guard","telegram_universal_partner_guard","final_stability_overlay","final_government_payment_overlay","telegram_price_dedup_guard","telegram_government_flow_runtime_fix","telegram_offhours_api_fix","telegram_night_logout_final","telegram_partner_login_fix","telegram_offhours_partner_gate_v2","telegram_night_shift_stability_v26","telegram_admin_plus","telegram_partner_code_reliable","telegram_request_full_details_patch","telegram_request_details_fix","telegram_final_ops_overlay","telegram_button_stability_final","telegram_service_billing_v3_fix","telegram_partner_ui_fix","telegram_ux_billing","telegram_request_control_v2","telegram_government_family_code_fix","telegram_ui_policy_v2","telegram_absolute_fix","telegram_operational_continuation_guard","telegram_admin_request_reliability_fix","telegram_partner_chat_reliability","telegram_final_notification_reliability","telegram_final_admin_partner_fix","telegram_final_menu_dedup_guard","telegram_final_user_state_guard","telegram_service_dispatch_final","telegram_information_input_final","telegram_input_hardening_v3","full_admin_control_patch","production_final_patch","telegram_announcement_media","government_balance_postal_fix","telegram_admin_menu_restore","telegram_request_workflow_final","telegram_universal_button_guard","telegram_final_repair","telegram_irancell_partner_service","telegram_government_cancel_fix","telegram_government_documents_v3","telegram_government_validation_final","telegram_management_stability_final","telegram_final_ui_rebind","telegram_final_partner_panel","telegram_final_integration_guard","telegram_partner_menu_final_v2","telegram_partner_actions_final_guard","telegram_partner_ticket_fix","telegram_ticket_reliability","telegram_ticket_media","telegram_government_final_override_v18","telegram_final_request_delivery_v17")
@@ -35,14 +35,10 @@ def _install_telegram_layers(app,bot,logger):
         from telegram_request_full_details_patch import finalize; finalize(bot); logger.info("Telegram complete-request notification finalizer installed")
     except Exception: logger.exception("Telegram complete-request notification finalizer unavailable")
     _install_module("desktop_agent_api_clean",app,bot,logger); _install_module("telegram_partner_final_router_v29",app,bot,logger); _install_module("telegram_partner_logout_hardening_v31",app,bot,logger); _install_module("telegram_absolute_callback_hardening_v30",app,bot,logger); _install_module("telegram_partner_navigation_final_v32",app,bot,logger); _install_module("telegram_partner_navigation_final_v33",app,bot,logger)
-    # Final admin navigation owns the management keyboard.
     _install_module("telegram_final_admin_navigation_v3",app,bot,logger)
-    # eNAMAD is a public URL button and is installed before the final router.
+    _install_module("iranian_menu_patch",app,bot,logger)
     _install_module("telegram_enamad_trust",app,bot,logger)
-    # One final ui2 owner prevents legacy dispatcher overlap.
     _install_module("telegram_final_unified_router_v34",app,bot,logger)
-    # Final bridge makes legacy panel:* request buttons use the same working
-    # request-action flow as the canonical req:* callbacks.
     _install_module("telegram_request_action_bridge_v35",app,bot,logger)
 def main():
     logger=logging.getLogger("netyar.entrypoint"); logger.info("NetYar Telegram build=%s",NETYAR_TELEGRAM_BUILD); uvicorn.run(server.api,host="0.0.0.0",port=int(os.getenv("PORT","8000")),lifespan="on")
