@@ -4,7 +4,10 @@ This module is intentionally safe to auto-import. It must never import the
 Telegram runtime, start polling, replace routers, or create a second bot
 Application. The Telegram lifecycle is owned exclusively by server.py.
 """
+import asyncio
+import inspect
 import logging
+import threading
 
 log = logging.getLogger("netyar.sitecustomize")
 
@@ -19,7 +22,6 @@ try:
             one_time_keyboard=False,
         )
 
-    # Keep keyboard construction deterministic without touching routing.
     B.kb = safe_kb
 
     async def safe_notify(app, message, request_id=None, inline=None, files=None):
@@ -55,18 +57,10 @@ try:
                 await app.bot.send_message(chat_id=int(aid), text=message, reply_markup=inline)
                 for fid in dict.fromkeys(ids):
                     try:
-                        await app.bot.send_photo(
-                            chat_id=int(aid),
-                            photo=fid,
-                            caption=f"📎 فایل درخواست #{request_id}",
-                        )
+                        await app.bot.send_photo(chat_id=int(aid), photo=fid, caption=f"📎 فایل درخواست #{request_id}")
                     except Exception:
                         try:
-                            await app.bot.send_document(
-                                chat_id=int(aid),
-                                document=fid,
-                                caption=f"📎 فایل درخواست #{request_id}",
-                            )
+                            await app.bot.send_document(chat_id=int(aid), document=fid, caption=f"📎 فایل درخواست #{request_id}")
                         except Exception:
                             log.exception("admin file forwarding failed")
             except Exception:
@@ -74,8 +68,6 @@ try:
 
     B.notify_admins = safe_notify
 
-    # Keep the useful request approval/rejection workflow, but do not wrap the
-    # router or partner text handler. Those are now owned by bot.py directly.
     _old_admin = B.admin_cb
 
     async def safe_admin(update, context):
@@ -97,79 +89,79 @@ try:
 
             if data[1] in {"a", "x"}:
                 status = "approved" if data[1] == "a" else "rejected"
-                B.db.conn.execute(
-                    "UPDATE requests SET status=?,updated_at=? WHERE id=?",
-                    (status, B.now(), rid),
-                )
+                B.db.conn.execute("UPDATE requests SET status=?,updated_at=? WHERE id=?", (status, B.now(), rid))
                 B.db.conn.commit()
-                u = B.db.conn.execute(
-                    "SELECT platform,external_id FROM users WHERE id=?", (r["user_id"],)
-                ).fetchone()
+                u = B.db.conn.execute("SELECT platform,external_id FROM users WHERE id=?", (r["user_id"],)).fetchone()
                 if u and u["platform"] == "telegram":
                     try:
-                        await context.bot.send_message(
-                            chat_id=int(u["external_id"]),
-                            text=(
-                                "✅ خدمت شما توسط مدیریت تأیید شد."
-                                if status == "approved"
-                                else "❌ خدمت شما توسط مدیریت رد شد."
-                            ),
-                        )
+                        await context.bot.send_message(chat_id=int(u["external_id"]), text=("✅ خدمت شما توسط مدیریت تأیید شد." if status == "approved" else "❌ خدمت شما توسط مدیریت رد شد."))
                     except Exception:
                         log.exception("customer status notification failed")
                 try:
                     await q.message.edit_reply_markup(reply_markup=None)
                 except Exception:
                     pass
-                return await q.message.reply_text(
-                    "✅ خدمت تأیید شد و نتیجه ارسال شد."
-                    if status == "approved"
-                    else "❌ خدمت رد شد و نتیجه ارسال شد.",
-                    reply_markup=B.amenu(),
-                )
+                return await q.message.reply_text("✅ خدمت تأیید شد و نتیجه ارسال شد." if status == "approved" else "❌ خدمت رد شد و نتیجه ارسال شد.", reply_markup=B.amenu())
 
             if data[1] == "p":
-                pr = B.db.conn.execute(
-                    "SELECT answer FROM request_answers WHERE request_id=? AND field_key='partner_id' ORDER BY id DESC LIMIT 1",
-                    (rid,),
-                ).fetchone()
+                pr = B.db.conn.execute("SELECT answer FROM request_answers WHERE request_id=? AND field_key='partner_id' ORDER BY id DESC LIMIT 1", (rid,)).fetchone()
                 pid = str(pr["answer"]) if pr else ""
                 if not pid:
-                    p = B.db.conn.execute(
-                        "SELECT id FROM partners WHERE id=?", (r["user_id"],)
-                    ).fetchone()
+                    p = B.db.conn.execute("SELECT id FROM partners WHERE id=?", (r["user_id"],)).fetchone()
                     pid = str(p["id"]) if p else ""
                 if not pid:
                     return await q.message.reply_text("⚠️ این درخواست به همکار متصل نیست.", reply_markup=B.amenu())
                 B.db.set_setting(f"partner_code_request_{pid}", f"{rid}|{B.now()}")
                 chat = B.db.setting(f"partner_chat_{pid}", "")
                 if not chat:
-                    return await q.message.reply_text(
-                        "⚠️ همکار هنوز یک‌بار وارد پنل نشده تا چت او ثبت شود.",
-                        reply_markup=B.amenu(),
-                    )
+                    return await q.message.reply_text("⚠️ همکار هنوز یک‌بار وارد پنل نشده تا چت او ثبت شود.", reply_markup=B.amenu())
                 try:
-                    await context.bot.send_message(
-                        chat_id=int(chat),
-                        text=(
-                            f"🔐 مدیریت برای درخواست {r['tracking_code']} کد تأیید همان خدمت را می‌خواهد.\n\n"
-                            "فقط کد تأیید خدمت را بفرستید؛ رمز ورود پنل را ارسال نکنید."
-                        ),
-                        reply_markup=B.partner_kb(),
-                    )
-                    return await q.message.reply_text(
-                        "✅ درخواست کد برای همکار ارسال شد.", reply_markup=B.amenu()
-                    )
+                    await context.bot.send_message(chat_id=int(chat), text=(f"🔐 مدیریت برای درخواست {r['tracking_code']} کد تأیید همان خدمت را می‌خواهد.\n\nفقط کد تأیید خدمت را بفرستید؛ رمز ورود پنل را ارسال نکنید."), reply_markup=B.partner_kb())
+                    return await q.message.reply_text("✅ درخواست کد برای همکار ارسال شد.", reply_markup=B.amenu())
                 except Exception:
                     log.exception("verification request failed")
-                    return await q.message.reply_text(
-                        "❌ ارسال درخواست کد به همکار انجام نشد.", reply_markup=B.amenu()
-                    )
+                    return await q.message.reply_text("❌ ارسال درخواست کد به همکار انجام نشد.", reply_markup=B.amenu())
 
         return await _old_admin(update, context)
 
     B.admin_cb = safe_admin
     log.info("NetYar non-invasive Telegram compatibility hooks loaded")
 except Exception:
-    # sitecustomize must never prevent Python/Railway from starting.
     log.exception("NetYar compatibility hooks failed; continuing without hooks")
+
+
+# Some legacy feature installers are synchronous wrappers around optional async
+# setup functions.  They are invoked while FastAPI's startup event loop is
+# already running, so asyncio.run() cannot legally be used there.  Keep the
+# legacy callers working without blocking or nesting the active event loop.
+_REAL_ASYNCIO_RUN = asyncio.run
+
+
+def _netyar_compatible_run(awaitable, *args, **kwargs):
+    if not inspect.isawaitable(awaitable):
+        return None
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return _REAL_ASYNCIO_RUN(awaitable, *args, **kwargs)
+
+    result = []
+    error = []
+
+    def runner():
+        try:
+            result.append(_REAL_ASYNCIO_RUN(awaitable, *args, **kwargs))
+        except BaseException as exc:
+            error.append(exc)
+
+    thread = threading.Thread(target=runner, name="netyar-asyncio-compat", daemon=True)
+    thread.start()
+    thread.join()
+    if error:
+        raise error[0]
+    return result[0] if result else None
+
+
+if asyncio.run is not _netyar_compatible_run:
+    asyncio.run = _netyar_compatible_run
+    log.info("NetYar asyncio.run compatibility guard installed")
