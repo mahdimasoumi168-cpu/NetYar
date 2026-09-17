@@ -16,6 +16,18 @@ def install(app, B):
         log.exception("canonical off-hours gate unavailable")
         return False
 
+    # The real runtime must always install the deterministic partner
+    # phone/password owner. Without this, the legacy routers can consume the
+    # partner phone/password messages first and the panel appears closed or
+    # unresponsive even when night access is enabled.
+    try:
+        import telegram_partner_login_fix as PL
+        PL.install(app, B)
+        log.info("NIGHT POLICY: canonical partner login owner installed")
+    except Exception:
+        log.exception("canonical partner login owner unavailable")
+        return False
+
     try:
         import telegram_night_shift_v2 as N
         old_allowed = getattr(N, "allowed", None)
