@@ -23,6 +23,7 @@ def menu():
       [("➕ افزودن همکار","adm:addpartner")],
       [("🌙 همکاران شب‌کار","night2:menu")],
       [("🌙 بستن ربات در شب","adm:night_off"),("☀️ باز کردن ربات در شب","adm:night_on")],
+      [("📈 افزایش/کاهش قیمت همکار","adm:partner_price_seq"),("💬 ارتباط با همکار","adminpartner:list")],
       [("📋 درخواست‌ها","adm:requests"),("💳 پرداخت‌ها","adm:payments")],
       [("💰 شارژها","adm:topups"),("⚙️ قیمت‌ها","adm:prices")],
       [("🟢 خدمات","adm:services")],
