@@ -270,17 +270,23 @@ def install(app, B):
                 raise ApplicationHandlerStop
             partner = _partner_by_phone(B, phone)
             if not partner:
-                # A new phone may start partner membership onboarding, but it
-                # must never receive night access before admin approval and
-                # explicit night-worker enablement.
+                # Unknown phone => canonical membership request. It must not
+                # be treated as a failed login or granted night access.
                 st["phone"] = phone
+                st["partner_phone"] = phone
                 st["partner_logged_out"] = True
-                st["mode"] = "partner_reg_pass"
-                st["step"] = "partner_reg_pass"
-                await update.message.reply_text(
-                    "👤 این شماره هنوز حساب همکار فعال ندارد.\n\n"
-                    "برای عضویت جدید، ابتدا یک رمز ورود برای پنل تعیین کنید (حداقل ۴ کاراکتر):"
-                )
+                st["partner_active"] = False
+                st["mode"] = "partner_new_wait"
+                st["step"] = "partner_new_wait"
+                try:
+                    from telegram_partner_registration import _new_member
+                    await _new_member(update, B)
+                except Exception:
+                    log.exception("night membership entry failed")
+                    await update.message.reply_text(
+                        "👤 این شماره هنوز همکار فعال نیست.\n\n"
+                        "برای عضویت جدید از گزینه «🤝 درخواست عضویت» استفاده کنید."
+                    )
                 raise ApplicationHandlerStop
             pid = partner["id"]
             if str(B.db.setting(PREFIX + str(pid), "0")) != "1":
