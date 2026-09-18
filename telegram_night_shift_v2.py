@@ -43,7 +43,14 @@ def assigned(B,uid):
 
 def allowed(B,uid,update=None):
     # Outside normal hours only admins and explicitly assigned night workers pass.
+    # The global night switch is authoritative: OFF means nobody except admins
+    # can use the night-worker path.
     if B.admin(uid): return True
+    try:
+        if str(B.db.setting("night_shift_enabled","1") or "1") != "1":
+            return False
+    except Exception:
+        return False
     if assigned(B,uid): return True
     if update:
         msg=getattr(update,"effective_message",None)
