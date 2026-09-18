@@ -48,21 +48,38 @@ async def _add_partner(update,context,B):
  if not _admin(B,q.from_user.id):await q.answer('❌ دسترسی مدیریت ندارید.',show_alert=True);raise ApplicationHandlerStop
  st=_reset(B,q.from_user.id);st['canonical_add_partner']='name';await q.answer();await q.message.reply_text('➕ افزودن همکار\n\n👤 نام و نام خانوادگی همکار را وارد کنید:');raise ApplicationHandlerStop
 async def _night(update,context,B):
- q=getattr(update,'callback_query',None)
+ q=getattr(update,"callback_query",None)
  if not q or q.data not in {'adm:night_on','adm:night_off'}:return
- if not _admin(B,q.from_user.id):await q.answer('❌ دسترسی مدیریت ندارید.',show_alert=True);raise ApplicationHandlerStop
- enabled=q.data=='adm:night_on';value='1' if enabled else '0'
+ if not _admin(B,q.from_user.id):
+  await q.answer('❌ دسترسی مدیریت ندارید.',show_alert=True);raise ApplicationHandlerStop
+ enabled=(q.data=='adm:night_on'); value='1' if enabled else '0'
  try:
   B.db.set_setting('night_shift_enabled',value)
-  if str(B.db.setting('night_shift_enabled',''))!=value:raise RuntimeError('night switch persistence mismatch')
-  try:B.db.conn.commit()
-  except Exception:pass
-  B._netyar_night_shift_enabled=enabled;await q.answer('تنظیم شد');await q.message.reply_text(f"🌙 کنترل ربات در شب\n\nوضعیت: {'🟢 باز' if enabled else '🔴 بسته'}\n\n⏰ ساعت کاری روزانه همچنان ۰۷:۰۰ تا ۱۹:۰۰ است.\nاین کلید فقط دسترسی خارج از ساعت کاری همکاران شب‌کار را کنترل می‌کند.\nدسترسی هر همکار از بخش «🌙 همکاران شب‌کار» جداگانه تعیین می‌شود.",reply_markup=menu())
+  if str(B.db.setting('night_shift_enabled',''))!=value:
+   raise RuntimeError('night_shift_enabled persistence mismatch')
+  B._netyar_night_shift_enabled=enabled
+  try:
+   import telegram_admin_cleanup_and_night_switch_v1 as N
+   N._patch_night_gate(B)
+  except Exception:
+   log.exception('night gate refresh failed after successful save')
+  await q.answer('ذخیره شد')
+  status='🟢 باز' if enabled else '🔴 بسته'
+  await q.message.reply_text(
+   f"🌙 کنترل ربات در شب\\n\\nوضعیت: {status}\\n\\n"
+   "⏰ ساعت کاری روزانه همچنان ۰۷:۰۰ تا ۱۹:۰۰ است.\\n"
+   "این کلید فقط اجازه فعالیت خارج از ساعت کاری را برای همکاران شب‌کار کنترل می‌کند.\\n"
+   "برای ورود شبانه، همکار باید در «🌙 همکاران شب‌کار» نیز فعال شده باشد.",
+   reply_markup=menu()
+  )
  except Exception:
   log.exception('canonical night control failed')
-  try:await q.answer('ذخیره کنترل شب ناموفق بود.',show_alert=True);await q.message.reply_text('❌ کنترل شب انجام نشد. دوباره تلاش کنید.',reply_markup=menu())
-  except Exception:pass
+  try:
+   await q.answer('❌ ذخیره وضعیت شیفت شب ناموفق بود.',show_alert=True)
+   await q.message.reply_text('❌ وضعیت شیفت شب تغییر نکرد. دوباره تلاش کنید.',reply_markup=menu())
+  except Exception: pass
  raise ApplicationHandlerStop
+
 async def _text(update,context,B):
  msg=getattr(update,'effective_message',None);user=getattr(update,'effective_user',None)
  if not msg or not user or not _admin(B,user.id):return
