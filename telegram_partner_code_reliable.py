@@ -29,15 +29,8 @@ def install(app, B):
         log.exception("off-hours gate unavailable")
 
     def is_open():
-        try:
-            op = str(B.db.setting("work_open", "07:00") or "07:00")
-            cl = str(B.db.setting("work_close", "19:00") or "19:00")
-            from datetime import time
-            o, c = time.fromisoformat(op), time.fromisoformat(cl)
-            now = datetime.now(TEHRAN).time()
-            return o <= now < c if o < c else (now >= o or now < c)
-        except Exception:
-            return False
+        # NetYar is permanently available; legacy business-hours checks are disabled.
+        return True
 
     def allowed_closed(uid):
         try:
