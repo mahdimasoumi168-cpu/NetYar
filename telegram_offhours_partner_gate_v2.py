@@ -72,9 +72,37 @@ def _closed_text(B):
     return "❌ ربات در حال حاضر خارج از ساعت کاری بسته است.\n\n⏰ ساعت کاری: ۰۷:۰۰ تا ۱۹:۰۰\n🌙 در صورت فعال بودن دسترسی شبانه، خدمات ادامه دارد."
 
 def enforce_24x7(B):
-    # Backward-compatible name: install the canonical gate instead of forcing 24/7.
+    # Backward-compatible entry point. Rebind legacy gates to this single source
+    # of truth so no older module can silently reopen/close the bot.
     B._netyar_24x7=False
     B._netyar_night_gate_authoritative=True
+    def _open(*args, **kwargs):
+        uid=kwargs.get("uid")
+        if uid is None and len(args)>1: uid=args[1]
+        if uid is None and args and isinstance(args[0], int): uid=args[0]
+        return _is_open(B) if uid is None else night_access_open(B, uid)
+    def _allowed(*args, **kwargs):
+        uid=kwargs.get("uid")
+        if uid is None and len(args)>1: uid=args[1]
+        return True if uid is None else night_access_open(B, uid)
+    def _closed(*args, **kwargs): return not _is_open(B)
+    def _clock(*args, **kwargs): return _clock_is_open(B)
+    for name in (
+        "telegram_business_hours_guard","telegram_night_shift_v2",
+        "telegram_night_shift","telegram_final_control",
+        "telegram_persian_offhours_lock","telegram_absolute_offhours_guard",
+        "telegram_offhours_absolute_start_guard","telegram_night_shift_consistency",
+        "telegram_partner_code_reliable","telegram_management_stability_final",
+    ):
+        try:
+            m=__import__(name)
+            for fn in ("is_open","open_now","_is_open"):
+                if hasattr(m,fn): setattr(m,fn,_open)
+            if hasattr(m,"_clock_is_open"): m._clock_is_open=_clock
+            if hasattr(m,"closed"): m.closed=_closed
+            if hasattr(m,"allowed"): m.allowed=_allowed
+        except Exception:
+            continue
     return True
 
 def install(app,B):
