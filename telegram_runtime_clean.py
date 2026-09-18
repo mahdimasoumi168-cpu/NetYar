@@ -118,6 +118,11 @@ async def _blocked_language_callback(update,context):
     if not q:return
     data=str(q.data or "").strip()
     if not(data.startswith("lang:") or data.startswith("language:")):return
+    if not _full_bot_open(q.from_user.id):
+        try:await q.answer("🔒 ربات کاملاً بسته است.",show_alert=True)
+        except Exception:pass
+        await _reply_full_closed(q.message)
+        raise ApplicationHandlerStop
     if _is_offhours():
         try:await q.answer("❌ خارج از ساعت کاری است.",show_alert=True)
         except Exception:pass
