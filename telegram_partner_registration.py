@@ -239,7 +239,8 @@ async def text(update,context,B):
         except Exception: ok=False
         if not ok:
             await update.effective_message.reply_text("❌ رمز ورود نادرست است.\n\n🔐 رمز را دوباره وارد کنید:",reply_markup=_cancel_kb(B,st.get("lang","fa"))); raise ApplicationHandlerStop
-        st.update(partner_id=row["id"],partner_active=True,partner_logged_out=False,mode=None,step=None,partner=row["phone"],partner_phone=row["phone"])\n        _remember_partner(B, uid, row["id"])
+        st.update(partner_id=row["id"],partner_active=True,partner_logged_out=False,mode=None,step=None,partner=row["phone"],partner_phone=row["phone"])
+        _remember_partner(B, uid, row["id"])
         try: B.db.set_setting("partner_chat_"+str(row["id"]),str(uid))
         except Exception: pass
         return await B._partner_registration_old(update,context)
