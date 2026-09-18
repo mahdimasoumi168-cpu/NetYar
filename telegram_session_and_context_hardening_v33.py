@@ -58,34 +58,7 @@ def install(app, B):
 
     B.partner_exit = partner_exit
 
-    # Authoritative owner for all admin-panel callbacks. It runs before legacy
-    # callback routers so partner state cannot trigger a partner fallback error.
-    async def admin_callbacks(update, context):
-        q = getattr(update, "callback_query", None)
-        data = str(getattr(q, "data", "") or "") if q else ""
-        if not q or not data.startswith("adm:"):
-            return
-        uid = q.from_user.id
-        if not B.admin(uid):
-            return
-        try:
-            import telegram_admin_plus as A
-            await q.answer()
-            result = A._callback(update, context, B)
-            if inspect.isawaitable(result):
-                await result
-        except Exception:
-            log.exception("authoritative admin callback failed: %s", data)
-            try:
-                import telegram_admin_plus as A
-                await q.message.reply_text("❌ خطای موقت در پنل مدیریت؛ دوباره انتخاب کنید.", reply_markup=A._admin_menu())
-            except Exception:
-                log.exception("admin callback recovery failed")
-        raise ApplicationHandlerStop
-
-    app.add_handler(CallbackQueryHandler(admin_callbacks, pattern=r"^adm:"), group=-2000001)
-
-    # Real runtime: install the reliable request-reply owner so req:r callbacks
+    # Admin callback ownership is intentionally NOT installed here.\n    # Canonical/specialized admin handlers must receive adm:* callbacks directly.\n\n    # Real runtime: install the reliable request-reply owner so req:r callbacks
     # never fall through to the legacy partner callback recovery.
     try:
         import telegram_admin_request_reliability_fix as AR
