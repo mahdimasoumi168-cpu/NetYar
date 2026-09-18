@@ -69,8 +69,15 @@ def closed():
 
 def markup(B,uid=None):
     rows=[[RESTART]]
-    if uid is not None and (B.admin(uid) or assigned(B,uid)):
-        rows.append([PARTNER])
+    if uid is not None:
+        allow=False
+        try:
+            from telegram_offhours_partner_gate_v2 import _allowed_during_closed
+            allow=bool(_allowed_during_closed(B,uid))
+        except Exception:
+            allow=bool(B.admin(uid) or assigned(B,uid))
+        if allow:
+            rows.append([PARTNER])
     return ReplyKeyboardMarkup(rows,resize_keyboard=True,one_time_keyboard=False,is_persistent=True)
 
 
