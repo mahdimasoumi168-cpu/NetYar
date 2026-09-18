@@ -161,7 +161,13 @@ def _install_features(app):
             log.info("RUNTIME PARTNER CHAT OWNER LOCKED: telegram_admin_partner_chat")
         except Exception:
             log.exception("CRITICAL: admin-partner chat unavailable")
-        log.info("RUNTIME ADMIN OWNER LOCKED: telegram_canonical_admin_final.menu")
+        try:
+            import telegram_admin_controls_v8 as AC8; AC8.install(app,B)
+            log.info("RUNTIME ADMIN CONTROLS OWNER LOCKED: telegram_admin_controls_v8")
+        except Exception:
+            log.exception("CRITICAL: admin controls v8 unavailable")
+            raise
+        log.info("RUNTIME ADMIN OWNER LOCKED: telegram_admin_controls_v8")
         log.info("RUNTIME REQUEST OWNER LOCKED: telegram_canonical_request_flow_v1")
         log.info("RUNTIME ADMIN AMENU OWNER: %s.%s",getattr(B.amenu,"__module__","?"),getattr(B.amenu,"__name__","?"))
     except Exception:log.exception("CRITICAL: canonical admin owner/firewall unavailable"); raise
