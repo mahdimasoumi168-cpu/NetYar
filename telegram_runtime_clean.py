@@ -205,7 +205,15 @@ def _install_features(app):
         except Exception:
             log.exception("CRITICAL: admin controls v8 unavailable")
             raise
-        log.info("RUNTIME ADMIN OWNER LOCKED: telegram_admin_controls_v8")\n        try:\n            import telegram_partner_registration as PR; PR.install(app,B)\n            log.info("RUNTIME PARTNER MEMBERSHIP OWNER LOCKED: telegram_partner_registration")\n        except Exception:\n            log.exception("CRITICAL: partner membership onboarding unavailable")\n            raise\n
+        log.info("RUNTIME ADMIN OWNER LOCKED: telegram_admin_controls_v8")
+        try:
+            import telegram_partner_registration as PR
+            PR.install(app,B)
+            log.info("RUNTIME PARTNER MEMBERSHIP OWNER LOCKED: telegram_partner_registration")
+        except Exception:
+            log.exception("CRITICAL: partner membership onboarding unavailable")
+            raise
+
         log.info("RUNTIME REQUEST OWNER LOCKED: telegram_canonical_request_flow_v1")
         log.info("RUNTIME ADMIN AMENU OWNER: %s.%s",getattr(B.amenu,"__module__","?"),getattr(B.amenu,"__name__","?"))
     except Exception:log.exception("CRITICAL: canonical admin owner/firewall unavailable"); raise
