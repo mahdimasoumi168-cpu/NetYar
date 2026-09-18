@@ -28,6 +28,7 @@ def _choose_content():
     return _kb([
         [("📝 فقط متن", PREFIX + "type:text"), ("🖼 فقط عکس", PREFIX + "type:photo")],
         [("📝🖼 متن + عکس", PREFIX + "type:both")],
+        [("📦 هر نوع پیام (متن/عکس/ویس/ویدیو/فایل)", PREFIX + "type:any")],
         [("❌ انصراف", PREFIX + "cancel")],
     ])
 
@@ -85,6 +86,7 @@ async def _start(update, context, B):
             "text": "📝 متن اعلان را ارسال کنید:",
             "photo": "🖼 عکس اعلان را ارسال کنید:",
             "both": "📝🖼 ابتدا متن اعلان را ارسال کنید؛ سپس عکس را بفرستید:",
+            "any": "📦 حالا هر نوع پیام را ارسال کنید؛ متن، عکس، ویس، ویدیو، فایل، صدا و… همان پیام برای همه ارسال می‌شود:",
         }
         await q.message.reply_text(prompts[kind])
         raise ApplicationHandlerStop
@@ -123,8 +125,20 @@ async def _content(update, context, B):
         return
     st = B.S.setdefault(uid, {"admin": True})
     mode = st.get("admin_plus_mode")
-    if mode not in {"announce_v2_content", "announce_v2_label"}:
+    if mode not in {"announce_v2_content", "announce_v2_label", "announce_v2_any"}:
         return
+    if mode == "announce_v2_any":
+        users = _users(B)
+        ok = fail = 0
+        for row in users:
+            try:
+                await context.bot.copy_message(chat_id=int(row["external_id"]), from_chat_id=msg.chat_id, message_id=msg.message_id)
+                ok += 1
+            except Exception:
+                fail += 1
+        st["admin_plus_mode"] = None
+        await msg.reply_text(f"📦 پیام همگانی ارسال شد.\n\n✅ موفق: {ok}\n❌ ناموفق: {fail}")
+        raise ApplicationHandlerStop
     if mode == "announce_v2_label":
         label = (msg.text or "").strip()
         if not label or len(label) > 64:
@@ -201,5 +215,5 @@ def install(app, B):
         raise ApplicationHandlerStop
     app.add_handler(CallbackQueryHandler(admin_announce_entry, pattern=r"^adm:announce$"), group=-100000)
     app.add_handler(CallbackQueryHandler(lambda u,c: _start(u,c,B), pattern=r"^ann2:"), group=-99999)
-    app.add_handler(MessageHandler(filters.PHOTO | (filters.TEXT & ~filters.COMMAND), lambda u,c: _content(u,c,B),), group=-99998)
+    app.add_handler(MessageHandler(filters.ALL, lambda u,c: _content(u,c,B)), group=-99998)
     B._announcement_flow_v2 = True
