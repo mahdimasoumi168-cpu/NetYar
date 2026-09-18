@@ -193,7 +193,8 @@ app_marker="_canonical_request_flow_v1"
 def install(app,B):
     if getattr(B,app_marker,False):return True
     app.add_handler(CallbackQueryHandler(lambda u,c:_callback(u,c,B),pattern=r"^(req:|panel:|rq:|cust:)"),group=-110000)
-    app.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL,lambda u,c:_media(u,c,B)),group=-110000)\n    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,lambda u,c:_text(u,c,B)),group=-109999)
+    app.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL,lambda u,c:_media(u,c,B)),group=-110000)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,lambda u,c:_text(u,c,B)),group=-109999)
     setattr(B,app_marker,True)
     log.info("Canonical request/reply owner active")
     return True
