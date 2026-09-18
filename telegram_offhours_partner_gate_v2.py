@@ -15,6 +15,7 @@ DEFAULT_OPEN = "07:00"
 DEFAULT_CLOSE = "19:00"
 PREFIX = "night_worker:"
 NIGHT_KEY = "night_shift_enabled"
+NIGHT_PUBLIC_KEY = "night_public_open"
 IRANCELL = "📱 حل مشکل سیم کارت ایرانسل"
 
 
@@ -39,6 +40,10 @@ def night_shift_enabled(B):
     return _setting(B, NIGHT_KEY, "1") == "1"
 
 
+def night_public_open(B):
+    return _setting(B, NIGHT_PUBLIC_KEY, "0") == "1"
+
+
 def _clock_is_open(B):
     op = _setting(B, "work_open", DEFAULT_OPEN)
     cl = _setting(B, "work_close", DEFAULT_CLOSE)
@@ -52,8 +57,8 @@ def _clock_is_open(B):
 
 
 def _is_open(B):
-    """Public/customer availability; deliberately ignores the night switch."""
-    return bool(_clock_is_open(B))
+    """Public/customer availability: normal hours OR explicit night-open switch."""
+    return bool(_clock_is_open(B) or night_public_open(B))
 
 
 def _partner_by_phone(B, phone):
@@ -131,7 +136,7 @@ def _allowed_during_closed(B, uid):
 
 def night_access_open(B, uid):
     try:
-        if _clock_is_open(B): return True
+        if _clock_is_open(B) or night_public_open(B): return True
         if B.admin(uid): return True
     except Exception: pass
     return bool(night_shift_enabled(B) and is_night_worker(B, uid))
