@@ -102,6 +102,14 @@ def is_night_worker(B, uid):
     return False
 
 
+def night_access_open(B, uid):
+    try:
+        if _clock_is_open(B): return True
+        if B.admin(uid): return True
+    except Exception: pass
+    return bool(night_shift_enabled(B) and is_night_worker(B, uid))
+
+
 def _closed_markup():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🔄 شروع مجدد", callback_data="off:restart")],
@@ -140,8 +148,22 @@ def _night_partner_markup(B, uid):
 
 
 def install(app, B):
-    if getattr(B, "_offhours_partner_gate_v8", False):
+    if getattr(B, "_offhours_partner_gate_v9", False):
         return True
+
+    old_main = getattr(B, "main", None)
+    if callable(old_main) and not getattr(B, "_night_main_guard_v1", False):
+        def guarded_main(uid, *args, **kwargs):
+            try:
+                if not _clock_is_open(B) and not B.admin(uid):
+                    if night_shift_enabled(B) and is_night_worker(B, uid):
+                        return _night_partner_markup(B, uid)
+                    return _closed_markup()
+            except Exception:
+                return _closed_markup()
+            return old_main(uid, *args, **kwargs)
+        B.main = guarded_main
+        B._night_main_guard_v1 = True
 
     async def cb(update, context):
         q = update.callback_query
@@ -259,5 +281,5 @@ def install(app, B):
     app.add_handler(CallbackQueryHandler(cb, pattern=r"^off:(restart|partner)$"), group=-30000)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, night_login), group=-29999)
     app.add_handler(CallbackQueryHandler(lambda u, c: None, pattern=r"^off:"), group=-29997)
-    B._offhours_partner_gate_v8 = True
+    B._offhours_partner_gate_v9 = True
     return True
