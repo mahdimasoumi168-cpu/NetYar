@@ -126,14 +126,62 @@ def install(app, B):
 
     async def _create_request(update, context, st, attachments):
         msg = update.message
+        uid = update.effective_user.id
         amount = int(B.db.setting("price_government", "500000") or 500000)
         pid = st.get("partner_id")
-        owner = pid or B.db.user("telegram", update.effective_user.id, update.effective_user.username, update.effective_user.full_name)
+        owner = pid or B.db.user("telegram", uid, update.effective_user.username, update.effective_user.full_name)
         special_id = _digits(st.get("gov_special"))
         previous = _find_paid_by_special(owner, special_id)
-        rid, code = B.db.create_request(owner, "government", "telegram", 0 if previous else amount)
+
+        # Build the request only after deciding the payment route. Partners pay
+        # from balance; customers receive an invoice and the request stays
+        # unpaid until a receipt is submitted and management confirms it.
+        if not previous and pid:
+            try:
+                conn = B.db.conn
+                conn.execute("BEGIN IMMEDIATE")
+                p = conn.execute("SELECT id,name,balance,active FROM partners WHERE id=? AND active=1", (int(pid),)).fetchone()
+                bal = int(p["balance"] or 0) if p else 0
+                if not p or bal < amount:
+                    conn.rollback()
+                    need = max(0, amount - bal)
+                    await msg.reply_text(
+                        f"❌ اعتبار پنل همکاران کافی نیست.\\n\\n"
+                        f"💳 اعتبار فعلی: {bal:,} تومان\\n"
+                        f"💰 هزینه خدمت: {amount:,} تومان\\n"
+                        f"➕ مبلغ موردنیاز برای شارژ: {need:,} تومان\\n\\n"
+                        "ابتدا حساب همکار را شارژ کنید؛ تا پرداخت انجام نشود درخواست برای مدیریت ارسال نمی‌شود.",
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton("➕ شارژ حساب", callback_data="topupui:start")],
+                            [InlineKeyboardButton("❌ انصراف", callback_data="govv2:cancel")]
+                        ]),
+                    )
+                    return
+                cur = conn.execute(
+                    "UPDATE partners SET balance=balance-?,updated_at=? WHERE id=? AND active=1 AND balance>=?",
+                    (amount, B.now(), int(pid), amount),
+                )
+                if cur.rowcount != 1:
+                    conn.rollback()
+                    await msg.reply_text("❌ کسر اعتبار در همین لحظه انجام نشد؛ مبلغی کسر نشده است. دوباره تلاش کنید.", reply_markup=B.partner_kb(st.get("lang","fa")))
+                    return
+                rid, code = B.db.create_request(owner, "government", "telegram", amount)
+                conn.execute("UPDATE requests SET status='submitted',payment_status='paid',payment_method='partner_balance',updated_at=? WHERE id=?", (B.now(), rid))
+                conn.commit()
+            except Exception:
+                try: B.db.conn.rollback()
+                except Exception: pass
+                raise
+        elif previous:
+            rid, code = B.db.create_request(owner, "government", "telegram", 0)
+        else:
+            rid, code = B.db.create_request(owner, "government", "telegram", amount)
+
         typ = st.get("gov_doc_type")
-        fields = [("doc_type",typ),("phone",st.get("gov_phone")),("dob",st.get("gov_dob")),("unique_id",st.get("gov_unique")),("special_id",special_id),("postal_code",st.get("gov_postal"))]
+        fields = [
+            ("doc_type",typ),("phone",st.get("gov_phone")),("dob",st.get("gov_dob")),
+            ("unique_id",st.get("gov_unique")),("special_id",special_id),("postal_code",st.get("gov_postal"))
+        ]
         if typ == "card": fields.append(("family_code",st.get("gov_family_code")))
         if typ == "passport": fields.append(("passport",st.get("gov_identity_number")))
         elif typ == "temporary_card": fields.append(("temporary_card_number",st.get("gov_identity_number")))
@@ -141,38 +189,65 @@ def install(app, B):
         if pid: fields.append(("partner_id",str(pid)))
         for k,v in fields:
             if v: B.db.answer(rid,k,answer=v)
+
         labels = ["document"] if typ != "passport" else ["passport_first_page","passport_visa_renewal","passport_renewal"]
         for key,fid in zip(labels,attachments):
             if fid: B.db.answer(rid,key,file_id=fid)
+
         if previous:
-            B.db.conn.execute("UPDATE requests SET status='submitted',payment_status='paid',payment_method='previous_government_request',payment_note=?,updated_at=? WHERE id=?",(f"هزینه قبلاً برای شناسه اختصاصی {special_id} پرداخت شده است؛ درخواست مجدد بدون کسر هزینه ثبت شد.",B.now(),rid))
+            B.db.conn.execute(
+                "UPDATE requests SET status='submitted',payment_status='paid',payment_method='previous_government_request',payment_note=?,updated_at=? WHERE id=?",
+                (f"هزینه قبلاً برای شناسه اختصاصی {special_id} پرداخت شده است؛ درخواست مجدد بدون کسر هزینه ثبت شد.",B.now(),rid)
+            )
+        elif pid:
+            # Already atomically deducted above.
+            pass
         else:
-            B.db.conn.execute("UPDATE requests SET status='awaiting_payment',payment_status='unpaid',payment_method='invoice',updated_at=? WHERE id=?",(B.now(),rid))
+            B.db.conn.execute(
+                "UPDATE requests SET status='awaiting_payment',payment_status='unpaid',payment_method='invoice',updated_at=? WHERE id=?",
+                (B.now(),rid)
+            )
         B.db.conn.commit()
+
         text_msg = _admin_text(st,code,amount,bool(previous),previous['tracking_code'] if previous else "")
         controls = _controls(rid)
-        for aid in B.ADM:
-            try: await context.bot.send_message(chat_id=int(aid),text=text_msg,reply_markup=controls)
-            except Exception: pass
-            if typ == "passport":
-                captions=["📸 ۱/۳ — صفحه اول پاسپورت","📸 ۲/۳ — صفحه تمدید روادید","📸 ۳/۳ — صفحه تمدید گذرنامه"]
-                for fid,caption in zip(attachments,captions):
-                    try: await context.bot.send_photo(chat_id=int(aid),photo=fid,caption=f"🎫 {code}\n{caption}")
+
+        # Do not send an unpaid request to management. Customer evidence and
+        # the receipt are forwarded together after receipt submission.
+        if previous or pid:
+            await B.notify_admins(context.application, text_msg, rid)
+            for aid in B.ADM:
+                if typ == "passport":
+                    captions=["📸 ۱/۳ — صفحه اول پاسپورت","📸 ۲/۳ — صفحه تمدید روادید","📸 ۳/۳ — صفحه تمدید گذرنامه"]
+                    for fid,caption in zip(attachments,captions):
+                        try: await context.bot.send_photo(chat_id=int(aid),photo=fid,caption=f"🎫 {code}\\n{caption}")
+                        except Exception:
+                            try: await context.bot.send_document(chat_id=int(aid),document=fid,caption=f"🎫 {code}\\n{caption}")
+                            except Exception: pass
+                elif attachments:
+                    fid=attachments[0]
+                    try: await context.bot.send_photo(chat_id=int(aid),photo=fid,caption=f"🎫 {code}\\n📎 تصویر مدرک مشترک")
                     except Exception:
-                        try: await context.bot.send_document(chat_id=int(aid),document=fid,caption=f"🎫 {code}\n{caption}")
+                        try: await context.bot.send_document(chat_id=int(aid),document=fid,caption=f"🎫 {code}\\n📎 تصویر مدرک مشترک")
                         except Exception: pass
-            elif attachments:
-                fid=attachments[0]
-                try: await context.bot.send_photo(chat_id=int(aid),photo=fid,caption=f"🎫 {code}\n📎 تصویر مدرک مشترک")
-                except Exception:
-                    try: await context.bot.send_document(chat_id=int(aid),document=fid,caption=f"🎫 {code}\n📎 تصویر مدرک مشترک")
-                    except Exception: pass
+
         st["mode"] = None; st["request_id"] = rid; st["tracking_code"] = code
         if previous:
-            await msg.reply_text(f"✅ درخواست جدید ثبت شد.\n🎫 کد پیگیری: {code}\n♻️ این شناسه اختصاصی قبلاً پرداخت شده است.\n💰 هزینه این درخواست: ۰ تومان", reply_markup=B.partner_kb(st.get("lang","fa")) if pid else B.main(uid))
+            await msg.reply_text(
+                f"✅ درخواست جدید ثبت شد.\\n🎫 کد پیگیری: {code}\\n♻️ این شناسه اختصاصی قبلاً پرداخت شده است.\\n💰 هزینه این درخواست: ۰ تومان",
+                reply_markup=B.partner_kb(st.get("lang","fa")) if pid else B.main(uid)
+            )
+        elif pid:
+            await msg.reply_text(
+                f"✅ درخواست با موفقیت ثبت شد.\\n🎫 کد پیگیری: {code}\\n💰 مبلغ {amount:,} تومان از اعتبار پنل همکاران کسر شد.",
+                reply_markup=B.partner_kb(st.get("lang","fa"))
+            )
         else:
             st["mode"] = "invoice_pending"
-            await msg.reply_text(invoice_text("فاکتور خدمات حل مشکل سامانه دولت من",amount,code,B),reply_markup=invoice_markup(B),parse_mode="HTML")
+            await msg.reply_text(
+                invoice_text("فاکتور خدمات حل مشکل سامانه دولت من",amount,code,B),
+                reply_markup=invoice_markup(B),parse_mode="HTML"
+            )
         raise ApplicationHandlerStop
 
     async def media(update, context):
@@ -197,10 +272,32 @@ def install(app, B):
         fid=_file_id(update.message)
         if not fid: return
         rid=st.get("request_id"); code=st.get("tracking_code","-")
-        for aid in B.ADM:
-            try: await context.bot.send_photo(chat_id=int(aid),photo=fid,caption=f"🧾 رسید پرداخت کاربر\n🎫 {code}\n⚠️ رسید دریافت شد؛ پرداخت هنوز خودکار تأیید نشده است.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("💰 تأیید دریافت وجه",callback_data=f"rq:payconfirm:{rid}"),InlineKeyboardButton("❌ رد درخواست",callback_data=f"rq:reject:{rid}")]]))
-            except Exception: pass
-        await update.message.reply_text("✅ رسید پرداخت شما برای مدیریت ارسال شد.\n⏳ تا تأیید مدیریت، پرداخت قطعی محسوب نمی‌شود.")
+        row=B.db.conn.execute("SELECT * FROM requests WHERE id=? LIMIT 1",(int(rid),)).fetchone() if rid else None
+        if not row:
+            st["mode"]=None
+            await update.message.reply_text("❌ فاکتور معتبر پیدا نشد.",reply_markup=B.main(uid))
+            raise ApplicationHandlerStop
+        B.db.answer(rid,"payment_receipt",file_id=fid)
+        B.db.conn.execute(
+            "UPDATE requests SET status='submitted',payment_status='pending_review',payment_method='card_to_card',updated_at=? WHERE id=?",
+            (B.now(),int(rid))
+        )
+        B.db.conn.commit()
+        try:
+            await B.notify_admins(
+                context.application,
+                f"🧾 رسید پرداخت مشترک\\n🎫 {code}\\n💰 مبلغ: {int(row['amount'] or 0):,} تومان\\n"
+                "💳 روش پرداخت: کارت‌به‌کارت\\n⏳ وضعیت: منتظر تأیید مدیریت",
+                int(rid),
+            )
+        except Exception:
+            log.exception("government receipt admin notification failed rid=%s",rid)
+        st["mode"]=None
+        await update.message.reply_text(
+            "✅ رسید پرداخت برای مدیریت ارسال شد.\\n"
+            "⏳ تا تأیید مدیریت، پرداخت قطعی محسوب نمی‌شود.",
+            reply_markup=B.main(uid)
+        )
         raise ApplicationHandlerStop
 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,text),group=-80)
