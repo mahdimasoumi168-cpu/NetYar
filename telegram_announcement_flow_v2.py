@@ -80,7 +80,7 @@ async def _start(update, context, B):
         raise ApplicationHandlerStop
     if action.startswith("type:"):
         kind = action.split(":", 1)[1]
-        st.update({"admin_plus_mode": "announce_v2_content", "announce_content": kind,
+        st.update({"admin_plus_mode": "announce_v2_any" if kind == "any" else "announce_v2_content", "announce_content": kind,
                    "announce_text": "", "announce_photo": None})
         prompts = {
             "text": "📝 متن اعلان را ارسال کنید:",
