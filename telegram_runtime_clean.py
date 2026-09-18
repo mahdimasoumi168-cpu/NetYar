@@ -10,10 +10,17 @@ WELCOME=("👋 سلام!\n\nبه سامانه خدمات آنلاین بات، �
 RESTART="🔄 شروع مجدد"; USE_SERVICES="🛎 استفاده از خدمات"
 def _restart_keyboard(): return ReplyKeyboardMarkup([[RESTART]],resize_keyboard=True,is_persistent=True)
 def _services_keyboard(): return InlineKeyboardMarkup([[InlineKeyboardButton(USE_SERVICES,callback_data="start:services")]])
-def _offhours_state():
-    # 24/7 policy: there is no clock-based closure anymore.
-    return False, "", None
-def _is_offhours(): return _offhours_state()[0]
+def _offhours_state(uid=None):
+    try:
+        import telegram_offhours_partner_gate_v2 as G
+        uid = uid if uid is not None else 0
+        if G.night_access_open(B, uid):
+            return False, "", None
+        return True, G._closed_text(B), G._closed_markup()
+    except Exception:
+        log.exception("authoritative offhours state unavailable")
+        return False, "", None
+def _is_offhours(uid=None): return _offhours_state(uid)[0]
 
 def _full_bot_open(uid=None):
     try:
@@ -34,8 +41,8 @@ def _night_worker_active(uid):
     return False
 
 async def _reply_closed(message):
-    closed,text,markup=_offhours_state()
     uid=getattr(getattr(message,"from_user",None),"id",None)
+    closed,text,markup=_offhours_state(uid)
     if closed and uid and _night_worker_active(uid):
         return False
     if closed:
@@ -97,7 +104,7 @@ async def _services_callback(update,context):
         except Exception:pass
         await _reply_full_closed(q.message)
         raise ApplicationHandlerStop
-    if _is_offhours():
+    if _is_offhours(q.from_user.id):
         try:await q.answer("❌ خارج از ساعت کاری است.",show_alert=True)
         except Exception:pass
         if q.message:await _reply_closed(q.message)
@@ -114,7 +121,7 @@ async def _blocked_language_callback(update,context):
         except Exception:pass
         await _reply_full_closed(q.message)
         raise ApplicationHandlerStop
-    if _is_offhours():
+    if _is_offhours(q.from_user.id):
         try:await q.answer("❌ خارج از ساعت کاری است.",show_alert=True)
         except Exception:pass
         if q.message:await _reply_closed(q.message)
