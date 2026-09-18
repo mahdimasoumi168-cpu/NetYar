@@ -68,11 +68,24 @@ async def _night(update,context,B):
     enabled=q.data=="adm:night_on"
     value="1" if enabled else "0"
     try:
-        B.db.set_setting("night_shift_enabled",value)
-        saved=str(B.db.setting("night_shift_enabled",""))==value
-        if not saved: raise RuntimeError("night_shift_enabled was not persisted")
-        try:B.db.conn.commit()
-        except Exception:pass
+        # One authoritative persistent switch. set_setting() commits in core,
+        # but commit again defensively for alternative DB adapters.
+        B.db.set_setting("night_shift_enabled", value)
+        try:
+            B.db.conn.commit()
+        except Exception:
+            pass
+        saved = str(B.db.setting("night_shift_enabled", "")) == value
+        if not saved:
+            raise RuntimeError("night_shift_enabled was not persisted")
+        # Synchronize legacy gates immediately in the same process.
+        try:
+            import telegram_admin_cleanup_and_night_switch_v1 as C
+            C._patch_night_gate(B)
+        except Exception:
+            log.exception("night gate synchronization failed")
+        # Expose the authoritative state to any runtime layer that caches policy.
+        B._netyar_night_shift_enabled = enabled
         await q.answer("تنظیم شد")
         status="🟢 باز" if enabled else "🔴 بسته"
         await q.message.reply_text(
