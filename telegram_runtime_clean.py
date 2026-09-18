@@ -99,7 +99,7 @@ async def _blocked_language_callback(update,context):
     B.S.setdefault(q.from_user.id,{})["lang"]="fa"; await q.answer("زبان فارسی است."); await q.message.reply_text("لطفاً از دکمه «🛎 استفاده از خدمات» استفاده کنید.",reply_markup=_services_keyboard()); raise ApplicationHandlerStop
 
 def _install_features(app):
-    first=("telegram_offhours_partner_gate_v2","telegram_night_shift_consistency","telegram_offhours_absolute_start_guard","telegram_startup_button_firewall","telegram_business_features","telegram_ui_policy_v2","telegram_partner_ui_fix","telegram_public_tracking","telegram_service_billing_v3_fix","telegram_sim_service_v2","telegram_irancell_partner_service")
+    first=("telegram_global_full_close_gate","telegram_offhours_partner_gate_v2","telegram_night_shift_consistency","telegram_offhours_absolute_start_guard","telegram_startup_button_firewall","telegram_business_features","telegram_ui_policy_v2","telegram_partner_ui_fix","telegram_public_tracking","telegram_service_billing_v3_fix","telegram_sim_service_v2","telegram_irancell_partner_service")
     for module in first:
         try:
             m=__import__(module); f=getattr(m,"install",None)
@@ -146,6 +146,11 @@ def _install_features(app):
         import telegram_canonical_admin_final as CAF; CAF.install(app,B)
         import telegram_admin_ui_firewall_v1 as AF; AF.install(app,B)
         import telegram_canonical_request_flow_v1 as CR; CR.install(app,B)
+        try:
+            import telegram_admin_service_price_sequence as GSP; GSP.install(app,B)
+            log.info("RUNTIME GLOBAL SERVICE PRICING OWNER LOCKED: telegram_admin_service_price_sequence")
+        except Exception:
+            log.exception("CRITICAL: global service pricing unavailable")
         try:
             import telegram_partner_pricing_stable as PPS; PPS.install(app,B)
             log.info("RUNTIME PARTNER PRICING OWNER LOCKED: telegram_partner_pricing_stable")
