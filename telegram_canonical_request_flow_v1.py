@@ -132,6 +132,27 @@ async def _callback(update,context,B):
         await q.message.reply_text(msg,reply_markup=_buttons(rid,str(r["payment_status"] or "")=="paid"));raise ApplicationHandlerStop
     return
 
+async def _media(update,context,B):
+    msg=update.effective_message;u=update.effective_user
+    if not msg or not u:return
+    st=B.S.setdefault(u.id,{})
+    if st.get("mode")!="invoice_pending":return
+    fid=msg.photo[-1].file_id if getattr(msg,"photo",None) else (msg.document.file_id if getattr(msg,"document",None) else "")
+    if not fid:return
+    rid=st.get("request_id")
+    r=_request(B,rid) if rid else None
+    if not r:
+        st["mode"]=None
+        await msg.reply_text("❌ فاکتور معتبر پیدا نشد.",reply_markup=B.main(u.id));raise ApplicationHandlerStop
+    B.db.answer(rid,"payment_receipt",file_id=fid)
+    B.db.conn.execute("UPDATE requests SET status='submitted',payment_status='pending_review',payment_method='card_to_card',updated_at=? WHERE id=?",(B.now(),int(rid)));B.db.conn.commit()
+    try:
+        await B.notify_admins(context.application,f"🧾 رسید پرداخت مشترک\n🎫 {r['tracking_code'] or rid}\n💰 مبلغ: {int(r['amount'] or 0):,} تومان\n⚠️ پرداخت منتظر تأیید مدیریت است.",rid)
+    except Exception:log.exception("invoice receipt admin notification failed rid=%s",rid)
+    st["mode"]=None
+    await msg.reply_text(f"✅ رسید پرداخت ارسال شد.\n🎫 کد پیگیری: {r['tracking_code'] or rid}\n⏳ پس از تأیید مدیریت، درخواست انجام می‌شود.",reply_markup=B.main(u.id))
+    raise ApplicationHandlerStop
+
 async def _text(update,context,B):
     msg=update.effective_message;u=update.effective_user
     if not msg or not u:return
@@ -172,7 +193,7 @@ app_marker="_canonical_request_flow_v1"
 def install(app,B):
     if getattr(B,app_marker,False):return True
     app.add_handler(CallbackQueryHandler(lambda u,c:_callback(u,c,B),pattern=r"^(req:|panel:|rq:|cust:)"),group=-110000)
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,lambda u,c:_text(u,c,B)),group=-109999)
+    app.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL,lambda u,c:_media(u,c,B)),group=-110000)\n    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,lambda u,c:_text(u,c,B)),group=-109999)
     setattr(B,app_marker,True)
     log.info("Canonical request/reply owner active")
     return True
