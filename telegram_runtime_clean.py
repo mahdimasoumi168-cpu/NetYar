@@ -131,7 +131,7 @@ async def _blocked_language_callback(update,context):
     B.S.setdefault(q.from_user.id,{})["lang"]="fa"; await q.answer("زبان فارسی است."); await q.message.reply_text("لطفاً از دکمه «🛎 استفاده از خدمات» استفاده کنید.",reply_markup=_services_keyboard()); raise ApplicationHandlerStop
 
 def _install_features(app):
-    first=("telegram_global_full_close_gate","telegram_offhours_partner_gate_v2","telegram_night_shift_consistency","telegram_offhours_absolute_start_guard","telegram_startup_button_firewall","telegram_business_features","telegram_ui_policy_v2","telegram_partner_ui_fix","telegram_public_tracking","telegram_service_billing_v3_fix","telegram_sim_service_v2","telegram_irancell_partner_service")
+    try:\n        import telegram_absolute_access_owner_v1 as AA; AA.install(app,B)\n        log.info("RUNTIME ABSOLUTE ACCESS OWNER LOCKED: telegram_absolute_access_owner_v1")\n    except Exception:\n        log.exception("CRITICAL: absolute access owner unavailable")\n        raise\n    first=("telegram_global_full_close_gate","telegram_offhours_partner_gate_v2","telegram_night_shift_consistency","telegram_offhours_absolute_start_guard","telegram_startup_button_firewall","telegram_business_features","telegram_ui_policy_v2","telegram_partner_ui_fix","telegram_public_tracking","telegram_service_billing_v3_fix","telegram_sim_service_v2","telegram_irancell_partner_service")
     for module in first:
         try:
             m=__import__(module); f=getattr(m,"install",None)
