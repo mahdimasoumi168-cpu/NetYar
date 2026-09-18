@@ -113,11 +113,27 @@ def install(app, B):
                 raise ApplicationHandlerStop
             p = _partner(B, phone)
             if not p:
-                st.update(mode="p_phone", step="partner_phone")
-                await msg.reply_text(
-                    "❌ این شماره به همکار فعال اختصاص ندارد.\n\n📱 شماره را دوباره وارد کنید:",
-                    reply_markup=B.cancel_kb(st.get("lang", "fa")),
+                # Unknown phone => start the canonical membership request flow.
+                # Never reject a new applicant as if they were an existing partner.
+                st.update(
+                    phone=phone,
+                    partner_phone=phone,
+                    partner_active=False,
+                    partner_pending=False,
+                    partner_logged_out=True,
+                    mode="partner_new_wait",
+                    step="partner_new_wait",
                 )
+                try:
+                    from telegram_partner_registration import _new_member
+                    await _new_member(update, B)
+                except Exception:
+                    log.exception("new partner membership entry failed")
+                    await msg.reply_text(
+                        "👤 این شماره هنوز همکار فعال نیست.\n\n"
+                        "برای عضویت جدید از گزینه «🤝 درخواست عضویت» استفاده کنید.",
+                        reply_markup=B.cancel_kb(st.get("lang", "fa")),
+                    )
                 raise ApplicationHandlerStop
             st.update(
                 phone=phone,
