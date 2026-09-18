@@ -147,6 +147,12 @@ def _install_features(app):
         import telegram_admin_ui_firewall_v1 as AF; AF.install(app,B)
         import telegram_canonical_request_flow_v1 as CR; CR.install(app,B)
         try:
+            import telegram_final_payment_router_v1 as FPR; FPR.install(app,B)
+            log.info("RUNTIME PAYMENT OWNER LOCKED: telegram_final_payment_router_v1")
+        except Exception:
+            log.exception("CRITICAL: universal payment router unavailable")
+            raise
+        try:
             import telegram_admin_service_price_sequence as GSP; GSP.install(app,B)
             log.info("RUNTIME GLOBAL SERVICE PRICING OWNER LOCKED: telegram_admin_service_price_sequence")
         except Exception:
