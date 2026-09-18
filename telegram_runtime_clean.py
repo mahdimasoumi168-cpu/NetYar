@@ -11,12 +11,8 @@ RESTART="🔄 شروع مجدد"; USE_SERVICES="🛎 استفاده از خدم�
 def _restart_keyboard(): return ReplyKeyboardMarkup([[RESTART]],resize_keyboard=True,is_persistent=True)
 def _services_keyboard(): return InlineKeyboardMarkup([[InlineKeyboardButton(USE_SERVICES,callback_data="start:services")]])
 def _offhours_state():
-    try:
-        from telegram_offhours_partner_gate_v2 import _is_open,_closed_text,_closed_markup
-        return (not bool(_is_open(B))),_closed_text(B),_closed_markup()
-    except Exception:
-        log.exception("canonical off-hours gate unavailable")
-        return True,"❌ ربات در حال حاضر خارج از ساعت کاری است.\n\n🚫 خدمات عمومی در این زمان مجاز نیست.",InlineKeyboardMarkup([[InlineKeyboardButton(RESTART,callback_data="off:restart")],[InlineKeyboardButton("👥 پنل همکاران",callback_data="off:partner")]])
+    # 24/7 policy: there is no clock-based closure anymore.
+    return False, "", None
 def _is_offhours(): return _offhours_state()[0]
 
 def _full_bot_open(uid=None):
@@ -34,13 +30,8 @@ async def _reply_full_closed(message):
     await message.reply_text("🔒 ربات در حال حاضر به‌طور کامل بسته است.\\n\\n🚫 هیچ خدمت، ثبت درخواست یا ادامه فرایندی در این زمان امکان‌پذیر نیست.")
     return True
 def _night_worker_active(uid):
-    try:
-        from telegram_offhours_partner_gate_v2 import night_shift_enabled,is_night_worker,_active_partner_session
-        if not night_shift_enabled(B):
-            return False
-        return bool(_active_partner_session(B,uid) and is_night_worker(B,uid))
-    except Exception:
-        return False
+    # Night-shift authorization is obsolete under the permanent 24/7 policy.
+    return False
 
 async def _reply_closed(message):
     closed,text,markup=_offhours_state()
@@ -187,6 +178,13 @@ def _install_features(app):
         log.info("RUNTIME PARTNER LOGOUT OWNER LOCKED: telegram_partner_logout_fix")
     except Exception:
         log.exception("CRITICAL: partner logout persistence unavailable")
+        raise
+    try:
+        import telegram_offhours_partner_gate_v2 as G24
+        G24.enforce_24x7(B)
+        log.info("RUNTIME 24/7 ACCESS OWNER LOCKED: telegram_offhours_partner_gate_v2")
+    except Exception:
+        log.exception("CRITICAL: 24/7 access enforcement unavailable")
         raise
     try:
         import telegram_canonical_admin_final as CAF; CAF.install(app,B)
