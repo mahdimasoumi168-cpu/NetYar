@@ -58,7 +58,10 @@ def install(app, B):
 
     B.partner_exit = partner_exit
 
-    # Admin callback ownership is intentionally NOT installed here.\n    # Canonical/specialized admin handlers must receive adm:* callbacks directly.\n\n    # Real runtime: install the reliable request-reply owner so req:r callbacks
+    # Admin callback ownership is intentionally NOT installed here.
+    # Canonical/specialized admin handlers must receive adm:* callbacks directly.
+
+    # Real runtime: install the reliable request-reply owner so req:r callbacks
     # never fall through to the legacy partner callback recovery.
     try:
         import telegram_admin_request_reliability_fix as AR
