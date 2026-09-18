@@ -21,6 +21,33 @@ def _customer_uid(B,r):
         return int(row["external_id"]) if row and str(row["external_id"]).lstrip("-").isdigit() else None
     except Exception:return None
 
+def _has_receipt(B,rid):
+    try:
+        row=B.db.conn.execute(
+            "SELECT 1 FROM request_answers WHERE request_id=? AND field_key IN ('payment_receipt','receipt','payment_proof') AND file_id!='' LIMIT 1",
+            (int(rid),),
+        ).fetchone()
+        return bool(row)
+    except Exception:
+        return False
+
+def _payment_ready(B,r):
+    """A request may proceed only after a real payment state is established.
+    Partner requests must already be charged from partner balance. Customer
+    card-to-card requests must have a receipt before management can confirm it.
+    """
+    status=str(r["payment_status"] or "").lower()
+    method=str(r["payment_method"] or "").lower()
+    if status=="paid":
+        return True,"پرداخت قبلاً ثبت شده است."
+    if method=="partner_balance":
+        return False,"❌ پرداخت این درخواست از اعتبار همکار باید قبل از تأیید خدمت ثبت شده باشد."
+    if method=="card_to_card":
+        if not _has_receipt(B,r["id"]):
+            return False,"❌ رسید پرداخت برای این درخواست ثبت نشده است؛ ابتدا رسید کارت‌به‌کارت را دریافت کنید."
+        return True,""
+    return False,"❌ روش پرداخت این درخواست مشخص یا تأیید نشده است."
+
 def _buttons(rid,paid=False):
     rows=[
       [InlineKeyboardButton("🔎 مشاهده اطلاعات کامل",callback_data=f"req:v:{rid}")],
@@ -105,11 +132,19 @@ async def _callback(update,context,B):
     if action in {"review","a","approve","x","reject","pay","payconfirm","c","p","bottom","chat"}:
         now=B.now()
         if action in {"pay","payconfirm"}:
+            ready,reason=_payment_ready(B,r)
+            if not ready:
+                await q.message.reply_text(reason,reply_markup=_buttons(rid,False))
+                raise ApplicationHandlerStop
             B.db.conn.execute("UPDATE requests SET payment_status='paid',status='submitted',updated_at=? WHERE id=?",(now,rid))
-            B.db.conn.commit();msg="✅ دریافت وجه تأیید شد."
+            B.db.conn.commit();msg="✅ دریافت وجه تأیید شد و درخواست آماده ادامه کار است."
         elif action in {"review"}:
             B.db.conn.execute("UPDATE requests SET status='in_review',updated_at=? WHERE id=?",(now,rid));B.db.conn.commit();msg="⏳ درخواست در حال بررسی قرار گرفت."
         elif action in {"a","approve"}:
+            ready,reason=_payment_ready(B,r)
+            if not ready:
+                await q.message.reply_text("❌ تا زمانی که پرداخت تأیید نشده باشد، انجام خدمت مجاز نیست.\\n\\n"+reason,reply_markup=_buttons(rid,False))
+                raise ApplicationHandlerStop
             B.db.conn.execute("UPDATE requests SET status='completed',updated_at=? WHERE id=?",(now,rid));B.db.conn.commit();msg="✅ درخواست انجام شد."
         elif action in {"x","reject"}:
             B.db.conn.execute("UPDATE requests SET status='rejected',updated_at=? WHERE id=?",(now,rid));B.db.conn.commit();msg="❌ درخواست رد شد."
