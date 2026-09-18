@@ -18,6 +18,21 @@ def _offhours_state():
         log.exception("canonical off-hours gate unavailable")
         return True,"❌ ربات در حال حاضر خارج از ساعت کاری است.\n\n🚫 خدمات عمومی در این زمان مجاز نیست.",InlineKeyboardMarkup([[InlineKeyboardButton(RESTART,callback_data="off:restart")],[InlineKeyboardButton("👥 پنل همکاران",callback_data="off:partner")]])
 def _is_offhours(): return _offhours_state()[0]
+
+def _full_bot_open(uid=None):
+    try:
+        if uid is not None and B.admin(uid):
+            return True
+    except Exception:
+        pass
+    try:
+        return str(B.db.setting("bot_enabled", "1") or "1") == "1"
+    except Exception:
+        return True
+
+async def _reply_full_closed(message):
+    await message.reply_text("🔒 ربات در حال حاضر به‌طور کامل بسته است.\\n\\n🚫 هیچ خدمت، ثبت درخواست یا ادامه فرایندی در این زمان امکان‌پذیر نیست.")
+    return True
 def _night_worker_active(uid):
     try:
         from telegram_offhours_partner_gate_v2 import night_shift_enabled,is_night_worker,_active_partner_session
@@ -44,6 +59,9 @@ async def _start(update,context):
     user=update.effective_user
     if not user:return
     uid=user.id
+    if not _full_bot_open(uid):
+        await _reply_full_closed(update.effective_message)
+        raise ApplicationHandlerStop
     if await _reply_closed(update.effective_message):
         raise ApplicationHandlerStop
     if _night_worker_active(uid):
@@ -74,11 +92,20 @@ async def _start(update,context):
         await update.message.reply_text(WELCOME,reply_markup=_services_keyboard()); await update.message.reply_text(RESTART,reply_markup=_restart_keyboard())
     raise ApplicationHandlerStop
 async def _restart(update,context):
+    uid=getattr(getattr(update,"effective_user",None),"id",None)
+    if uid is not None and not _full_bot_open(uid):
+        await _reply_full_closed(update.effective_message)
+        raise ApplicationHandlerStop
     if update.effective_message and await _reply_closed(update.effective_message):raise ApplicationHandlerStop
     return await _start(update,context)
 async def _services_callback(update,context):
     q=getattr(update,"callback_query",None)
     if not q or q.data!="start:services":return
+    if not _full_bot_open(q.from_user.id):
+        try:await q.answer("🔒 ربات کاملاً بسته است.",show_alert=True)
+        except Exception:pass
+        await _reply_full_closed(q.message)
+        raise ApplicationHandlerStop
     if _is_offhours():
         try:await q.answer("❌ خارج از ساعت کاری است.",show_alert=True)
         except Exception:pass
