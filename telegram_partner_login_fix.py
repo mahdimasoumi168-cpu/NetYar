@@ -143,6 +143,6 @@ def install(app=None, B=None):
             await update.message.reply_text("✅ از پنل همکاران خارج شدید.", reply_markup=B.main(uid))
             raise ApplicationHandlerStop
 
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, partner_login), group=-10001)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, partner_login), group=-2000002)
     B._telegram_partner_login_fix_installed = True
     log.info("Telegram partner login fix installed")
