@@ -270,12 +270,26 @@ def install(app, B):
                 raise ApplicationHandlerStop
             partner = _partner_by_phone(B, phone)
             if not partner:
-                await update.message.reply_text("❌ این شماره به همکار فعال اختصاص ندارد.\n\n📱 شماره را دوباره وارد کنید:")
+                # A new phone may start partner membership onboarding, but it
+                # must never receive night access before admin approval and
+                # explicit night-worker enablement.
+                st["phone"] = phone
+                st["partner_logged_out"] = True
+                st["mode"] = "partner_reg_pass"
+                st["step"] = "partner_reg_pass"
+                await update.message.reply_text(
+                    "👤 این شماره هنوز حساب همکار فعال ندارد.\n\n"
+                    "برای عضویت جدید، ابتدا یک رمز ورود برای پنل تعیین کنید (حداقل ۴ کاراکتر):"
+                )
                 raise ApplicationHandlerStop
             pid = partner["id"]
             if str(B.db.setting(PREFIX + str(pid), "0")) != "1":
                 st["mode"] = None; st["step"] = None
-                await update.message.reply_text("❌ این شماره برای شیفت شب مجاز نیست.", reply_markup=_closed_markup())
+                await update.message.reply_text(
+                    "❌ این شماره همکار فعال است، اما برای شیفت شب مجاز نشده است.\n\n"
+                    "مدیریت باید این همکار را از بخش «🌙 همکاران شب‌کار» فعال کند.",
+                    reply_markup=_closed_markup()
+                )
                 raise ApplicationHandlerStop
             st["night_phone"] = phone
             st["night_partner_id"] = pid
