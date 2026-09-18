@@ -18,9 +18,22 @@ def _offhours_state():
         log.exception("canonical off-hours gate unavailable")
         return True,"❌ ربات در حال حاضر خارج از ساعت کاری است.\n\n🚫 خدمات عمومی در این زمان مجاز نیست.",InlineKeyboardMarkup([[InlineKeyboardButton(RESTART,callback_data="off:restart")],[InlineKeyboardButton("👥 پنل همکاران",callback_data="off:partner")]])
 def _is_offhours(): return _offhours_state()[0]
+def _night_worker_active(uid):
+    try:
+        from telegram_offhours_partner_gate_v2 import night_shift_enabled,is_night_worker,_active_partner_session
+        if not night_shift_enabled(B):
+            return False
+        return bool(_active_partner_session(B,uid) and is_night_worker(B,uid))
+    except Exception:
+        return False
+
 async def _reply_closed(message):
     closed,text,markup=_offhours_state()
-    if closed: await message.reply_text(text,reply_markup=markup); return True
+    uid=getattr(getattr(message,"from_user",None),"id",None)
+    if closed and uid and _night_worker_active(uid):
+        return False
+    if closed:
+        await message.reply_text(text,reply_markup=markup); return True
     return False
 async def _safe_call(fn,update,context,*extra):
     try:
@@ -119,6 +132,16 @@ def _install_features(app):
         import telegram_canonical_admin_final as CAF; CAF.install(app,B)
         import telegram_admin_ui_firewall_v1 as AF; AF.install(app,B)
         import telegram_canonical_request_flow_v1 as CR; CR.install(app,B)
+        try:
+            import telegram_partner_pricing_stable as PPS; PPS.install(app,B)
+            log.info("RUNTIME PARTNER PRICING OWNER LOCKED: telegram_partner_pricing_stable")
+        except Exception:
+            log.exception("CRITICAL: partner pricing owner unavailable")
+        try:
+            import telegram_admin_partner_chat as APC; APC.install(app,B)
+            log.info("RUNTIME PARTNER CHAT OWNER LOCKED: telegram_admin_partner_chat")
+        except Exception:
+            log.exception("CRITICAL: admin-partner chat unavailable")
         log.info("RUNTIME ADMIN OWNER LOCKED: telegram_canonical_admin_final.menu")
         log.info("RUNTIME REQUEST OWNER LOCKED: telegram_canonical_request_flow_v1")
         log.info("RUNTIME ADMIN AMENU OWNER: %s.%s",getattr(B.amenu,"__module__","?"),getattr(B.amenu,"__name__","?"))
