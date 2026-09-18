@@ -88,7 +88,13 @@ async def _status(update, B, row):
 async def partner_entry(update, context, B):
     uid=update.effective_user.id; st=B.S.setdefault(uid,{})
     if st.get("partner_id") and st.get("partner_active") and not st.get("partner_logged_out"):
-        return await B._partner_registration_old(update, context)
+        row = _lookup(B, st.get("partner_phone") or st.get("phone"), active_only=True)
+        if row:
+            st.update(partner_id=row["id"], partner_active=True, mode=None, step=None, partner_logged_out=False)
+            return await update.effective_message.reply_text(
+                f"👥 پنل همکاران\n👤 {row['name'] or '-'}\n📱 {row['phone']}\n💰 اعتبار قابل استفاده: {int(row['balance'] or 0):,} تومان",
+                reply_markup=B.partner_kb(st.get("lang", "fa")),
+            )
     for k in ("partner_id","partner_active","partner_pending","partner_request_id","phone","partner_phone","partner_password","partner_reg_name"):
         st.pop(k,None)
     st["mode"]="partner_entry_phone"; st["step"]="partner_entry_phone"
