@@ -19,28 +19,10 @@ def _kb(rows):
     return InlineKeyboardMarkup([[InlineKeyboardButton(t,callback_data=d) for t,d in r] for r in rows])
 def _menu(B):
     try:
-        full=str(B.db.setting("bot_enabled","1") or "1")=="1"
-    except Exception: full=True
-    label="🔴 بستن کامل ربات" if full else "🟢 باز کردن کامل ربات"
-    return _kb([
-      [("👤 کاربران","adm:users"),("👥 همکاران","adm:partners")],
-      [("➕ افزودن همکار","adm:addpartner")],
-      [("🌙 همکاران شب‌کار","night2:menu")],
-      [("🌙 بستن ربات در شب","adm:night_off"),("☀️ باز کردن ربات در شب","adm:night_on")],
-      [("📋 درخواست‌ها","adm:requests"),("💳 پرداخت‌ها","adm:payments")],
-      [("💰 شارژها","adm:topups"),("⚙️ قیمت‌ها","adm:prices")],
-      [("🟢 خدمات","adm:services")],
-      [("📈 افزایش/کاهش قیمت تک‌تک خدمات","adm:price_seq")],
-      [("📈 افزایش/کاهش قیمت همکار خاص","adm:partner_price_seq")],
-      [("💵 افزایش شارژ","adm:creditup"),("💸 کاهش شارژ","adm:creditdown")],
-      [("🎫 ارتباط با همکاران","adminpartner:list")],
-      [("✏️ تغییر متن‌ها","adm:texts")],
-      [("📊 گزارش کامل","adm:report"),("📣 اعلان همگانی","adm:announce")],
-      [("🤖 بات‌های متصل","adm:bots"),("🧾 لاگ مدیریت","adm:logs")],
-      [("⚙️ تنظیمات","adm:settings")],
-      [(label,"adm:bot_toggle")],
-      [("⬅️ منوی اصلی","adm:main")]
-    ])
+        import telegram_canonical_admin_final as C
+        return C.menu()
+    except Exception:
+        return _kb([])
 
 def _services(B):
     return B.db.conn.execute("SELECT key,name,price,active FROM services ORDER BY id").fetchall()
