@@ -13,10 +13,10 @@ def _admin(B,uid):
     except Exception:return False
 def _closed_markup():
     from telegram import InlineKeyboardMarkup,InlineKeyboardButton
-    return InlineKeyboardMarkup([[InlineKeyboardButton("🔄 تلاش مجدد",callback_data="global:retry")]])
+    return InlineKeyboardMarkup([])
 async def _cb(update,context,B):
     q=update.callback_query
-    if not q or enabled(B) or _admin(B,q.from_user.id) or str(q.data or "")=="global:retry": return
+    if not q or enabled(B) or _admin(B,q.from_user.id): return
     await q.answer("🔒 ربات موقتاً بسته است.",show_alert=True)
     await q.message.reply_text("🔒 ربات در حال حاضر به‌طور کامل بسته است.\n\n🚫 هیچ خدمتی، ثبت درخواست یا ادامه فرایندی در این زمان امکان‌پذیر نیست.",reply_markup=_closed_markup())
     raise ApplicationHandlerStop
