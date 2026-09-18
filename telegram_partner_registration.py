@@ -263,6 +263,22 @@ def install(app,B):
         created_at TEXT, reviewed_at TEXT, reviewer_id TEXT DEFAULT '', note TEXT DEFAULT '')""")
     B.db.conn.commit()
     B._partner_registration_old=getattr(B,"partner",None)
+    # Final partner keyboard owner: every visible button has a stable label route.
+    try:
+        import telegram_ui_policy_v2 as UI
+        def _partner_kb(lang="fa"):
+            uid = int(UI._uid() or 0)
+            return UI.inline([
+                ["🟢 ➕ شارژ حساب", "🏛 حل مشکل سامانه دولت من"],
+                ["📱 خدمات سیم کارت", "🪪 فیدای غیر حضوری"],
+                ["🔎 پیگیری کد", "📋 سوابق"],
+                ["💰 موجودی", "🎫 تیکت به مدیریت"],
+                ["🚪 خروج از پنل"],
+                ["❌ انصراف"],
+            ], B, uid)
+        B.partner_kb = _partner_kb
+    except Exception:
+        log.exception("canonical partner keyboard owner unavailable")
     async def partner_wrapper(update,context): return await partner_entry(update,context,B)
     B.partner=partner_wrapper
     # This is the canonical text owner and intentionally runs before all legacy
