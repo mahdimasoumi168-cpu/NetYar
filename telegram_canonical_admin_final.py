@@ -27,11 +27,14 @@ def menu():
       [("📋 درخواست‌ها","adm:requests"),("💳 پرداخت‌ها","adm:payments")],
       [("💰 شارژها","adm:topups"),("⚙️ قیمت‌ها","adm:prices")],
       [("🟢 خدمات","adm:services")],
+      [("📈 قیمت‌گذاری تک‌تک خدمات","adm:price_seq"),("📈 قیمت همکار خاص","adm:partner_price_seq")],
+      [("💬 تیکت/ارتباط با همکاران","adminpartner:list")],
       [("💵 افزایش شارژ","adm:creditup"),("💸 کاهش شارژ","adm:creditdown")],
       [("✏️ تغییر متن‌ها","adm:texts")],
       [("📊 گزارش کامل","adm:report"),("📣 اعلان همگانی","adm:announce")],
       [("🤖 بات‌های متصل","adm:bots"),("🧾 لاگ مدیریت","adm:logs")],
       [("⚙️ تنظیمات","adm:settings")],
+      [("🔒/🔓 باز و بست کامل ربات","adm:bot_toggle")],
       [("⬅️ منوی اصلی","adm:main")],]
     return InlineKeyboardMarkup([[InlineKeyboardButton(t,callback_data=d) for t,d in r] for r in rows])
 
