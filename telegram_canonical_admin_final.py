@@ -53,18 +53,31 @@ async def _night(update,context,B):
  if not _admin(B,q.from_user.id):
   await q.answer('❌ دسترسی مدیریت ندارید.',show_alert=True);raise ApplicationHandlerStop
  enabled=(q.data=='adm:night_on'); value='1' if enabled else '0'
+ # Persist first. A refresh/patch failure must never turn a successful
+ # database update into the misleading "کنترل شب انجام نشد" error.
  try:
   B.db.set_setting('night_shift_enabled',value)
-  if str(B.db.setting('night_shift_enabled',''))!=value:
-   raise RuntimeError('night_shift_enabled persistence mismatch')
-  B._netyar_night_shift_enabled=enabled
-  try:
-   import telegram_admin_cleanup_and_night_switch_v1 as N
-   N._patch_night_gate(B)
-  except Exception:
-   log.exception('night gate refresh failed after successful save')
-  await q.answer('ذخیره شد')
-  status='🟢 باز' if enabled else '🔴 بسته'
+  saved=str(B.db.setting('night_shift_enabled',''))==value
+ except Exception:
+  saved=False
+ if not saved:
+  log.exception('canonical night control persistence failed')
+  try: await q.answer('❌ ذخیره وضعیت شیفت شب ناموفق بود.',show_alert=True)
+  except Exception: pass
+  try: await q.message.reply_text('❌ وضعیت شیفت شب تغییر نکرد. دوباره تلاش کنید.',reply_markup=menu())
+  except Exception: pass
+  raise ApplicationHandlerStop
+ B._netyar_night_shift_enabled=enabled
+ # Best-effort runtime refresh; persistence is already confirmed.
+ try:
+  import telegram_admin_cleanup_and_night_switch_v1 as N
+  N._patch_night_gate(B)
+ except Exception:
+  log.exception('night gate refresh warning after successful save')
+ try: await q.answer('ذخیره شد')
+ except Exception: pass
+ status='🟢 باز' if enabled else '🔴 بسته'
+ try:
   await q.message.reply_text(
    f"🌙 کنترل ربات در شب\\n\\nوضعیت: {status}\\n\\n"
    "⏰ ساعت کاری روزانه همچنان ۰۷:۰۰ تا ۱۹:۰۰ است.\\n"
@@ -73,11 +86,7 @@ async def _night(update,context,B):
    reply_markup=menu()
   )
  except Exception:
-  log.exception('canonical night control failed')
-  try:
-   await q.answer('❌ ذخیره وضعیت شیفت شب ناموفق بود.',show_alert=True)
-   await q.message.reply_text('❌ وضعیت شیفت شب تغییر نکرد. دوباره تلاش کنید.',reply_markup=menu())
-  except Exception: pass
+  log.exception('canonical night status message failed')
  raise ApplicationHandlerStop
 
 async def _text(update,context,B):
