@@ -10,10 +10,9 @@ PREFIX="night_worker:"
 RESTART="🔄 شروع مجدد"; PARTNER="👥 پنل همکاران"
 
 
-def is_friday(): return datetime.now(TZ).weekday()==4
+def is_friday(): return False  # Business hours are 07:00–19:00 every day.
 
 def open_now():
-    if is_friday(): return False
     t=datetime.now(TZ).time(); return OPEN<=t<CLOSE
 
 
