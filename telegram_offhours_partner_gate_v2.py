@@ -29,6 +29,30 @@ def _clock_is_open(B): return True
 def _is_open(B): return True
 def night_access_open(B,uid): return True
 
+def enforce_24x7(B):
+    """Single source of truth: Telegram is never blocked by clock/night settings."""
+    B._netyar_24x7 = True
+    for name in (
+        "telegram_business_hours_guard",
+        "telegram_night_shift_v2",
+        "telegram_night_shift",
+        "telegram_final_control",
+        "telegram_persian_offhours_lock",
+        "telegram_absolute_offhours_guard",
+        "telegram_offhours_absolute_start_guard",
+        "telegram_night_shift_consistency",
+    ):
+        try:
+            m = __import__(name)
+            for fn in ("is_open", "open_now", "_is_open", "_clock_is_open", "closed"):
+                if hasattr(m, fn):
+                    setattr(m, fn, (lambda *a, **k: True) if fn != "closed" else (lambda *a, **k: ""))
+            if hasattr(m, "allowed"):
+                m.allowed = lambda *a, **k: True
+        except Exception:
+            continue
+    return True
+
 def _partner_by_phone(B,phone):
     phone=normalize_phone(phone)
     try:
