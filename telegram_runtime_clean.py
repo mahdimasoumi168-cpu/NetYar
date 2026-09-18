@@ -118,7 +118,9 @@ def _install_features(app):
     try:
         import telegram_canonical_admin_final as CAF; CAF.install(app,B)
         import telegram_admin_ui_firewall_v1 as AF; AF.install(app,B)
+        import telegram_canonical_request_flow_v1 as CR; CR.install(app,B)
         log.info("RUNTIME ADMIN OWNER LOCKED: telegram_canonical_admin_final.menu")
+        log.info("RUNTIME REQUEST OWNER LOCKED: telegram_canonical_request_flow_v1")
         log.info("RUNTIME ADMIN AMENU OWNER: %s.%s",getattr(B.amenu,"__module__","?"),getattr(B.amenu,"__name__","?"))
     except Exception:log.exception("CRITICAL: canonical admin owner/firewall unavailable"); raise
     B.start=_start
