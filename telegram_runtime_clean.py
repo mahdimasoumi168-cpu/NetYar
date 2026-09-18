@@ -182,6 +182,13 @@ def _install_features(app):
             log.info("REAL runtime: %s installed",label)
         except Exception:log.exception("%s unavailable",label)
     try:
+        import telegram_partner_logout_fix as PLF
+        PLF.install(B)
+        log.info("RUNTIME PARTNER LOGOUT OWNER LOCKED: telegram_partner_logout_fix")
+    except Exception:
+        log.exception("CRITICAL: partner logout persistence unavailable")
+        raise
+    try:
         import telegram_canonical_admin_final as CAF; CAF.install(app,B)
         import telegram_admin_ui_firewall_v1 as AF; AF.install(app,B)
         import telegram_canonical_request_flow_v1 as CR; CR.install(app,B)
