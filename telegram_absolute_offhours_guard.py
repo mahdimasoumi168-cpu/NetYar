@@ -26,6 +26,8 @@ def night_worker(B,uid):
         st=B.S.get(uid,{}) or {}
         pid=st.get("partner_id")
         if not pid or st.get("partner_logged_out"): return False
+        if str(B.db.setting("night_shift_enabled","1") or "1") != "1":
+            return False
         row=B.db.conn.execute("SELECT id FROM partners WHERE id=? AND active=1 LIMIT 1",(int(pid),)).fetchone()
         return bool(row and str(B.db.setting("night_worker:"+str(row["id"]),"0"))=="1")
     except Exception:return False
