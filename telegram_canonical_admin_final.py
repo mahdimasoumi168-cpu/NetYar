@@ -18,23 +18,25 @@ def _admin(B,uid):
     except Exception:return False
 
 def menu():
+    try: full_open=str(__import__("bot").db.setting("bot_enabled","1") or "1")=="1"
+    except Exception: full_open=True
+    full_label="🔴 بستن کامل ربات" if full_open else "🟢 باز کردن کامل ربات"
     rows=[
       [("👤 کاربران","adm:users"),("👥 همکاران","adm:partners")],
       [("➕ افزودن همکار","adm:addpartner")],
       [("🌙 همکاران شب‌کار","night2:menu")],
       [("🌙 بستن ربات در شب","adm:night_off"),("☀️ باز کردن ربات در شب","adm:night_on")],
-      [("📈 افزایش/کاهش قیمت همکار","adm:partner_price_seq"),("💬 ارتباط با همکار","adminpartner:list")],
       [("📋 درخواست‌ها","adm:requests"),("💳 پرداخت‌ها","adm:payments")],
       [("💰 شارژها","adm:topups"),("⚙️ قیمت‌ها","adm:prices")],
       [("🟢 خدمات","adm:services")],
       [("📈 قیمت‌گذاری تک‌تک خدمات","adm:price_seq"),("📈 قیمت همکار خاص","adm:partner_price_seq")],
-      [("💬 تیکت/ارتباط با همکاران","adminpartner:list")],
+      [("🎫 تیکت/ارتباط با همکاران","adminpartner:list")],
       [("💵 افزایش شارژ","adm:creditup"),("💸 کاهش شارژ","adm:creditdown")],
       [("✏️ تغییر متن‌ها","adm:texts")],
       [("📊 گزارش کامل","adm:report"),("📣 اعلان همگانی","adm:announce")],
       [("🤖 بات‌های متصل","adm:bots"),("🧾 لاگ مدیریت","adm:logs")],
       [("⚙️ تنظیمات","adm:settings")],
-      [("🔒/🔓 باز و بست کامل ربات","adm:bot_toggle")],
+      [(full_label,"adm:bot_toggle")],
       [("⬅️ منوی اصلی","adm:main")],]
     return InlineKeyboardMarkup([[InlineKeyboardButton(t,callback_data=d) for t,d in r] for r in rows])
 
