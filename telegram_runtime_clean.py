@@ -138,7 +138,7 @@ def _install_features(app):
     except Exception:
         log.exception("CRITICAL: absolute access owner unavailable")
         raise
-    first=("telegram_global_full_close_gate","telegram_offhours_partner_gate_v2","telegram_night_shift_consistency","telegram_offhours_absolute_start_guard","telegram_startup_button_firewall","telegram_business_features","telegram_ui_policy_v2","telegram_partner_ui_fix","telegram_public_tracking","telegram_service_billing_v3_fix","telegram_sim_service_v2","telegram_irancell_partner_service")
+    first=("telegram_global_full_close_gate","telegram_offhours_partner_gate_v2","telegram_night_shift_consistency","telegram_offhours_absolute_start_guard","telegram_startup_button_firewall","telegram_business_features","telegram_ui_policy_v2","telegram_partner_ui_fix","telegram_public_tracking","telegram_service_billing_v3_fix","telegram_sim_service_v2","telegram_irancell_partner_service","telegram_government_strict_validation")
     for module in first:
         try:
             m=__import__(module); f=getattr(m,"install",None)
