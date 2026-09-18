@@ -76,13 +76,13 @@ async def _night(update,context,B):
   log.exception('night gate refresh warning after successful save')
  try: await q.answer('ذخیره شد')
  except Exception: pass
- status='🟢 باز' if enabled else '🔴 بسته'
+ status='🟢 باز و قابل استفاده' if enabled else '🔴 بسته'
  try:
   await q.message.reply_text(
    f"🌙 کنترل ربات در شب\\n\\nوضعیت: {status}\\n\\n"
    "⏰ ساعت کاری روزانه همچنان ۰۷:۰۰ تا ۱۹:۰۰ است.\\n"
-   "این کلید فقط اجازه فعالیت خارج از ساعت کاری را برای همکاران شب‌کار کنترل می‌کند.\\n"
-   "برای ورود شبانه، همکار باید در «🌙 همکاران شب‌کار» نیز فعال شده باشد.",
+   "در حالت 🟢 باز، ربات خارج از ساعت کاری هم برای کاربران قابل استفاده است.\\n"
+   "دسترسی اختصاصی همکاران شب‌کار همچنان از بخش «🌙 همکاران شب‌کار» مدیریت می‌شود.",
    reply_markup=menu()
   )
  except Exception:
