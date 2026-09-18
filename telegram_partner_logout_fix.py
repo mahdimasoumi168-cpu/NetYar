@@ -29,6 +29,12 @@ def install(B):
                 "citizenship": status,
                 "partner_logged_out": True,
             }
+            # Persist the explicit permanent logout so a bot restart cannot
+            # silently relink this Telegram account to its remembered partner.
+            try:
+                B.db.set_setting("partner_logout:" + str(uid), "1")
+            except Exception:
+                pass
             return await update.message.reply_text(
                 "🔒 خروج از پنل با موفقیت انجام شد.\n\n"
                 "برای ورود دوباره، خودتان دکمه «👥 پنل همکاران» را انتخاب کنید.",
