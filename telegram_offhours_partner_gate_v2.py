@@ -102,6 +102,33 @@ def is_night_worker(B, uid):
     return False
 
 
+def _allowed_during_closed(B, uid):
+    """Return whether this account may use the night-partner entry path.
+    This does not authenticate the partner; it only permits the login screen.
+    """
+    try:
+        if B.admin(uid):
+            return True
+    except Exception:
+        pass
+    if not night_shift_enabled(B):
+        return False
+    if is_night_worker(B, uid):
+        return True
+    # After a real logout, the in-memory session is intentionally empty.
+    # Use the persistent partner<->Telegram link only to allow the fresh
+    # phone/password login screen; never grant an authenticated session.
+    try:
+        row=B.db.conn.execute(
+            "SELECT p.id FROM partners p JOIN partner_telegram_links l ON l.partner_id=p.id "
+            "WHERE p.active=1 AND l.telegram_user_id=? LIMIT 1",(str(uid),)
+        ).fetchone()
+        if row and str(B.db.setting(PREFIX+str(row["id"]),"0"))=="1":
+            return True
+    except Exception:
+        pass
+    return False
+
 def night_access_open(B, uid):
     try:
         if _clock_is_open(B): return True
