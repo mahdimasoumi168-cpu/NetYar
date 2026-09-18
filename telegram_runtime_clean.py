@@ -43,8 +43,22 @@ async def _safe_call(fn,update,context,*extra):
 async def _start(update,context):
     user=update.effective_user
     if not user:return
-    if await _reply_closed(update.effective_message):raise ApplicationHandlerStop
     uid=user.id
+    if await _reply_closed(update.effective_message):
+        raise ApplicationHandlerStop
+    if _night_worker_active(uid):
+        try:
+            from telegram_offhours_partner_gate_v2 import _night_partner_markup
+            await update.effective_message.reply_text(
+                "🌙 پنل همکاران شیفت شب فعال است.",
+                reply_markup=_night_partner_markup(B,uid),
+            )
+            raise ApplicationHandlerStop
+        except ApplicationHandlerStop:
+            raise
+        except Exception:
+            log.exception("night partner menu unavailable")
+    
     try:B.db.user("telegram",uid,user.username,user.full_name)
     except Exception:log.exception("user persistence")
     old=dict(B.S.get(uid,{}) or {}); was_admin=bool(old.get("admin") is True)
