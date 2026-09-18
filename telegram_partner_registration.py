@@ -41,6 +41,29 @@ def _lookup(B, phone, active_only=False):
         log.exception("canonical partner lookup failed")
     return None
 
+def _logout_persisted(B, uid):
+    try:
+        return str(B.db.setting("partner_logout:" + str(uid), "0")) == "1"
+    except Exception:
+        return False
+
+def _remember_partner(B, uid, pid):
+    try:
+        B.db.conn.execute("CREATE TABLE IF NOT EXISTS partner_telegram_links(partner_id INTEGER NOT NULL, telegram_user_id TEXT NOT NULL, created_at TEXT, updated_at TEXT, UNIQUE(partner_id,telegram_user_id))")
+        B.db.conn.execute("INSERT OR REPLACE INTO partner_telegram_links(partner_id,telegram_user_id,created_at,updated_at) VALUES(?,?,?,?)",(int(pid),str(uid),B.now(),B.now()))
+        B.db.conn.commit()
+        B.db.set_setting("partner_logout:" + str(uid), "0")
+    except Exception:
+        log.exception("remember partner link failed")
+
+def _remembered_partner(B, uid):
+    if _logout_persisted(B, uid):
+        return None
+    try:
+        return B.db.conn.execute("SELECT p.* FROM partners p JOIN partner_telegram_links l ON l.partner_id=p.id WHERE p.active=1 AND l.telegram_user_id=? ORDER BY l.updated_at DESC LIMIT 1",(str(uid),)).fetchone()
+    except Exception:
+        return None
+
 def _cancel_kb(B, lang="fa"):
     try: return B.cancel_kb(lang)
     except Exception:
@@ -87,20 +110,30 @@ async def _status(update, B, row):
 
 async def partner_entry(update, context, B):
     uid=update.effective_user.id; st=B.S.setdefault(uid,{})
+    if st.get("partner_logged_out") or _logout_persisted(B,uid):
+        for k in ("partner_id","partner_active","partner","partner_phone","phone"):
+            st.pop(k,None)
+    row=None
     if st.get("partner_id") and st.get("partner_active") and not st.get("partner_logged_out"):
-        row = _lookup(B, st.get("partner_phone") or st.get("phone"), active_only=True)
-        if row:
-            st.update(partner_id=row["id"], partner_active=True, mode=None, step=None, partner_logged_out=False)
-            return await update.effective_message.reply_text(
-                f"👥 پنل همکاران\n👤 {row['name'] or '-'}\n📱 {row['phone']}\n💰 اعتبار قابل استفاده: {int(row['balance'] or 0):,} تومان",
-                reply_markup=B.partner_kb(st.get("lang", "fa")),
-            )
+        row=_lookup(B, st.get("partner_phone") or st.get("phone"), active_only=True)
+    if not row and not st.get("partner_logged_out") and not _logout_persisted(B,uid):
+        row=_remembered_partner(B,uid)
+    if row:
+        if not _night_allowed(B,uid,row):
+            st.update(partner_id=row["id"],partner_active=True,partner_phone=row["phone"],partner=row["phone"],mode="partner_entry_phone",step="partner_entry_phone")
+            await update.effective_message.reply_text("🌙 این همکار برای شیفت شب مجاز نیست.",reply_markup=B.main(uid))
+            return
+        st.update(partner_id=row["id"],partner_active=True,partner_logged_out=False,partner_phone=row["phone"],partner=row["phone"],mode=None,step=None)
+        _remember_partner(B,uid,row["id"])
+        return await update.effective_message.reply_text(
+            f"👥 پنل همکاران\n👤 {row['name'] or '-'}\n📱 {row['phone']}\n💰 اعتبار قابل استفاده: {int(row['balance'] or 0):,} تومان",
+            reply_markup=B.partner_kb(st.get("lang","fa")),
+        )
     for k in ("partner_id","partner_active","partner_pending","partner_request_id","phone","partner_phone","partner_password","partner_reg_name"):
         st.pop(k,None)
     st["mode"]="partner_entry_phone"; st["step"]="partner_entry_phone"
     await update.effective_message.reply_text("👥 ورود به پنل همکاران\n\n📱 شماره موبایل همکار را وارد کنید:",
                                               reply_markup=_cancel_kb(B, st.get("lang","fa")))
-
 async def _request_begin(update, context, B):
     uid=update.effective_user.id; st=B.S.setdefault(uid,{})
     phone=st.get("phone")
@@ -206,7 +239,7 @@ async def text(update,context,B):
         except Exception: ok=False
         if not ok:
             await update.effective_message.reply_text("❌ رمز ورود نادرست است.\n\n🔐 رمز را دوباره وارد کنید:",reply_markup=_cancel_kb(B,st.get("lang","fa"))); raise ApplicationHandlerStop
-        st.update(partner_id=row["id"],partner_active=True,partner_logged_out=False,mode=None,step=None,partner=row["phone"],partner_phone=row["phone"])
+        st.update(partner_id=row["id"],partner_active=True,partner_logged_out=False,mode=None,step=None,partner=row["phone"],partner_phone=row["phone"])\n        _remember_partner(B, uid, row["id"])
         try: B.db.set_setting("partner_chat_"+str(row["id"]),str(uid))
         except Exception: pass
         return await B._partner_registration_old(update,context)
