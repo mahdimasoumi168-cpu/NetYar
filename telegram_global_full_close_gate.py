@@ -28,6 +28,6 @@ async def _msg(update,context,B):
 def install(app,B):
     if getattr(B,"_global_full_close_gate_v1",False): return True
     app.add_handler(CallbackQueryHandler(lambda u,c:_cb(u,c,B),pattern=r"^(?!adm:|global:).*"),group=-50000)
-    app.add_handler(MessageHandler(filters.ALL,_msg),group=-49999)
+    app.add_handler(MessageHandler(filters.ALL,lambda u,c:_msg(u,c,B)),group=-49999)
     B._global_full_close_gate_v1=True
     return True
