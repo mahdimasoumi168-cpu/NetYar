@@ -56,6 +56,30 @@ async def _callback(update,context,B):
         await q.message.reply_text("❌ انجام عملیات ارتباط با همکار ناموفق بود.")
     raise ApplicationHandlerStop
 
+async def _reply_text(update,context,B):
+    m=update.effective_message; u=update.effective_user
+    if not m or not u or not B.admin(u.id): return
+    st=B.S.setdefault(u.id,{})
+    if st.get("mode")!="ticket_admin_reply": return
+    text=(m.text or "").strip()
+    if text in {"❌ انصراف","لغو","انصراف"}:
+        st["mode"]=None; st.pop("ticket_partner_id",None)
+        await m.reply_text("❌ گفت‌وگو بسته شد.",reply_markup=B.amenu())
+        raise ApplicationHandlerStop
+    pid=st.get("ticket_partner_id")
+    try:
+        chat_id=int(B.db.setting(f"partner_chat_{pid}","") or 0)
+    except Exception:
+        chat_id=0
+    if not chat_id:
+        await m.reply_text("❌ ارتباط با همکار پیدا نشد.",reply_markup=B.amenu())
+        raise ApplicationHandlerStop
+    await context.bot.send_message(chat_id=chat_id,text=f"👔 پیام مدیریت\n\n{text}",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩️ پاسخ پیام",callback_data=f"ticket:reply:{pid}")]]))
+    B.db.set_setting(f"ticket_admin_{pid}",str(u.id))
+    st["mode"]=None; st.pop("ticket_partner_id",None)
+    await m.reply_text("✅ پیام برای همکار ارسال شد.",reply_markup=B.amenu())
+    raise ApplicationHandlerStop
+
 async def _entry(update,context,B):
     m=update.effective_message; u=update.effective_user
     if not m or not u or not B.admin(u.id) or (m.text or "").strip()!=BUTTON: return
@@ -65,5 +89,11 @@ async def _entry(update,context,B):
 def install(app,B):
     if getattr(B,"_admin_partner_chat_v2",False): return
     app.add_handler(CallbackQueryHandler(lambda u,c:_callback(u,c,B),pattern=r"^adminpartner:"),group=-110)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,lambda u,c:_reply_text(u,c,B)),group=-110)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,lambda u,c:_entry(u,c,B)),group=-109)
+    try:
+        import telegram_ticket_media as TM
+        TM.install(app,B)
+    except Exception:
+        log.exception("ticket media owner unavailable")
     B._admin_partner_chat_v2=True
