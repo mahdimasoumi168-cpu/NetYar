@@ -40,8 +40,20 @@ def install(B):
         q=update.callback_query;data=str(q.data or "")
         if not data.startswith("topupui:"):return
         await q.answer();uid=q.from_user.id;st=B.S.setdefault(uid,{})
+        if data=="topupui:start":
+            pid=st.get("partner_id")
+            try:
+                p=B.db.conn.execute("SELECT id FROM partners WHERE id=? AND active=1 LIMIT 1",(pid,)).fetchone()
+            except Exception:
+                p=None
+            if not p:
+                st["mode"]=None
+                return await q.message.reply_text("❌ حساب همکار فعال نیست. لطفاً دوباره وارد پنل همکاران شوید.",reply_markup=B.main(uid))
+            st["mode"]="topup_amount"; st.pop("topup_amount",None)
+            return await q.message.reply_text("💰 مبلغ شارژ حساب را به تومان وارد کنید:\nمثال: 500000",reply_markup=B.cancel_kb(st.get("lang","fa")))
         if data=="topupui:cancel":
             st["mode"]=None
+            st.pop("topup_amount",None)
             return await q.message.reply_text("❌ عملیات لغو شد.",reply_markup=B.partner_kb(st.get("lang","fa")))
         if data=="topupui:receipt":
             st["mode"]="topup_receipt"
