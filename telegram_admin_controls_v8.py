@@ -175,11 +175,16 @@ async def _v8_text(update,context,B):
 def install(app,B):
     if getattr(B,"_admin_controls_v8",False): return True
     _ensure_partner_prices(B)
-    B.amenu=lambda: _menu(B)
-    B.admin_menu_final=lambda: _menu(B)
+    # Never replace the canonical menu owner with a second implementation.
     try:
-        import telegram_admin_plus as A; A._admin_menu=lambda: _menu(B)
-    except Exception: pass
+        import telegram_canonical_admin_final as C
+        B.amenu=C.menu
+        B.admin_menu_final=C.menu
+        import telegram_admin_plus as A
+        A._admin_menu=C.menu
+    except Exception:
+        B.amenu=lambda: _menu(B)
+        B.admin_menu_final=lambda: _menu(B)
     app.add_handler(CallbackQueryHandler(lambda u,c:_global_toggle(u,c,B),pattern=r"^adm:bot_toggle$"),group=-60000)
     app.add_handler(CallbackQueryHandler(lambda u,c:_price_start(u,c,B),pattern=r"^adm:(price_seq|partner_price_seq)$"),group=-59999)
     app.add_handler(CallbackQueryHandler(lambda u,c:_v8_cb(u,c,B),pattern=r"^v8:"),group=-59998)
