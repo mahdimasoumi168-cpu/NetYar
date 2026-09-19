@@ -4,36 +4,15 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackQueryHandler, MessageHandler, ApplicationHandlerStop, filters
 
 log = logging.getLogger("netyar.telegram.iranian_v38")
-TRUST = "🛡 اعتماد"
-TRUST_ALT = "🛡️ اعتماد"
-TRUST_URL = "https://trustseal.enamad.ir/?id=7717012&Code=hEHTsn6HzG7ZsxeorkqzvLbTkOTEpRbH"
 
 
 def _keyboard(B, uid):
-    rows = [["💳 تست درگاه سیزپی — ۱۰۰٬۰۰۰ تومان"], ["👥 پنل همکاران", "🎫 پیگیری"], ["🔄 شروع مجدد"]]
-    try:
-        return B.kb(rows)
-    except Exception:
-        return InlineKeyboardMarkup([
-                        [InlineKeyboardButton("👥 پنل همکاران", callback_data="iranian:partner")],
-            [InlineKeyboardButton("🎫 پیگیری", callback_data="iranian:track")],
-            [InlineKeyboardButton("🔄 شروع مجدد", callback_data="iranian:restart")],
-        ])
-
-
-def _trust_markup():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔎 مشاهده نماد در eNAMAD", url=TRUST_URL)],
-        [InlineKeyboardButton("↩️ بازگشت به منوی ایرانی", callback_data="iranian:back")],
+        [InlineKeyboardButton("💳 تست درگاه سیزپی — ۱۰۰٬۰۰۰ تومان", callback_data="sizpay:test")],
+        [InlineKeyboardButton("👥 پنل همکاران", callback_data="iranian:partner"),
+         InlineKeyboardButton("🎫 پیگیری", callback_data="iranian:track")],
+        [InlineKeyboardButton("🔄 شروع مجدد", callback_data="iranian:restart")],
     ])
-
-
-def _trust_message():
-    return ("🛡 نماد اعتماد الکترونیکی\n\n"
-            "🏢 نام کسب‌وکار: نت یار مهاجر\n"
-            "🔤 نام لاتین: NetYareMohajer\n"
-            "☎️ تلفن: 03135674350\n"
-            "📧 ایمیل: netyaremohajer@gmail.com")
 
 
 def install(app, B):
@@ -63,26 +42,6 @@ def install(app, B):
         text = (getattr(update.message, "text", "") or "").strip()
         if text in {"🇮🇷 ایرانی هستم", "ایرانی هستم", "🇮🇷 ایرانی"}:
             await show_menu(update, context)
-
-    async def trust_callback(update, context):
-        q = update.callback_query
-        if str(q.data or "") != "enamad:trust": return
-        await q.answer(); await q.message.reply_text(_trust_message(), reply_markup=_trust_markup(), disable_web_page_preview=True)
-        raise ApplicationHandlerStop
-
-    async def trust_text(update, context):
-        text = (getattr(update.message, "text", "") or "").strip()
-        if text not in {TRUST, TRUST_ALT}: return
-        if B.S.get(int(update.effective_user.id), {}).get("status") != "iranian": return
-        await update.message.reply_text(_trust_message(), reply_markup=_trust_markup(), disable_web_page_preview=True)
-        raise ApplicationHandlerStop
-
-    async def sizpay_menu_text(update, context):
-        text = (getattr(update.message, "text", "") or "").strip()
-        if text != "💳 تست درگاه سیزپی — ۱۰۰٬۰۰۰ تومان": return
-        if B.S.get(int(update.effective_user.id), {}).get("status") != "iranian": return
-        await update.message.reply_text("💳 برای ساخت تراکنش تست سیزپی، روی دکمه زیر بزنید.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("💳 ساخت پرداخت ۱۰۰٬۰۰۰ تومان", callback_data="sizpay:test")]]))
-        raise ApplicationHandlerStop
 
     async def iranian_callback(update, context):
         q = update.callback_query; data = str(q.data or "")
