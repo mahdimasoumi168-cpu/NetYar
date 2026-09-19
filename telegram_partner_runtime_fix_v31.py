@@ -9,7 +9,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackQueryHandler, MessageHandler, CommandHandler, filters, ApplicationHandlerStop
 
 log = logging.getLogger("netyar.telegram.partner_runtime_v31")
-IRANCELL = "📱 حل مشکل سیم کارت ایرانسل"
+
 MANAGEMENT = "💬 ارتباط با مدیریت"
 RESTART = "🔄 شروع مجدد"
 
@@ -21,7 +21,7 @@ def _night_menu(B, uid):
             ["➕ شارژ حساب", IRANCELL],
             ["🏛 حل مشکل سامانه دولت من", "🔎 پیگیری کد"],
             ["📋 سوابق", "💰 موجودی"],
-            ["📱 خدمات سیم کارت", "🪪 فیدای غیر حضوری"],
+
             ["🎫 تیکت به مدیریت", MANAGEMENT],
             ["🚪 خروج از پنل"],
             ["❌ انصراف"],
