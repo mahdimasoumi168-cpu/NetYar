@@ -1,5 +1,5 @@
 """Telegram Persian-only start/restart and permanently available restart button."""
-from telegram import ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import MessageHandler, CallbackQueryHandler, filters, ApplicationHandlerStop
 
 RESTART = "🔄 شروع مجدد"
@@ -8,10 +8,12 @@ USE_SERVICES_CALLBACK = "start:services"
 
 
 def _keyboard(rows=None):
+    # Keep service controls inline with the message, never in Telegram's persistent reply keyboard.
     base = [list(r) for r in (rows or [])]
-    base = [r for r in base if RESTART not in r]
-    base.append([RESTART])
-    return ReplyKeyboardMarkup(base, resize_keyboard=True, one_time_keyboard=False, is_persistent=True)
+    base = [r for r in base if RESTART not in r and USE_SERVICES not in r]
+    base.append([InlineKeyboardButton(USE_SERVICES, callback_data=USE_SERVICES_CALLBACK)])
+    base.append([InlineKeyboardButton(RESTART, callback_data="start:restart")])
+    return InlineKeyboardMarkup(base)
 
 
 def _start_keyboard():
@@ -47,11 +49,6 @@ async def _show_persian_start(update, context, B, *, install_restart_keyboard=Fa
     # Install the persistent reply keyboard only on a real /start. On restart the
     # user already has this keyboard because restart itself was pressed from it.
     # Never send an empty/zero-width helper message: Telegram rejects empty text.
-    if install_restart_keyboard:
-        await update.effective_message.reply_text(
-            "🔄",
-            reply_markup=_keyboard(),
-        )
 
 
 async def _show_service_choice(update, B):
