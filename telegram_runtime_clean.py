@@ -130,11 +130,11 @@ async def _install_features(app):
         except Exception:log.exception("Telegram layer unavailable: %s",module)
     try:
         import telegram_language_consistency as TLC; r=TLC.install(B)
-        if inspect.isawaitable(r):asyncio.run(r)
+        if inspect.isawaitable(r):await r
     except Exception:log.exception("language consistency unavailable")
     try:
         import telegram_topup_invoice as TI; r=TI.install(B)
-        if inspect.isawaitable(r):asyncio.run(r)
+        if inspect.isawaitable(r):await r
         if getattr(B,"_topup_invoice_install_app",None):B._topup_invoice_install_app(app)
     except Exception:log.exception("topup invoice unavailable")
     try:
@@ -149,18 +149,18 @@ async def _install_features(app):
             m=__import__(name); f=getattr(m,fn,None)
             if callable(f):
                 r=f(app,B)
-                if inspect.isawaitable(r):asyncio.run(r)
+                if inspect.isawaitable(r):await r
         except TypeError:
             try:
                 r=f(B)
-                if inspect.isawaitable(r):asyncio.run(r)
+                if inspect.isawaitable(r):await r
             except Exception:log.exception("optional Telegram layer unavailable: %s",name)
         except Exception:log.exception("optional Telegram layer unavailable: %s",name)
     final=(("telegram_partner_runtime_fix_v31","partner runtime fix v31"),("telegram_partner_final_router_v29","partner router v29"),("telegram_management_only_v32","management-only partner UI v32"),("telegram_session_and_context_hardening_v33","session/context hardening v33"),("telegram_final_admin_navigation_v3","final admin navigation v3"),("telegram_partner_navigation_final_v33","partner navigation v33"),("telegram_final_iranian_menu_v38","Iranian menu v38"),("sizpay_gateway","SizPay gateway"),("telegram_final_request_partner_guard_v1","final request/partner routing guard v1"),("telegram_security_code_image_flow_v4","security-code image workflow v4"))
     for module,label in final:
         try:
             m=__import__(module); r=m.install(app,B)
-            if inspect.isawaitable(r):asyncio.run(r)
+            if inspect.isawaitable(r):await r
             log.info("REAL runtime: %s installed",label)
         except Exception:log.exception("%s unavailable",label)
     try:
