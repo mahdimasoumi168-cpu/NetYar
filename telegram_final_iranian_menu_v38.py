@@ -10,7 +10,7 @@ TRUST_URL = "https://trustseal.enamad.ir/?id=7717012&Code=hEHTsn6HzG7ZsxeorkqzvL
 
 
 def _keyboard(B, uid):
-    rows = [["🏛 خدمات ایرانی", TRUST], ["👥 پنل همکاران", "🎫 پیگیری"], ["🔄 شروع مجدد"]]
+    rows = [["🏛 خدمات ایرانی", TRUST], ["💳 تست درگاه سیزپی — ۱۰۰٬۰۰۰ تومان"], ["👥 پنل همکاران", "🎫 پیگیری"], ["🔄 شروع مجدد"]]
     try:
         return B.kb(rows)
     except Exception:
@@ -79,6 +79,18 @@ def install(app, B):
         await update.message.reply_text(_trust_message(), reply_markup=_trust_markup(), disable_web_page_preview=True)
         raise ApplicationHandlerStop
 
+    async def sizpay_menu_text(update, context):
+        text = (getattr(update.message, "text", "") or "").strip()
+        if text != "💳 تست درگاه سیزپی — ۱۰۰٬۰۰۰ تومان": return
+        if B.S.get(int(update.effective_user.id), {}).get("status") != "iranian": return
+        await update.message.reply_text("💳 برای ساخت تراکنش تست سیزپی، روی دکمه زیر بزنید.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("💳 ساخت پرداخت ۱۰۰٬۰۰۰ تومان", callback_data="sizpay:test")]]))
+        raise ApplicationHandlerStop
+
+    async def sizpay_menu_callback(update, context):
+        q = update.callback_query
+        if str(q.data or "") != "sizpay:test": return
+        return
+
     async def iranian_callback(update, context):
         q = update.callback_query; data = str(q.data or "")
         if not data.startswith("iranian:"): return
@@ -100,7 +112,9 @@ def install(app, B):
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, citizenship_text), group=-10000003)
     app.add_handler(CallbackQueryHandler(citizenship_callback, pattern=r"^st:iranian$"), group=-10000002)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, trust_text), group=-10000001)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, sizpay_menu_text), group=-10000000)
     app.add_handler(CallbackQueryHandler(trust_callback, pattern=r"^enamad:trust$"), group=-10000000)
+    app.add_handler(CallbackQueryHandler(sizpay_menu_callback, pattern=r"^sizpay:test$"), group=-10000015)
     app.add_handler(CallbackQueryHandler(iranian_callback, pattern=r"^iranian:(?:back|services|partner|track|restart)$"), group=-9999999)
     try:
         import telegram_universal_callback_owner_v46 as V46
