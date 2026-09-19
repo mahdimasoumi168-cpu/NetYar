@@ -93,7 +93,7 @@ class BaleRuntime:
             await asyncio.to_thread(self.send_message, chat_id, "تم تفعيل العربية.\nيرجى اختيار نوع المستخدم:", keyboard)
             return
         if text in {"🪪 اتباع هستم", "اتباع هستم", "🪪 I am a foreign citizen", "🪪 أنا أجنبي"}:
-            keyboard = {"keyboard": [["🪪 فیدای غیر حضوری", "🖨 خدمات چاپ"], ["🏛 حل مشکل ورود اتباع دولت من", "🎫 پیگیری"], ["📱 خدمات سیم کارت", "👥 پنل همکاران"]], "resize_keyboard": True}
+            keyboard = {"keyboard": [["🪪 فیدای غیر حضوری", "🏛 حل مشکل ورود اتباع دولت من"], ["🎫 پیگیری", "👥 پنل همکاران"]], "resize_keyboard": True}
             await asyncio.to_thread(self.send_message, chat_id, "خدمات اتباع:", keyboard)
             return
         if text in {"🇮🇷 ایرانی هستم", "ایرانی هستم", "🇮🇷 I am Iranian", "🇮🇷 أنا إيراني"}:
