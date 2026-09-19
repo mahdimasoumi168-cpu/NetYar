@@ -11,16 +11,10 @@ RESTART="🔄 شروع مجدد"; USE_SERVICES="🛎 استفاده از خدم�
 def _restart_keyboard(): return ReplyKeyboardMarkup([[RESTART]],resize_keyboard=True,is_persistent=True)
 def _services_keyboard(): return InlineKeyboardMarkup([[InlineKeyboardButton(USE_SERVICES,callback_data="start:services")]])
 def _offhours_state(uid=None):
-    try:
-        import telegram_offhours_partner_gate_v2 as G
-        uid = uid if uid is not None else 0
-        if G.night_access_open(B, uid):
-            return False, "", None
-        return True, G._closed_text(B), G._closed_markup()
-    except Exception:
-        log.exception("authoritative offhours state unavailable")
-        return False, "", None
-def _is_offhours(uid=None): return _offhours_state(uid)[0]
+    # Permanent 24/7 public access. The separate full-bot switch (bot_enabled)
+    # remains available to administrators and is the only global blocker.
+    return False, "", None
+def _is_offhours(uid=None): return False
 
 def _full_bot_open(uid=None):
     try:
@@ -41,12 +35,7 @@ def _night_worker_active(uid):
     return False
 
 async def _reply_closed(message):
-    uid=getattr(getattr(message,"from_user",None),"id",None)
-    closed,text,markup=_offhours_state(uid)
-    if closed and uid and _night_worker_active(uid):
-        return False
-    if closed:
-        await message.reply_text(text,reply_markup=markup); return True
+    # 24/7 mode: never block ordinary users because of clock/night state.
     return False
 async def _safe_call(fn,update,context,*extra):
     try:
@@ -104,11 +93,6 @@ async def _services_callback(update,context):
         except Exception:pass
         await _reply_full_closed(q.message)
         raise ApplicationHandlerStop
-    if _is_offhours(q.from_user.id):
-        try:await q.answer("❌ خارج از ساعت کاری است.",show_alert=True)
-        except Exception:pass
-        if q.message:await _reply_closed(q.message)
-        raise ApplicationHandlerStop
     await q.answer(); uid=q.from_user.id; B.S.setdefault(uid,{})["lang"]="fa"
     await q.message.reply_text("نوع کاربری خود را انتخاب کنید:",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🪪 اتباع هستم",callback_data="st:foreign"),InlineKeyboardButton("🇮🇷 ایرانی هستم",callback_data="st:iranian")]])); raise ApplicationHandlerStop
 async def _blocked_language_callback(update,context):
@@ -120,11 +104,6 @@ async def _blocked_language_callback(update,context):
         try:await q.answer("🔒 ربات کاملاً بسته است.",show_alert=True)
         except Exception:pass
         await _reply_full_closed(q.message)
-        raise ApplicationHandlerStop
-    if _is_offhours(q.from_user.id):
-        try:await q.answer("❌ خارج از ساعت کاری است.",show_alert=True)
-        except Exception:pass
-        if q.message:await _reply_closed(q.message)
         raise ApplicationHandlerStop
     B.S.setdefault(q.from_user.id,{})["lang"]="fa"; await q.answer("زبان فارسی است."); await q.message.reply_text("لطفاً از دکمه «🛎 استفاده از خدمات» استفاده کنید.",reply_markup=_services_keyboard()); raise ApplicationHandlerStop
 
