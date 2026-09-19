@@ -1,6 +1,6 @@
 """Canonical Telegram runtime: Persian-only startup and deterministic feature installation."""
 import asyncio, inspect, logging
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, MessageHandler, filters, ApplicationHandlerStop
 import bot as B
 log=logging.getLogger("netyar.telegram_runtime")
@@ -9,7 +9,9 @@ WELCOME=("👋 سلام!\n\nبه سامانه خدمات آنلاین بات، �
 "🚀 بات، کمک یار مهاجر؛ خدماتی برای شما، درآمدی برای همه")
 RESTART="🔄 شروع مجدد"
 USE_SERVICES="🛎 استفاده از خدمات"
-def _restart_keyboard(): return ReplyKeyboardMarkup([[USE_SERVICES],[RESTART]],resize_keyboard=True,is_persistent=True)
+def _restart_keyboard():
+    return InlineKeyboardMarkup([[InlineKeyboardButton(USE_SERVICES,callback_data="start:services")],
+                                 [InlineKeyboardButton(RESTART,callback_data="start:restart")]])
 
 
 def _offhours_state(uid=None):
@@ -125,6 +127,20 @@ async def _use_services(update,context):
         log.exception("use-services menu failed")
         raise
     raise ApplicationHandlerStop
+
+async def _start_services_callback(update,context):
+    q=getattr(update,"callback_query",None)
+    if not q:return
+    try: await q.answer()
+    except Exception: pass
+    await _use_services(update,context)
+
+async def _start_restart_callback(update,context):
+    q=getattr(update,"callback_query",None)
+    if not q:return
+    try: await q.answer()
+    except Exception: pass
+    await _restart(update,context)
 
 async def _restart(update,context):
     uid=getattr(getattr(update,"effective_user",None),"id",None)
@@ -261,8 +277,11 @@ async def _install_features(app):
         log.exception("Desktop Agent API installation failed")
     B.start=_start
     app.add_handler(CommandHandler("start",_start),group=-10000000)
-    app.add_handler(MessageHandler(filters.Regex(r"^🛎 استفاده از خدمات$"),_use_services),group=-9999999)
-    app.add_handler(MessageHandler(filters.Regex(r"^🔄 شروع مجدد$"),_restart),group=-9999999)
+    app.add_handler(CallbackQueryHandler(_start_services_callback,pattern=r"^start:services$"),group=-9999999)
+    app.add_handler(CallbackQueryHandler(_start_restart_callback,pattern=r"^start:restart$"),group=-9999999)
+    # Legacy text buttons remain accepted for users with an old Telegram keyboard cached locally.
+    app.add_handler(MessageHandler(filters.Regex(r"^🛎 استفاده از خدمات$"),_use_services),group=-9999998)
+    app.add_handler(MessageHandler(filters.Regex(r"^🔄 شروع مجدد$"),_restart),group=-9999998)
     app.add_error_handler(_global_error_handler)
     app.add_handler(CallbackQueryHandler(_blocked_language_callback,pattern=r"^(lang|language):"),group=-9999998)
 
