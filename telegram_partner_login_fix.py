@@ -112,6 +112,30 @@ def install(app=None, B=None):
                 await update.message.reply_text("❌ رمز عبور نادرست است.\n\n🔐 رمز عبور همکار را دوباره وارد کنید:")
                 raise ApplicationHandlerStop
 
+            # Outside 07:00-19:00, partner access is available only when the
+            # night switch is enabled AND this exact partner is whitelisted.
+            try:
+                from telegram_offhours_partner_gate_v2 import _clock_is_open, night_shift_enabled
+                if not _clock_is_open(B) and not bool(B.admin(uid)):
+                    if not night_shift_enabled(B):
+                        st["mode"] = "p_phone"; st["step"] = "partner_phone"
+                        await update.message.reply_text("🌙 شیفت شب در حال حاضر توسط مدیریت بسته است.\n\n🔄 بعداً دوباره تلاش کنید.")
+                        raise ApplicationHandlerStop
+                    pid = partner["id"] if "id" in partner.keys() else None
+                    allowed = bool(pid) and str(B.db.setting("night_worker:"+str(pid),"0") or "0") == "1"
+                    if not allowed:
+                        st["mode"] = "p_phone"; st["step"] = "partner_phone"
+                        for key in ("partner_id","pending_partner_id","partner_phone"):
+                            st.pop(key,None)
+                        await update.message.reply_text("❌ این حساب برای شیفت شب توسط مدیریت فعال نشده است.\n\n📞 برای فعال‌سازی با مدیریت تماس بگیرید.")
+                        raise ApplicationHandlerStop
+            except ApplicationHandlerStop:
+                raise
+            except Exception:
+                log.exception("night-worker authorization check failed")
+                await update.message.reply_text("❌ بررسی دسترسی شیفت شب انجام نشد. دوباره تلاش کنید.")
+                raise ApplicationHandlerStop
+
             st["partner"] = phone
             st["partner_phone"] = phone
             st["partner_id"] = partner["id"] if "id" in partner.keys() else None
