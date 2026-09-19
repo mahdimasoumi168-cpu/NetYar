@@ -184,7 +184,13 @@ def install(app, B):
         if len(parts) != 3 or parts[1] not in {"captcha", "verify"}:
             return
         rid = int(parts[2])
-        if partner_telegram_id(rid) != q.from_user.id:
+        allowed = False
+        try:
+            allowed = bool(B.admin(q.from_user.id))
+        except Exception:
+            allowed = False
+        allowed = allowed or (partner_telegram_id(rid) == q.from_user.id)
+        if not allowed:
             await q.answer("این درخواست برای شما نیست.", show_alert=True)
             raise ApplicationHandlerStop
         if parts[1] == "verify":
@@ -192,10 +198,15 @@ def install(app, B):
                 target = int(B.db.setting(f"request_code_chat_{rid}", "") or 0) or None
             except Exception:
                 target = None
+            if not target:
+                target = partner_telegram_id(rid)
             if target:
                 upsert_job(rid, "waiting_verify", "verify_requested")
-                await app.bot.send_message(chat_id=target, text=f"🔐 کد تأیید درخواست {rid} را برای مدیریت ارسال کنید.")
-            await q.answer("درخواست کد تأیید ارسال شد.")
+                await app.bot.send_message(chat_id=target, text=f"🔐 کد تأیید درخواست {rid} را پس از دریافت از سامانه برای مدیریت ارسال کنید.")
+            else:
+                await q.answer("حساب همکار برای این درخواست پیدا نشد.", show_alert=True)
+                raise ApplicationHandlerStop
+            await q.answer("درخواست کد تأیید برای همکار ارسال شد.")
             raise ApplicationHandlerStop
         B.S.setdefault(q.from_user.id, {})["desktop_agent_wait"] = "captcha"
         B.S[q.from_user.id]["desktop_agent_rid"] = rid
@@ -270,20 +281,18 @@ def install(app, B):
         row = request_row(rid)
         if not row:
             raise HTTPException(status_code=404, detail="request not found")
-        target = None
-        try:
-            target = int(B.db.setting(f"request_code_chat_{rid}", "") or 0) or None
-        except Exception:
-            target = None
-        if not target:
-            target = partner_telegram_id(rid)
-        if not target:
-            raise HTTPException(status_code=404, detail="partner Telegram chat not found")
-        upsert_job(rid, "waiting_verify", "verify_requested")
-        await app.bot.send_message(
-            chat_id=target,
-            text=f"🔐 کد تأیید درخواست {row['tracking_code']} را پس از دریافت از سامانه برای مدیریت ارسال کنید.",
-        )
+        upsert_job(rid, "waiting_verify", "verify_button_sent")
+        text = f"🔐 درخواست کد تأیید از همکار\n🎫 {row['tracking_code']}\n\nپس از دریافت کد از سامانه، دکمه زیر را بزنید."
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("📩 درخواست کد تأیید از همکار", callback_data=f"dta:verify:{rid}")]])
+        sent = False
+        for aid in getattr(B, "ADM", []) or []:
+            try:
+                await app.bot.send_message(chat_id=int(aid), text=text, reply_markup=kb)
+                sent = True
+            except Exception:
+                pass
+        if not sent:
+            raise HTTPException(status_code=404, detail="Telegram admin chat not found")
         return {"ok": True}
 
     @server.api.post("/desktop-agent/job/{rid}/result")
