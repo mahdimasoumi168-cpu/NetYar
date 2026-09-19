@@ -63,7 +63,6 @@ def install(app, B):
 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, citizenship_text), group=-10000003)
     app.add_handler(CallbackQueryHandler(citizenship_callback, pattern=r"^st:iranian$"), group=-10000002)
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, sizpay_menu_text), group=-10000000)
     app.add_handler(CallbackQueryHandler(iranian_callback, pattern=r"^iranian:(?:back|partner|track|restart)$"), group=-9999999)
     try:
         import telegram_universal_callback_owner_v46 as V46
