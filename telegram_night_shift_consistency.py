@@ -78,5 +78,5 @@ def install(app, B):
         except Exception:
             pass
 
-    B._night_policy_consistency_v2 = True
+    # Expose one diagnostic fingerprint so the live runtime can be checked easily.\n    B._netyar_night_policy_owner = "telegram_night_shift_consistency"\n    B._night_policy_consistency_v2 = True
     return True
