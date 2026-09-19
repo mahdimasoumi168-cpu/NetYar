@@ -25,7 +25,10 @@ def _menu(B):
         return _kb([])
 
 def _services(B):
-    return B.db.conn.execute("SELECT key,name,price,active FROM services ORDER BY id").fetchall()
+    return B.db.conn.execute(
+        "SELECT key,name,price,active FROM services "
+        "WHERE active=1 AND key NOT IN ('print','sim','sim2','irancell') ORDER BY id"
+    ).fetchall()
 
 def _ensure_partner_prices(B):
     B.db.conn.execute("""CREATE TABLE IF NOT EXISTS partner_service_prices(
