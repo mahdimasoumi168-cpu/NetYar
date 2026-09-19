@@ -208,7 +208,18 @@ async def text(update,context,B):
             st.update(phone=phone,partner_phone=phone,partner_id=row["id"],partner_active=True,partner_logged_out=False,mode="partner_entry_pass",step="partner_entry_pass")
             await update.effective_message.reply_text("🔐 رمز عبور پنل همکاران را وارد کنید:",reply_markup=_cancel_kb(B,st.get("lang","fa")))
             raise ApplicationHandlerStop
-        # Unknown/inactive number: membership request, never the old 'active partner' error.
+        existing=_lookup(B,phone,active_only=False)
+        if existing:
+            st.update(phone=phone,partner_phone=phone,partner_id=existing["id"],partner_active=False,mode="partner_new_wait",step="partner_new_wait")
+            pending=B.db.conn.execute("SELECT * FROM partner_requests WHERE partner_id=? AND status='pending' ORDER BY id DESC LIMIT 1",(existing["id"],)).fetchone()
+            if pending:
+                return await _status(update,B,pending)
+            await update.effective_message.reply_text(
+                f"🟡 این شماره از قبل در سامانه ثبت شده است.\n\n👤 نام ثبت‌شده: {existing['name'] or '-'}\n📱 شماره: {phone}\n\nبرای ادامه، «🤝 درخواست عضویت» را بزنید تا همان حساب قبلی بررسی شود.",
+                reply_markup=_new_member_kb(),
+            )
+            raise ApplicationHandlerStop
+        # Unknown number: membership request, never the old 'active partner' error.
         st.update(phone=phone,partner_phone=phone,partner_active=False,mode="partner_new_wait",step="partner_new_wait")
         await update.effective_message.reply_text("👤 این شماره هنوز همکار فعال نیست.\n\nبرای ثبت درخواست عضویت، دکمه زیر را بزنید:",reply_markup=_new_member_kb())
         raise ApplicationHandlerStop
@@ -250,6 +261,29 @@ async def callback(update,context,B):
     if not q or not str(q.data or "").startswith("partnerreg:"): return
     await q.answer()
     action=str(q.data).split(":",1)[1]
+    if action=="use_saved":
+        uid=q.from_user.id; st=B.S.setdefault(uid,{})
+        if st.get("partner_logged_out") or _logout_persisted(B,uid):
+            st["mode"]="partner_entry_phone"; st["step"]="partner_entry_phone"
+            await q.message.reply_text("🔒 خروج دائمی فعال است. برای ورود دوباره شماره و رمز را وارد کنید.",reply_markup=_cancel_kb(B,st.get("lang","fa")))
+            raise ApplicationHandlerStop
+        row=_remembered_partner(B,uid)
+        if not row:
+            await q.message.reply_text("❌ شماره ثبت‌شده برای این حساب پیدا نشد. لطفاً شماره را وارد کنید.",reply_markup=_cancel_kb(B,st.get("lang","fa")))
+            raise ApplicationHandlerStop
+        if not _night_allowed(B,uid,row):
+            await q.message.reply_text("🌙 دسترسی شیفت شب برای این همکار فعال نیست.",reply_markup=B.main(uid))
+            raise ApplicationHandlerStop
+        phone=_phone(B,row["phone"])
+        st.update(phone=phone,partner_phone=phone,partner_id=row["id"],partner_active=True,partner_logged_out=False,mode="partner_entry_pass",step="partner_entry_pass")
+        await q.message.reply_text(f"✅ شماره ثبت‌شده شناسایی شد: {phone}\n\n🔐 رمز عبور پنل همکاران را وارد کنید:",reply_markup=_cancel_kb(B,st.get("lang","fa")))
+        raise ApplicationHandlerStop
+    if action=="other_phone":
+        st=B.S.setdefault(q.from_user.id,{})
+        st.pop("phone",None); st.pop("partner_phone",None); st.pop("partner_id",None); st.pop("partner_active",None)
+        st["mode"]="partner_entry_phone"; st["step"]="partner_entry_phone"
+        await q.message.reply_text("📱 شماره موبایل اختصاصی همکار را وارد کنید:",reply_markup=_cancel_kb(B,st.get("lang","fa")))
+        raise ApplicationHandlerStop
     if action=="request": return await _request_begin(update,context,B)
     if action=="cancel":
         st=B.S.setdefault(q.from_user.id,{}); st.update(mode=None,step=None,partner_pending=False)
