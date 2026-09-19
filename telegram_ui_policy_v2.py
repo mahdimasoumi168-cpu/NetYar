@@ -143,6 +143,13 @@ async def _dispatch(update,context,B,label):
     if label=="👥 پنل همکاران":
         if st.get("partner_logged_out"):
             st.pop("partner_id",None);st.pop("partner_active",None)
+        pid=st.get("partner_id")
+        if pid and st.get("partner_active", True):
+            try:p=B.db.conn.execute("SELECT * FROM partners WHERE id=? AND active=1 LIMIT 1",(pid,)).fetchone()
+            except Exception:log.exception("partner panel database lookup failed");p=None
+            if p:
+                st["partner_active"]=True;st["mode"]=None;st["partner_logged_out"]=False
+                return await q.message.reply_text(f"👥 پنل همکاران\n👤 {p['name']}\n📱 {p['phone']}\n💰 اعتبار: {int(p['balance'] or 0):,} تومان",reply_markup=B.partner_kb(st.get("lang","fa")))
         if not st.get("partner_logged_out"):
             try:
                 from telegram_partner_registration import _remembered_partner
@@ -158,13 +165,6 @@ async def _dispatch(update,context,B,label):
                         [InlineKeyboardButton("❌ انصراف", callback_data="partnerreg:cancel")],
                     ]),
                 )
-        pid=st.get("partner_id")
-        if pid and st.get("partner_active", True):
-            try:p=B.db.conn.execute("SELECT * FROM partners WHERE id=? AND active=1 LIMIT 1",(pid,)).fetchone()
-            except Exception:log.exception("partner panel database lookup failed");p=None
-            if p:
-                st["partner_active"]=True;st["mode"]=None;st["partner_logged_out"]=False
-                return await q.message.reply_text(f"👥 پنل همکاران\n👤 {p['name']}\n📱 {p['phone']}\n💰 اعتبار: {int(p['balance'] or 0):,} تومان",reply_markup=B.partner_kb(st.get("lang","fa")))
         st["mode"]="p_phone";st.pop("phone",None);st.pop("partner_active",None)
         return await q.message.reply_text("👥 ورود به پنل همکاران\n\n📱 لطفاً شماره موبایل اختصاصی همکار را وارد کنید:",reply_markup=B.cancel_kb(st.get("lang","fa")))
     if label=="🚪 خروج از پنل":return await B.partner_exit(fake,context)
