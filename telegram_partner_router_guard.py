@@ -12,7 +12,6 @@ PARTNER = "👥 پنل همکاران"
 ADMIN_PANEL = "🛠 پنل مدیریت بات"
 CANCEL = "❌ انصراف"
 FIDA = "🪪 فیدای غیر حضوری"
-SIM = "📱 خدمات سیم کارت"
 
 
 def _is_admin(B, uid):
@@ -28,7 +27,7 @@ def _partner_markup(B, UI, uid):
     # the service flows use the partner's charged bot credit, not customer card-to-card.
     rows = [
         ["➕ شارژ حساب", "🏛 حل مشکل سامانه دولت من"],
-        [FIDA, SIM],
+        [FIDA, "🏛 حل مشکل ورود اتباع دولت من"],
         ["🔎 پیگیری کد", "📋 سوابق"],
         ["💰 موجودی", "🎫 تیکت به مدیریت"],
     ]
@@ -72,7 +71,7 @@ async def _open_partner(update, context, B, UI):
                 name = row["name"] or "-"; phone = row["phone"] or "-"; balance = int(row["balance"] or 0)
                 markup = _partner_markup(B, UI, uid); kwargs = {"reply_markup": markup} if markup is not None else {}
                 return await q.message.reply_text(
-                    f"👥 پنل همکاران\n👤 {name}\n📱 {phone}\n💰 اعتبار قابل استفاده: {balance:,} تومان\n\nخدمات فیدای غیرحضوری و سیم کارت از اعتبار همین پنل کسر می‌شود.",
+                    f"👥 پنل همکاران\n👤 {name}\n📱 {phone}\n💰 اعتبار قابل استفاده: {balance:,} تومان\n\nخدمات فیدای غیرحضوری از اعتبار همین پنل کسر می‌شود.",
                     **kwargs,
                 )
         return await _login(q.message, B, UI, uid, st)
