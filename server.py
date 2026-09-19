@@ -235,6 +235,12 @@ async def _initialize_integrations():
     try:
         import telegram_runtime_clean as tg
         telegram_app=tg.build()
+        try:
+            import sizpay_gateway as SP
+            SP.install_web(api, __import__("bot"))
+            log.info("SIZPAY WEB CALLBACK OWNER ACTIVE: /sizpay/callback")
+        except Exception:
+            log.exception("SizPay web callback installation failed")
         await telegram_app.initialize()
         await telegram_app.start()
         await telegram_app.bot.delete_webhook(drop_pending_updates=False)
