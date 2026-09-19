@@ -39,11 +39,14 @@ class Database:
         CREATE TABLE IF NOT EXISTS audit_log(id INTEGER PRIMARY KEY AUTOINCREMENT, platform TEXT, actor_id TEXT, action TEXT, target TEXT DEFAULT '', details TEXT DEFAULT '', created_at TEXT);
         CREATE TABLE IF NOT EXISTS bot_integrations(id INTEGER PRIMARY KEY AUTOINCREMENT, platform TEXT UNIQUE, bot_name TEXT DEFAULT '', token_ref TEXT DEFAULT '', active INTEGER DEFAULT 0, status TEXT DEFAULT 'configured', created_at TEXT, updated_at TEXT);
         """)
-        defaults={"welcome_fa":WELCOME_FA,"welcome_en":"Welcome to Mohajer Helper.","welcome_ar":"مرحباً بكم في مساعد المهاجر.","card_number":CARD_NUMBER,"card_owner":CARD_OWNER,"price_fida":"0","price_print_bw":"0","price_print_color":"0","price_government":"500000","bot_open":"1"}
+        defaults={"welcome_fa":WELCOME_FA,"welcome_en":"Welcome to Mohajer Helper.","welcome_ar":"مرحباً بكم في مساعد المهاجر.","card_number":CARD_NUMBER,"card_owner":CARD_OWNER,"price_fida":"0","price_government":"500000","bot_open":"1"}
         for k,v in defaults.items(): self.conn.execute("INSERT OR IGNORE INTO settings VALUES(?,?)",(k,v))
         self.conn.execute("UPDATE settings SET value=? WHERE key='welcome_fa'",(WELCOME_FA,))
-        sv=[("fida","فیدای غیر حضوری","ارسال مدرک شناسایی و شماره همراه",0),("print","خدمات چاپ","چاپ فایل و عکس",0),("government","حل مشکل ورود اتباع سامانه دولت من","ثبت درخواست و بررسی مدارک",500000)]
+        sv=[("fida","فیدای غیر حضوری","ارسال مدرک شناسایی و شماره همراه",0),("government","حل مشکل ورود اتباع سامانه دولت من","ثبت درخواست و بررسی مدارک",500000)]
         for k,n,d,p in sv:self.conn.execute("INSERT OR IGNORE INTO services(key,name,description,price) VALUES(?,?,?,?)",(k,n,d,p))
+        # Removed services: never recreate them and hide them from all service/pricing menus.
+        self.conn.execute("DELETE FROM services WHERE key IN ('print','sim','sim2','irancell')")
+        self.conn.execute("DELETE FROM partner_service_prices WHERE service_key IN ('print','sim','sim2','irancell')")
         phone=os.getenv("INITIAL_PARTNER_PHONE","").strip(); password=os.getenv("INITIAL_PARTNER_PASSWORD","").strip(); name=os.getenv("INITIAL_PARTNER_NAME","همکار").strip()
         if phone and password and not self.conn.execute("SELECT 1 FROM partners WHERE phone=?",(phone,)).fetchone():
             self.conn.execute("INSERT INTO partners(phone,password_hash,name,created_at,updated_at) VALUES(?,?,?,?,?)",(phone,hash_password(password),name,now(),now()))
