@@ -18,8 +18,8 @@ def normalize_phone(v):
  elif s.startswith("0098"): s="0"+s[4:]
  return s if re.fullmatch(r"09\d{9}",s) else None
 def main(uid):
- a=["🪪 فیدای غیر حضوری","🖨 خدمات چاپ","🪪 حل مشکل ورود اتباع دولت من","🎫 کد رهگیری تمدید کارت‌ها","📱 خدمات سیم کارت","📝 آزمون غربالگری","🎫 پیگیری","💰 کیف پول من","📞 تماس با ما","📝 ثبت شکایت مشتریان","👥 پنل همکاران"]
- rows=[[a[0],a[1]],[a[2],a[3]],[a[4],a[5]],[a[6],a[7]],[a[8],a[9]]]
+ a=["🪪 فیدای غیر حضوری","🪪 حل مشکل ورود اتباع دولت من","🎫 کد رهگیری تمدید کارت‌ها","📝 آزمون غربالگری","🎫 پیگیری","💰 کیف پول من","📞 تماس با ما","📝 ثبت شکایت مشتریان","👥 پنل همکاران"]
+ rows=[[a[0],a[1]],[a[2],a[3]],[a[4],a[5]],[a[6],a[7]]]
  if admin(uid): rows.append(["🛠 پنل مدیریت بات"])
  return kb(rows+[[CANCEL],[a[10]]])
 def cancel_kb(lang="fa"): return kb([[CANCEL]])
@@ -86,8 +86,6 @@ async def fida(u,c):
 async def gov(u,c):
  uid=u.effective_user.id;old=S.get(uid,{})
  S[uid]={"mode":"gov_doc_type","lang":old.get("lang","fa"),"gov_files":{},"partner_id":old.get("partner_id")};await u.message.reply_text("🪪 نوع مدرک مشترک را انتخاب کنید:",reply_markup=kb([["🪪 کارت آمایش","🛂 گذرنامه"],[CANCEL]]))
-async def prt(u,c):
- uid=u.effective_user.id;S[uid]={"mode":"print","files":[],"lang":S.get(uid,{}).get("lang","fa"),"partner_id":S.get(uid,{}).get("partner_id")};await u.message.reply_text("📎 فایل‌ها را ارسال کنید؛ پایان با تأیید.",reply_markup=kb([[OK,CANCEL]]))
 async def media(u,c):
  uid=u.effective_user.id;st=S.setdefault(uid,{});fid=u.message.photo[-1].file_id if u.message.photo else (u.message.document.file_id if u.message.document else "")
  if not fid:return await u.message.reply_text("❌ فایل یا تصویر معتبر ارسال کنید.",reply_markup=cancel_kb())
@@ -219,7 +217,7 @@ async def router(u,c):
  if t=="📋 سوابق":return await phistory(u,c)
  if t in ("🪪 فیدای غیر حضوری","🪪 فیدا"):return await fida(u,c)
  if t in ("🪪 حل مشکل ورود اتباع دولت من","🏛 حل مشکل سامانه دولت من"):return await gov(u,c)
- if t=="🖨 خدمات چاپ":return await prt(u,c)
+ if t in {"🖨 خدمات چاپ","📱 خدمات سیم کارت","📱 حل مشکل سیم کارت ایرانسل"}: return await u.message.reply_text("❌ این خدمت از خدمات فعال بات حذف شده است.",reply_markup=main(uid))
  if t=="🛠 پنل مدیریت بات":return await u.message.reply_text("🛠 پنل مدیریت",reply_markup=amenu()) if admin(uid) else None
  if await ptext(u,c):return
  if await service_text(u,c):return
