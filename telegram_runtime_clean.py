@@ -103,7 +103,6 @@ async def _use_services(update,context):
         raise ApplicationHandlerStop
     if await _reply_closed(update.effective_message,uid):
         raise ApplicationHandlerStop
-    # This button is the single entry point to the active services menu.
     st=B.S.setdefault(uid,{"lang":"fa"})
     st["mode"]=None
     try:
@@ -111,10 +110,11 @@ async def _use_services(update,context):
             st.pop("partner_id",None)
             st.pop("partner_active",None)
         await update.effective_message.reply_text(
-            "📋 خدمات قابل استفاده
-
-گزینه موردنظر را انتخاب کنید:",
-            reply_markup=B.main(uid),
+            "نوع کاربر را انتخاب کنید:",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("🪪 اتباع هستم", callback_data="st:foreign"),
+                InlineKeyboardButton("🇮🇷 ایرانی هستم", callback_data="st:iranian"),
+            ]]),
         )
     except Exception:
         log.exception("use-services menu failed")
