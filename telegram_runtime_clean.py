@@ -56,9 +56,14 @@ async def _reply_closed(message,uid=None):
         return False
 async def _safe_call(fn,update,context,*extra):
     try:
-        r=fn(update,context,*extra); return await r if inspect.isawaitable(r) else r
-    except ApplicationHandlerStop: raise
-    except Exception:\n        log.exception("Telegram handler failed: %r",fn)\n        raise
+        r=fn(update,context,*extra)
+        return await r if inspect.isawaitable(r) else r
+    except ApplicationHandlerStop:
+        raise
+    except Exception:
+        log.exception("Telegram handler failed: %r",fn)
+        raise
+
 async def _start(update,context):
     user=update.effective_user
     if not user:return
