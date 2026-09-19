@@ -31,7 +31,17 @@ def _credentials():
     return {"MerchantID":_cfg("SIZPAY_MERCHANT_ID"),"TerminalID":_cfg("SIZPAY_TERMINAL_ID"),
             "UserName":_cfg("SIZPAY_USERNAME"),"Password":_cfg("SIZPAY_PASSWORD"),"SignData":_cfg("SIZPAY_SIGN_DATA")}
 def configured():
-    c=_credentials(); return all(c[k] for k in ("MerchantID","TerminalID","UserName","Password"))
+    c=_credentials()
+    return all(c[k] for k in ("MerchantID","TerminalID","UserName","Password"))
+
+def _missing_credentials():
+    c=_credentials()
+    return [name for name,key in (
+        ("SIZPAY_MERCHANT_ID","MerchantID"),
+        ("SIZPAY_TERMINAL_ID","TerminalID"),
+        ("SIZPAY_USERNAME","UserName"),
+        ("SIZPAY_PASSWORD","Password"),
+    ) if not c[key]]
 def _xml_escape(v): return html.escape(str(v or ""), quote=True)
 def _soap(method, params):
     body="".join(f"<{k}>{_xml_escape(v)}</{k}>" for k,v in params.items())
@@ -107,7 +117,14 @@ def install(app,B):
         try: await q.answer()
         except Exception: pass
         if not configured():
-            await q.message.reply_text("❌ درگاه سیزپی تنظیم نشده است.\n\nچهار متغیر SIZPAY_MERCHANT_ID، SIZPAY_TERMINAL_ID، SIZPAY_USERNAME و SIZPAY_PASSWORD را در Railway قرار دهید.", reply_markup=B.main(uid))
+            missing=", ".join(_missing_credentials())
+            await q.message.reply_text(
+                "❌ تنظیمات درگاه سیزپی کامل نیست.\n\n"
+                f"متغیرهای خالی یا تنظیم‌نشده: {missing}\n\n"
+                "این نام‌ها باید در Railway → NetYar → Variables وجود داشته باشند و مقدار واقعی داشته باشند. "
+                "مقدار هیچ کلیدی در ربات نمایش داده نمی‌شود.",
+                reply_markup=B.main(uid),
+            )
             raise ApplicationHandlerStop
         try:
             order_id,invoice_no,token,rial=_create_token(uid,TEST_AMOUNT_TOMAN)
