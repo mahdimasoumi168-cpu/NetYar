@@ -11,7 +11,7 @@ log = logging.getLogger("netyar.night_consistency")
 
 def install(app, B):
     try:
-        from telegram_offhours_partner_gate_v2 import _is_open, _clock_is_open, night_shift_enabled
+        from telegram_offhours_partner_gate_v2 import _is_open, _clock_is_open, night_shift_enabled, night_access_open
     except Exception:
         log.exception("canonical off-hours gate unavailable")
         return False
@@ -39,10 +39,8 @@ def install(app, B):
                         return True
                 except Exception:
                     pass
-                if not night_shift_enabled(B_):
-                    return False
                 try:
-                    return bool(old_allowed(B_, uid, update))
+                    return bool(night_access_open(B_, uid))
                 except Exception:
                     return False
             N.allowed = allowed
@@ -65,7 +63,7 @@ def install(app, B):
     for name in ("telegram_business_hours_guard", "telegram_absolute_offhours_guard"):
         try:
             M = __import__(name)
-            M.is_open = lambda *args, _B=B, **kwargs: bool(_clock_is_open(_B))
+            M.is_open = lambda *args, _B=B, **kwargs: bool(night_access_open(_B, kwargs.get("uid") or (args[1] if len(args)>1 else None)))
             log.info("NIGHT POLICY: patched %s.is_open", name)
         except Exception:
             log.exception("night policy patch failed: %s", name)
@@ -74,9 +72,9 @@ def install(app, B):
         try:
             M = __import__(name)
             if hasattr(M, "open_now"):
-                M.open_now = lambda *args, _B=B, **kwargs: bool(_clock_is_open(_B))
+                M.open_now = lambda *args, _B=B, **kwargs: bool(night_access_open(_B, kwargs.get("uid") or (args[1] if len(args)>1 else None)))
             if hasattr(M, "is_open"):
-                M.is_open = lambda *args, _B=B, **kwargs: bool(_clock_is_open(_B))
+                M.is_open = lambda *args, _B=B, **kwargs: bool(night_access_open(_B, kwargs.get("uid") or (args[1] if len(args)>1 else None)))
         except Exception:
             pass
 
