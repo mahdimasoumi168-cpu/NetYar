@@ -55,7 +55,7 @@ def _resolve_partner(B, uid):
 def _main_rows(B,uid):
     st=B.S.setdefault(uid,{})
     if st.get("status")=="iranian": rows=[["🎫 پیگیری","💰 کیف پول من"],["📞 تماس با ما","📝 ثبت شکایت مشتریان"]]
-    else: rows=[["🪪 فیدای غیر حضوری","🖨 خدمات چاپ"],["🪪 حل مشکل ورود اتباع دولت من","🎫 کد رهگیری تمدید کارت‌ها"],["📱 خدمات سیم کارت","📝 آزمون غربالگری"],["🎫 پیگیری","💰 کیف پول من"],["📞 تماس با ما","📝 ثبت شکایت مشتریان"]]
+    else: rows=[["🪪 فیدای غیر حضوری","🖨 خدمات چاپ"],["🪪 حل مشکل ورود اتباع دولت من","🎫 کد رهگیری تمدید کارت‌ها"],["📝 آزمون غربالگری","🎫 پیگیری"],["💰 کیف پول من","📞 تماس با ما"],["📝 ثبت شکایت مشتریان"]]
     rows.append(["👥 پنل همکاران"])
     if B.admin(uid): rows.append(["🛠 پنل مدیریت بات"])
     return rows
@@ -156,9 +156,6 @@ async def _dispatch(update,context,B,label):
     if label=="🪪 فیدای غیر حضوری":return await B.fida(fake,context)
     if label=="🖨 خدمات چاپ":return await B.prt(fake,context)
     if label=="🪪 حل مشکل ورود اتباع دولت من":return await B.gov(fake,context)
-    if label=="📱 خدمات سیم کارت":
-        fn=getattr(B,"sim_start",None)
-        if fn:return await fn(fake,context)
     if label=="🎫 پیگیری":st["mode"]="public_tracking";return await q.message.reply_text("🎫 کد پیگیری را وارد کنید:",reply_markup=B.cancel_kb(st.get("lang","fa")))
     if label=="💰 کیف پول من":return await _wallet(fake,context,B)
     if label=="📞 تماس با ما":return await q.message.reply_text("📞 تماس با ما\n\nبرای ارتباط با پشتیبانی روی دکمه زیر بزنید:",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("💬 ارتباط با پشتیبانی",url="https://t.me/Good_ok_2000")]]))
