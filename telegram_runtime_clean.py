@@ -301,6 +301,15 @@ async def _install_features(app):
         log.exception("CRITICAL: final UI guard unavailable")
         raise
     B.start=_start
+    # Final Telegram UI owner: convert all ordinary reply keyboards to inline
+    # message-attached buttons. The only persistent reply keyboard is restart.
+    try:
+        import telegram_no_reply_keyboard as N
+        N.install(app,B)
+        log.info("RUNTIME INLINE-ONLY UI OWNER ACTIVE: all ordinary buttons stay with their message")
+    except Exception:
+        log.exception("CRITICAL: inline-only Telegram UI owner unavailable")
+        raise
     app.add_handler(CommandHandler("start",_start),group=-10000000)
     app.add_handler(CallbackQueryHandler(_start_services_callback,pattern=r"^start:services$"),group=-9999999)
     app.add_handler(CallbackQueryHandler(_start_restart_callback,pattern=r"^start:restart$"),group=-9999999)
