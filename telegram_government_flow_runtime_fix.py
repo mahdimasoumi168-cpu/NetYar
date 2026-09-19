@@ -45,7 +45,7 @@ def install(app, B):
     def _controls(rid):
         return InlineKeyboardMarkup([
             [InlineKeyboardButton("🔎 مشاهده اطلاعات کامل", callback_data=f"rq:detail:{rid}")],
-            [InlineKeyboardButton("📨 درخواست کد از همکار", callback_data=f"rq:ask:{rid}")],
+            [InlineKeyboardButton("🔐 درخواست کد امنیتی از همکار", callback_data=f"rq:ask:{rid}")],
             [InlineKeyboardButton("💰 تأیید دریافت وجه", callback_data=f"rq:payconfirm:{rid}"), InlineKeyboardButton("⏳ بررسی اولیه", callback_data=f"rq:review:{rid}")],
             [InlineKeyboardButton("❌ رد درخواست", callback_data=f"rq:reject:{rid}")],
         ])
