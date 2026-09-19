@@ -39,9 +39,7 @@ def start_fida(B,uid,msg):
  return msg.reply_text("🪪 فیدای غیر حضوری\n\n📸 عکس مدرک شناسایی را ارسال کنید.",reply_markup=B.cancel_kb(st.get("lang","fa")))
 
 def start_sim(B,uid,msg):
- st=B.S.setdefault(uid,{})
- st.update(mode="svc3_sim_carrier",svc3={"service":"sim_card","files":[]})
- return msg.reply_text("📱 خدمات سیم کارت\n\nاپراتور را انتخاب کنید:",reply_markup=kb([[('sim_saman','سامانتل'),('sim_ir','ایرانسل')],[('sim_rightel','رایتل')],[('cancel','❌ انصراف')]]))
+ return msg.reply_text("⛔ خدمات سیم کارت از بات حذف شده است.",reply_markup=B.main(uid))
 
 def _partner(B,st):
  pid=st.get("partner_id")
@@ -88,10 +86,7 @@ async def cb(update,context,B):
  await q.answer();uid=q.from_user.id;st=B.S.setdefault(uid,{});s=st.setdefault("svc3",{});a=d[5:]
  if a=="cancel":return await B.cancel(update,context)
  if a.startswith("sim_"):
-  c={"sim_saman":"سامانتل","sim_ir":"ایرانسل","sim_rightel":"رایتل"}[a]
-  s.clear();s.update(service="sim_card",carrier=c,amount=_price(B,{"سامانتل":"sim_price_samantel","ایرانسل":"sim_price_irancell","رایتل":"sim_price_rightel"}[c],SIM_PRICES[c]),files=[])
-  st["mode"]="svc3_name"
-  return await q.message.reply_text(f"📱 اپراتور: {c}\n💰 هزینه: {s['amount']:,} تومان\n\n👤 نام و نام خانوادگی را وارد کنید:",reply_markup=B.cancel_kb(st.get("lang","fa")))
+  return await q.message.reply_text("⛔ خدمات سیم کارت از بات حذف شده است.",reply_markup=B.main(uid))
  if a=="sim_doc":
   st["mode"]="svc3_sim_photo";s["doc_type"]=s.get("doc_type","مدرک شناسایی")
   return await q.message.reply_text("📸 عکس مدرک شناسایی را ارسال کنید.",reply_markup=B.cancel_kb(st.get("lang","fa")))
@@ -167,7 +162,8 @@ async def media(update,context,B):
 async def pay_cb(update,context,B):
  q=update.callback_query;d=str(q.data or "")
  if d!="svc3:sim_partner_pay":return
- await q.answer();uid=q.from_user.id;st=B.S.setdefault(uid,{});s=st.get("svc3",{});pid=st.get("partner_id");amount=int(s.get("amount",0))
+ await q.answer("این خدمت حذف شده است.",show_alert=True)
+ return await q.message.reply_text("⛔ خدمات سیم کارت از بات حذف شده است.",reply_markup=B.main(q.from_user.id))
  if not pid or not amount:return await q.message.reply_text("❌ درخواست معتبر نیست.",reply_markup=B.main(uid))
  ok,info=_charge_partner(B,pid,amount)
  if not ok:return await q.message.reply_text(info,reply_markup=B.partner_kb(st.get("lang","fa")))
