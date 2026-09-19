@@ -115,6 +115,9 @@ async def _callback(update,context,B):
     except Exception:return
     r=_request(B,rid)
     if not r:await q.answer("❌ درخواست پیدا نشد.",show_alert=True);raise ApplicationHandlerStop
+    if action=="p":
+        # Let the dedicated partner-code owner process legacy req:p callbacks.
+        return
     await q.answer()
     if action in {"v","detail"}:
         await q.message.reply_text(_answer_lines(B,r),reply_markup=_buttons(rid,str(r["payment_status"] or "")=="paid"))
@@ -129,9 +132,6 @@ async def _callback(update,context,B):
         raise ApplicationHandlerStop
     if action in {"r","reply"}:
         return await _admin_reply(update,context,B,rid)
-    if action=="p":
-        # Let the dedicated partner-code owner process the legacy req:p callback.
-        return
     if action in {"review","a","approve","x","reject","pay","payconfirm","c","bottom","chat"}:
         now=B.now()
         if action in {"pay","payconfirm"}:
