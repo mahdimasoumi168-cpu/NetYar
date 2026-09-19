@@ -52,13 +52,11 @@ async def _night(update,context,B):
  if not q or q.data not in {'adm:night_on','adm:night_off'}:return
  if not _admin(B,q.from_user.id):
   await q.answer('❌ دسترسی مدیریت ندارید.',show_alert=True);raise ApplicationHandlerStop
- # Legacy night-control callbacks are kept only for backward compatibility.
- # The bot is now permanently public 24/7, so neither legacy callback can
- # close public access.
- enabled=True; value='1'
+ enabled = q.data == "adm:night_on"
+ value = "1" if enabled else "0"
  try:
-  B.db.set_setting('night_shift_enabled','1')
-  B.db.set_setting('night_public_open','1')
+  B.db.set_setting("night_shift_enabled",value)
+  B.db.set_setting("night_public_open",value)
   try: B.db.conn.commit()
   except Exception: pass
   B._netyar_night_shift_enabled=enabled
@@ -71,7 +69,7 @@ async def _night(update,context,B):
   await q.answer("🟢 دسترسی شبانه باز شد" if enabled else "🔴 دسترسی شبانه بسته شد")
  except Exception:
   log.exception('legacy night callback normalization failed')
-  try: await q.answer('🟢 حالت ۲۴ ساعته فعال است',show_alert=True)
+  try: await q.answer('🟢 حالت شب باز است' if enabled else '🔴 حالت شب بسته است',show_alert=True)
   except Exception: pass
  status="🟢 باز" if enabled else "🔴 بسته"
  try:
