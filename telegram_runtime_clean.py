@@ -8,7 +8,9 @@ WELCOME=("👋 سلام!\n\nبه سامانه خدمات آنلاین بات، �
 "اینجا تلاش کرده‌ایم خدمات موردنیاز شما را به‌صورت سریع، ساده و آنلاین در اختیارتان قرار دهیم تا بدون سردرگمی بتوانید خدمت موردنظر خود را دریافت یا پیگیری کنید.\n\n"
 "🚀 بات، کمک یار مهاجر؛ خدماتی برای شما، درآمدی برای همه")
 RESTART="🔄 شروع مجدد"
-def _restart_keyboard(): return ReplyKeyboardMarkup([[RESTART]],resize_keyboard=True,is_persistent=True)
+USE_SERVICES="🛎 استفاده از خدمات"
+def _restart_keyboard(): return ReplyKeyboardMarkup([[USE_SERVICES],[RESTART]],resize_keyboard=True,is_persistent=True)
+
 
 def _offhours_state(uid=None):
     try:
@@ -93,6 +95,32 @@ async def _start(update,context):
     if update.message:
         await update.message.reply_text(WELCOME,reply_markup=_restart_keyboard())
     raise ApplicationHandlerStop
+async def _use_services(update,context):
+    uid=getattr(getattr(update,"effective_user",None),"id",None)
+    if uid is None:return
+    if not _full_bot_open(uid):
+        await _reply_full_closed(update.effective_message)
+        raise ApplicationHandlerStop
+    if await _reply_closed(update.effective_message,uid):
+        raise ApplicationHandlerStop
+    # This button is the single entry point to the active services menu.
+    st=B.S.setdefault(uid,{"lang":"fa"})
+    st["mode"]=None
+    try:
+        if st.get("partner_logged_out"):
+            st.pop("partner_id",None)
+            st.pop("partner_active",None)
+        await update.effective_message.reply_text(
+            "📋 خدمات قابل استفاده
+
+گزینه موردنظر را انتخاب کنید:",
+            reply_markup=B.main(uid),
+        )
+    except Exception:
+        log.exception("use-services menu failed")
+        raise
+    raise ApplicationHandlerStop
+
 async def _restart(update,context):
     uid=getattr(getattr(update,"effective_user",None),"id",None)
     if uid is not None and not _full_bot_open(uid):
@@ -228,6 +256,7 @@ async def _install_features(app):
         log.exception("Desktop Agent API installation failed")
     B.start=_start
     app.add_handler(CommandHandler("start",_start),group=-10000000)
+    app.add_handler(MessageHandler(filters.Regex(r"^🛎 استفاده از خدمات$"),_use_services),group=-9999999)
     app.add_handler(MessageHandler(filters.Regex(r"^🔄 شروع مجدد$"),_restart),group=-9999999)
     app.add_error_handler(_global_error_handler)
     app.add_handler(CallbackQueryHandler(_blocked_language_callback,pattern=r"^(lang|language):"),group=-9999998)
