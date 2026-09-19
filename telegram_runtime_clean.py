@@ -12,11 +12,12 @@ def _restart_keyboard(): return ReplyKeyboardMarkup([[RESTART]],resize_keyboard=
 def _services_keyboard(): return InlineKeyboardMarkup([[InlineKeyboardButton(USE_SERVICES,callback_data="start:services")]])
 def _offhours_state(uid=None):
     try:
-        from telegram_offhours_partner_gate_v2 import _clock_is_open, night_access_open
+        from telegram_offhours_partner_gate_v2 import _clock_is_open, night_access_open, _closed_markup, _closed_text
         if _clock_is_open(B): return False, "", None
         if uid is not None and night_access_open(B, uid): return False, "", None
-        return True, "خارج از ساعت کاری", uid
+        return True, _closed_text(B), _closed_markup()
     except Exception:
+        log.exception("offhours state unavailable")
         return False, "", None
 def _is_offhours(uid=None):
     return bool(_offhours_state(uid)[0])
@@ -37,9 +38,10 @@ async def _reply_full_closed(message):
     return True
 def _night_worker_active(uid):
     try:
-        from telegram_offhours_partner_gate_v2 import is_night_worker
-        return bool(is_night_worker(B,uid))
-    except Exception:return False
+        from telegram_offhours_partner_gate_v2 import _clock_is_open, is_night_worker
+        return (not _clock_is_open(B)) and bool(is_night_worker(B,uid))
+    except Exception:
+        return False
 
 async def _reply_closed(message,uid=None):
     try:
@@ -228,6 +230,12 @@ def _install_features(app):
         log.info("RUNTIME REQUEST OWNER LOCKED: telegram_canonical_request_flow_v1")
         log.info("RUNTIME ADMIN AMENU OWNER: %s.%s",getattr(B.amenu,"__module__","?"),getattr(B.amenu,"__name__","?"))
     except Exception:log.exception("CRITICAL: canonical admin owner/firewall unavailable"); raise
+    try:
+        import desktop_agent_api_clean as DA
+        DA.install(app,B)
+        log.info("RUNTIME DESKTOP AGENT API OWNER ACTIVE")
+    except Exception:
+        log.exception("Desktop Agent API installation failed")
     B.start=_start
     app.add_handler(CommandHandler("start",_start),group=-10000000)
     app.add_handler(MessageHandler(filters.Regex(r"^🔄 شروع مجدد$"),_restart),group=-9999999)
