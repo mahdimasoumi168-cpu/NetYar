@@ -61,25 +61,25 @@ async def _night(update,context,B):
   B.db.set_setting('night_public_open','1')
   try: B.db.conn.commit()
   except Exception: pass
-  B._netyar_night_shift_enabled=True
-  B._netyar_night_public_open=True
+  B._netyar_night_shift_enabled=enabled
+  B._netyar_night_public_open=enabled
   try:
    import telegram_offhours_partner_gate_v2 as G
    G.enforce_24x7(B)
   except Exception:
    log.exception('24/7 gate refresh warning')
-  await q.answer('🟢 ربات ۲۴ ساعته باز است')
+  await q.answer("🟢 دسترسی شبانه باز شد" if enabled else "🔴 دسترسی شبانه بسته شد")
  except Exception:
   log.exception('legacy night callback normalization failed')
   try: await q.answer('🟢 حالت ۲۴ ساعته فعال است',show_alert=True)
   except Exception: pass
- status='🟢 باز و فعال ۲۴ ساعته'
+ status="🟢 باز" if enabled else "🔴 بسته"
  try:
   await q.message.reply_text(
    f"🌙 کنترل ربات در شب\\n\\nوضعیت: {status}\\n\\n"
-   "⏰ وضعیت فعلی: ۲۴ ساعت شبانه‌روز فعال است.\\n"
-   "همه خدمات عمومی در تمام ساعات قابل استفاده هستند.\\n"
-   "بخش «🌙 همکاران شب‌کار» فقط برای مدیریت دسترسی همکاران است و مانع استفاده عمومی از ربات نمی‌شود.",
+   "⏰ ساعت کاری روزانه: ۰۷:۰۰ تا ۱۹:۰۰.\\n"
+   "خارج از ساعت کاری، دسترسی عمومی فقط وقتی فعال است که «باز کردن ربات در شب» روشن باشد.\\n"
+   "همکاران شب‌کار از بخش جداگانه مدیریت می‌شوند.",
    reply_markup=menu()
   )
  except Exception:
