@@ -10,12 +10,12 @@ TRUST_URL = "https://trustseal.enamad.ir/?id=7717012&Code=hEHTsn6HzG7ZsxeorkqzvL
 
 
 def _keyboard(B, uid):
-    rows = [[TRUST, "💳 تست درگاه سیزپی — ۱۰۰٬۰۰۰ تومان"], ["👥 پنل همکاران", "🎫 پیگیری"], ["🔄 شروع مجدد"]]
+    rows = [["🏛 خدمات ایرانی", "💳 تست درگاه سیزپی — ۱۰۰٬۰۰۰ تومان"], ["👥 پنل همکاران", "🎫 پیگیری"], ["🔄 شروع مجدد"]]
     try:
         return B.kb(rows)
     except Exception:
         return InlineKeyboardMarkup([
-            [InlineKeyboardButton(TRUST, callback_data="enamad:trust")],
+            [InlineKeyboardButton("🏛 خدمات ایرانی", callback_data="iranian:services")],
             [InlineKeyboardButton("👥 پنل همکاران", callback_data="iranian:partner")],
             [InlineKeyboardButton("🎫 پیگیری", callback_data="iranian:track")],
             [InlineKeyboardButton("🔄 شروع مجدد", callback_data="iranian:restart")],
@@ -105,10 +105,7 @@ def install(app, B):
 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, citizenship_text), group=-10000003)
     app.add_handler(CallbackQueryHandler(citizenship_callback, pattern=r"^st:iranian$"), group=-10000002)
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, trust_text), group=-10000001)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, sizpay_menu_text), group=-10000000)
-    app.add_handler(CallbackQueryHandler(trust_callback, pattern=r"^enamad:trust$"), group=-10000000)
-    app.add_handler(CallbackQueryHandler(sizpay_menu_callback, pattern=r"^sizpay:test$"), group=-10000015)
     app.add_handler(CallbackQueryHandler(iranian_callback, pattern=r"^iranian:(?:back|services|partner|track|restart)$"), group=-9999999)
     try:
         import telegram_universal_callback_owner_v46 as V46
