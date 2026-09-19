@@ -8,6 +8,7 @@ WELCOME=("👋 سلام!\n\nبه سامانه خدمات آنلاین بات، �
 "اینجا تلاش کرده‌ایم خدمات موردنیاز شما را به‌صورت سریع، ساده و آنلاین در اختیارتان قرار دهیم تا بدون سردرگمی بتوانید خدمت موردنظر خود را دریافت یا پیگیری کنید.\n\n"
 "🚀 بات، کمک یار مهاجر؛ خدماتی برای شما، درآمدی برای همه\n\n📌 برای شروع دریافت خدمات، روی دکمه «🛎 استفاده از خدمات» بزنید.")
 RESTART="🔄 شروع مجدد"
+def _restart_keyboard(): return ReplyKeyboardMarkup([[RESTART]],resize_keyboard=True,is_persistent=True)
 
 def _offhours_state(uid=None):
     try:
@@ -99,18 +100,6 @@ async def _restart(update,context):
         raise ApplicationHandlerStop
     if update.effective_message and await _reply_closed(update.effective_message,uid):raise ApplicationHandlerStop
     return await _start(update,context)
-async def _services_callback(update,context):
-    q=getattr(update,"callback_query",None)
-    if not q or q.data!="start:services":return
-    if not _full_bot_open(q.from_user.id):
-        try:await q.answer("🔒 ربات کاملاً بسته است.",show_alert=True)
-        except Exception:pass
-        await _reply_full_closed(q.message)
-        raise ApplicationHandlerStop
-    if await _reply_closed(q.message, q.from_user.id):
-        raise ApplicationHandlerStop
-    await q.answer(); uid=q.from_user.id; B.S.setdefault(uid,{})["lang"]="fa"
-    await q.message.reply_text("نوع کاربری خود را انتخاب کنید:",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🪪 اتباع هستم",callback_data="st:foreign"),InlineKeyboardButton("🇮🇷 ایرانی هستم",callback_data="st:iranian")]])); raise ApplicationHandlerStop
 async def _blocked_language_callback(update,context):
     q=getattr(update,"callback_query",None)
     if not q:return
@@ -121,7 +110,7 @@ async def _blocked_language_callback(update,context):
         except Exception:pass
         await _reply_full_closed(q.message)
         raise ApplicationHandlerStop
-    B.S.setdefault(q.from_user.id,{})["lang"]="fa"; await q.answer("زبان فارسی است."); await q.message.reply_text("لطفاً از دکمه «🛎 استفاده از خدمات» استفاده کنید.",reply_markup=_services_keyboard()); raise ApplicationHandlerStop
+    B.S.setdefault(q.from_user.id,{"lang":"fa"}); await q.answer("زبان فارسی است."); await q.message.reply_text("لطفاً از «🔄 شروع مجدد» استفاده کنید.",reply_markup=_restart_keyboard()); raise ApplicationHandlerStop
 
 def _install_features(app):
     try:
