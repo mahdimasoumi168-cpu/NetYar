@@ -154,7 +154,9 @@ def install_web(api,B):
         B.db.conn.execute("UPDATE sizpay_transactions SET status='paid',res_code=?,gateway_message=?,updated_at=? WHERE id=?",
             (str(confirmed.get("ResCod","0")),_safe_text(confirmed.get("Message","OK")),B.now(),int(row["id"]))); B.db.conn.commit()
         try:
-            await B.application.bot.send_message(chat_id=int(row["telegram_user_id"]),
+            app = getattr(B, "_telegram_application", None) or getattr(B, "application", None)
+            if app is None: raise RuntimeError("Telegram application is unavailable")
+            await app.bot.send_message(chat_id=int(row["telegram_user_id"]),
                 text=f"✅ پرداخت سیزپی با موفقیت تأیید شد.\n💰 مبلغ: {int(row['amount_toman']):,} تومان\n🧾 شماره سفارش: {row['order_id']}")
         except Exception: log.exception("SizPay Telegram notification failed")
         return PlainTextResponse("✅ پرداخت با موفقیت تأیید شد. به ربات برگردید.")
