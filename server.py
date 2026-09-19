@@ -10,6 +10,8 @@ api=FastAPI(title="NetYar")
 telegram_app=None
 telegram_ready=False
 rubika_ready=False
+bale_ready=False
+bale_runtime=None
 _telegram_queue=asyncio.Queue(maxsize=1000)
 _telegram_workers=[]
 _TELEGRAM_SEEN=OrderedDict()
@@ -43,7 +45,7 @@ def _rb_seen(key):
 @api.get("/health")
 async def health():
     updater=getattr(telegram_app,"updater",None) if telegram_app else None
-    return {"ok":True,"service":"NetYar","telegram":bool(telegram_ready),"telegram_polling":bool(getattr(updater,"running",False)),"rubika":rubika_ready}
+    return {"ok":True,"service":"NetYar","telegram":bool(telegram_ready),"telegram_polling":bool(getattr(updater,"running",False)),"rubika":rubika_ready,"bale":bale_ready}
 
 
 @api.post("/telegram/update")
@@ -216,6 +218,21 @@ async def _run_rubika(update,rb):
             log.exception("Rubika background update processing failed: user=%s",uid)
 
 
+@api.get("/bale/update")
+async def bale_update_probe(): return {"ok":True,"service":"NetYar","provider":"bale"}
+
+@api.post("/bale/update")
+async def bale_update(request:Request):
+    try:
+        body=await request.json()
+        if bale_runtime is not None:
+            from core import db as core_db
+            await bale_runtime.handle_update(body,core_db)
+        return {"ok":True}
+    except Exception:
+        log.exception("Bale webhook update failed")
+        return {"ok":False,"error":"bale_update_failed"}
+
 @api.get("/rubika/update")
 async def rubika_update_probe(): return {"ok":True,"service":"NetYar","provider":"rubika"}
 
@@ -325,6 +342,18 @@ async def _initialize_integrations():
     except Exception:
         log.exception("Rubika startup failed; Telegram remains active")
         rubika_ready=False
+
+    # Bale is optional and isolated from Telegram/Rubika.
+    try:
+        global bale_runtime,bale_ready
+        from bale_runtime import BaleRuntime
+        from core import db as core_db
+        bale_runtime=BaleRuntime("","")
+        bale_ready=await bale_runtime.start(core_db,public_url)
+        log.info("Bale startup complete: ready=%s",bale_ready)
+    except Exception:
+        log.exception("Bale startup failed; other platforms remain active")
+        bale_ready=False
 
 
 @api.on_event("startup")
