@@ -143,7 +143,6 @@ def install(app, B):
         return
     import telegram_ui_policy_v2 as UI
     UI.MANAGEMENT = MANAGEMENT
-    UI.IRANCELL = IRANCELL
 
     old_dispatch = UI._dispatch
 
@@ -153,12 +152,8 @@ def install(app, B):
         if q:
             uid = q.from_user.id
             st = bot.S.setdefault(uid, {})
-            if label == IRANCELL:
-                return await _irancell(update, context, bot, st)
             if label == MANAGEMENT:
                 return await _management(update, context, bot, st)
-            if label == SIM_SERVICE:
-                return await _sim_service(update, context, bot, st)
             if label in {"➕ شارژ حساب", "🏛 حل مشکل سامانه دولت من", "🔎 پیگیری کد", "📋 سوابق", "🪪 فیدای غیر حضوری", "🖨 خدمات چاپ", "💰 موجودی", "🎫 تیکت به مدیریت"}:
                 return await _service_dispatch(update, context, bot, label)
         result = old_dispatch(update, context, bot, label)
