@@ -33,7 +33,12 @@ def _full_bot_open(uid=None):
     except Exception:
         pass
     try:
-        return str(B.db.setting("bot_enabled", "1") or "1") == "1"
+        if str(B.db.setting("bot_enabled", "1") or "1") == "1":
+            return True
+        # Explicit public night-open must reopen access outside 07:00–19:00,
+        # even if a previous full-close left bot_enabled=0.
+        from telegram_offhours_partner_gate_v2 import _clock_is_open, night_public_open
+        return (not _clock_is_open(B)) and bool(night_public_open(B))
     except Exception:
         return True
 
