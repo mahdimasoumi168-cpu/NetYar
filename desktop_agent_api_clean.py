@@ -79,11 +79,15 @@ def install(app, B):
         try:
             pid = int(a.get("partner_id") or row["user_id"])
         except (TypeError, ValueError):
-            return None
-        link = B.db.conn.execute("SELECT telegram_user_id FROM partner_telegram_links WHERE partner_id=?", (pid,)).fetchone()
-        if not link or not str(link["telegram_user_id"]).isdigit():
-            return None
-        return int(link["telegram_user_id"])
+            pid = None
+        if pid is not None:
+            link = B.db.conn.execute("SELECT telegram_user_id FROM partner_telegram_links WHERE partner_id=?", (pid,)).fetchone()
+            if link and str(link["telegram_user_id"]).isdigit():
+                return int(link["telegram_user_id"])
+        for aid in getattr(B, "ADM", []) or []:
+            if str(aid).isdigit():
+                return int(aid)
+        return None
 
     def upsert_job(rid: int, status: str, phase: str, attempt: int | None = None, **extra):
         row = B.db.conn.execute("SELECT request_id FROM desktop_agent_jobs WHERE request_id=?", (rid,)).fetchone()
@@ -236,8 +240,9 @@ def install(app, B):
         row = request_row(rid)
         if not row:
             raise HTTPException(status_code=404, detail="request not found")
-        state = "completed" if body.success else ("retry" if body.attempt < 3 else "failed")
-        upsert_job(rid, state, body.phase, body.attempt, result=("success" if body.success else "failed"), message=body.message[:500])
+        state = "completed" if body.success else ("awaiting_agent" if body.attempt < 3 else "failed")
+        job_state = "completed" if body.success else ("retry" if body.attempt < 3 else "failed")
+        upsert_job(rid, job_state, body.phase, body.attempt, result=("success" if body.success else "failed"), message=body.message[:500])
         B.db.conn.execute("UPDATE requests SET status=?,updated_at=? WHERE id=?", (state, now(), rid))
         B.db.conn.commit()
         target = partner_telegram_id(rid)
