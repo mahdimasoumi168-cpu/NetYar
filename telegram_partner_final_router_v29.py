@@ -9,9 +9,9 @@ import logging
 from telegram.ext import CallbackQueryHandler, ApplicationHandlerStop
 
 log = logging.getLogger("netyar.telegram.partner_final_router_v29")
-IRANCELL = "📱 حل مشکل سیم کارت ایرانسل"
+
 MANAGEMENT = "💬 ارتباط با مدیریت"
-SIM_SERVICE = "📱 خدمات سیم کارت"
+
 CANCEL = "❌ انصراف"
 PRICE = 980_000
 
