@@ -9,9 +9,9 @@ WELCOME=("👋 سلام!\n\nبه سامانه خدمات آنلاین بات، �
 "🚀 بات، کمک یار مهاجر؛ خدماتی برای شما، درآمدی برای همه")
 RESTART="🔄 شروع مجدد"
 USE_SERVICES="🛎 استفاده از خدمات"
-def _restart_keyboard():
-    return InlineKeyboardMarkup([[InlineKeyboardButton(USE_SERVICES,callback_data="start:services")],
-                                 [InlineKeyboardButton(RESTART,callback_data="start:restart")]])
+def _services_keyboard():
+    """Inline service entry button attached to the welcome message only."""
+    return InlineKeyboardMarkup([[InlineKeyboardButton(USE_SERVICES,callback_data="start:services")]])
 
 
 def _offhours_state(uid=None):
@@ -105,12 +105,14 @@ async def _start(update,context):
             if k in old:B.S[uid][k]=old[k]
     else:B.S[uid]["partner_logged_out"]=True
     if update.message:
-        await update.message.reply_text(WELCOME,reply_markup=_restart_keyboard())
-        # Persistent ReplyKeyboard: «شروع مجدد» remains below the chat while
-        # the user moves through partner/admin/customer flows.
+        # Welcome is exactly one message. «استفاده از خدمات» stays attached
+        # to that message; it must never be sent again as a separate message.
+        await update.message.reply_text(WELCOME,reply_markup=_services_keyboard())
+        # Only «شروع مجدد» is persistent below the chat. No extra service
+        # message and no second floating menu are created.
         try:
             from telegram_final_ui_guard_v1 import _restart_kb
-            await update.message.reply_text("دسترسی سریع:", reply_markup=_restart_kb())
+            await update.message.reply_text(RESTART, reply_markup=_restart_kb())
         except Exception:
             log.exception("persistent restart keyboard unavailable")
     raise ApplicationHandlerStop
@@ -171,7 +173,7 @@ async def _blocked_language_callback(update,context):
         except Exception:pass
         await _reply_full_closed(q.message)
         raise ApplicationHandlerStop
-    B.S.setdefault(q.from_user.id,{"lang":"fa"}); await q.answer("زبان فارسی است."); await q.message.reply_text("لطفاً از «🔄 شروع مجدد» استفاده کنید.",reply_markup=_restart_keyboard()); raise ApplicationHandlerStop
+    B.S.setdefault(q.from_user.id,{"lang":"fa"}); await q.answer("زبان فارسی است."); await q.message.reply_text("لطفاً از «🔄 شروع مجدد» استفاده کنید.",reply_markup=_restart_kb() if False else None); raise ApplicationHandlerStop
 
 async def _install_features(app):
     try:
