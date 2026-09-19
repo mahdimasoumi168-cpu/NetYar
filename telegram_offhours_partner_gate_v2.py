@@ -87,7 +87,7 @@ def enforce_24x7(B):
         uid=kwargs.get("uid")
         if uid is None and len(args)>1: uid=args[1]
         if uid is None and args and isinstance(args[0], int): uid=args[0]
-        return True if uid is None else night_access_open(B, uid)
+        return night_access_open(B, uid)
     def _allowed(*args, **kwargs):
         uid=kwargs.get("uid")
         if uid is None and len(args)>1: uid=args[1]
@@ -114,7 +114,7 @@ def enforce_24x7(B):
 
 def install(app,B):
     if getattr(B,"_offhours_partner_gate_v11",False): return True
-    B._netyar_24x7=True
+    B._netyar_24x7=False
     B._netyar_night_gate_authoritative=True
     B._offhours_partner_gate_v11=True
     return True
