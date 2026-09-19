@@ -18,9 +18,20 @@ def _restart_kb():
 
 
 def _install_persistent_restart(B):
-    old_kb = getattr(B, "kb", None)
-    if callable(old_kb) and not getattr(B, "_persistent_restart_kb_wrapped", False):
+    # Canonical UI policy already converts menu buttons to InlineKeyboardMarkup
+    # so every menu stays attached to its message. Do NOT wrap B.kb back into
+    # ReplyKeyboardMarkup here; that would put menu buttons under the chat.
+    # The only persistent ReplyKeyboard is the dedicated «🔄 شروع مجدد» key.
+    if getattr(B, "_inline_ui_v2", False):
+        B._persistent_restart_kb_wrapped = True
+        return
+    if callable(getattr(B, "kb", None)) and not getattr(B, "_persistent_restart_kb_wrapped", False):
+        original_kb = B.kb
         def kb(rows):
+            result = original_kb(rows)
+            # Preserve an already-inline canonical menu.
+            if isinstance(result, InlineKeyboardMarkup):
+                return result
             normalized = [list(r) for r in (rows or [])]
             if not any(RESTART in row for row in normalized):
                 normalized.append([RESTART])
