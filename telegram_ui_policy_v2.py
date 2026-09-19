@@ -131,6 +131,9 @@ async def _management_chat(update,context,B,q,st):
 
 async def _dispatch(update,context,B,label):
     q=update.callback_query; uid=q.from_user.id; st=B.S.setdefault(uid,{}); fake=_fake(update,label)
+    if _service_removed(label):
+        await q.answer("این خدمت حذف شده است.", show_alert=True)
+        return await q.message.reply_text("این خدمت دیگر در بات فعال نیست.", reply_markup=B.main(uid))
     if label==RESTART:return await B.start(fake,context)
     if label=="🏛 خدمات ایرانی":
         st["status"]="iranian"; st["mode"]=None
