@@ -64,6 +64,8 @@ async def _full_toggle(update,context,B):
  try:
   new=not _bot_is_open(B); value="1" if new else "0"
   B.db.set_setting("bot_enabled",value)
+  if not new:
+   B.db.set_setting("night_public_open","0")
   try:B.db.conn.commit()
   except Exception:pass
   if _bot_is_open(B)!=new:raise RuntimeError("bot_enabled persistence mismatch")
@@ -89,6 +91,8 @@ async def _night(update,context,B):
  enabled=q.data=="adm:night_on"; value="1" if enabled else "0"
  try:
   B.db.set_setting("night_shift_enabled",value);B.db.set_setting("night_public_open",value)
+  if enabled:
+   B.db.set_setting("bot_enabled","1")
   try:B.db.conn.commit()
   except Exception:pass
   if str(B.db.setting("night_public_open","0") or "0")!=value:raise RuntimeError("night_public_open persistence mismatch")
