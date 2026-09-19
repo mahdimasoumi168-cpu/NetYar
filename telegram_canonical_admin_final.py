@@ -129,8 +129,9 @@ async def _night_workers(update,context,B):
  B.db.set_setting(key,"1" if new else "0")
  try:B.db.conn.commit()
  except Exception:pass
- if str(B.db.setting(key,"0") or "0")!="1" if new else str(B.db.setting(key,"0") or "0")=="1":
-  pass
+ if (str(B.db.setting(key,"0") or "0")=="1") != new:
+  await q.answer("❌ ذخیره وضعیت همکار انجام نشد.",show_alert=True)
+  raise ApplicationHandlerStop
  await q.answer("🟢 فعال شد" if new else "🔴 غیرفعال شد")
  await q.message.reply_text("🌙 وضعیت همکاران شب‌کار به‌روزرسانی شد.",reply_markup=_night_kb(B))
  raise ApplicationHandlerStop
