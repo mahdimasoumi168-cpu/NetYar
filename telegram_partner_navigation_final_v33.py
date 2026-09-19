@@ -29,9 +29,10 @@ def install(app,B):
     async def dispatch(update,context,bot,label):
         label=str(label or "").strip(); q=getattr(update,"callback_query",None); uid=int(q.from_user.id if q else update.effective_user.id); st=bot.S.setdefault(uid,{})
         if label in PARTNER_LABELS:
-            st=_fresh_login(bot,uid)
-            if q:
-                await q.answer(); await q.message.reply_text("👥 ورود به پنل همکاران\n\n📱 لطفاً شماره موبایل اختصاصی همکار را وارد کنید:",reply_markup=bot.cancel_kb(st.get("lang","fa"))); raise ApplicationHandlerStop
+            # Do not wipe the existing partner session here. The canonical
+            # registration owner resolves the remembered Telegram->partner
+            # link and shows the previously registered phone when available.
+            return await old_dispatch(update,context,bot,label)
         if label in CANCEL_LABELS and st.get("partner_active") and not st.get("partner_logged_out"):
             _clear_service_keep_auth(bot,uid)
             if q:
