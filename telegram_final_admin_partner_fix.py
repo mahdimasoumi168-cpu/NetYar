@@ -1,8 +1,7 @@
 """Final Telegram admin/partner stability layer.
 
 Partner pricing is a guided, section-by-section flow. It asks only for
-services that are actually exposed in the partner panel, with SIM carriers
-split into three separate prices.
+services that are actually exposed in the partner panel.
 """
 import re
 import logging
@@ -18,17 +17,11 @@ CONTROLS={"❌ انصراف","انصراف","لغو","Cancel","إلغاء","🔄
 PARTNER_PRICING = (
     ("government", "🏛 حل مشکل سامانه دولت من"),
     ("fida", "🪪 فیدای غیر حضوری"),
-    ("sim_price_samantel", "📱 سیم کارت سامانتل"),
-    ("sim_price_irancell", "📱 سیم کارت ایرانسل"),
-    ("sim_price_rightel", "📱 سیم کارت رایتل"),
     ("tracking", "🔎 پیگیری کد"),
 )
 DEFAULTS = {
     "government": 0,
     "fida": 400000,
-    "sim_price_samantel": 560000,
-    "sim_price_irancell": 860000,
-    "sim_price_rightel": 860000,
     "tracking": 0,
 }
 
