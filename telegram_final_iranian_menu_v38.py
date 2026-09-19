@@ -86,11 +86,6 @@ def install(app, B):
         await update.message.reply_text("💳 برای ساخت تراکنش تست سیزپی، روی دکمه زیر بزنید.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("💳 ساخت پرداخت ۱۰۰٬۰۰۰ تومان", callback_data="sizpay:test")]]))
         raise ApplicationHandlerStop
 
-    async def sizpay_menu_callback(update, context):
-        q = update.callback_query
-        if str(q.data or "") != "sizpay:test": return
-        return
-
     async def iranian_callback(update, context):
         q = update.callback_query; data = str(q.data or "")
         if not data.startswith("iranian:"): return
