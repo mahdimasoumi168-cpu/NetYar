@@ -90,25 +90,27 @@ async def _night(update,context,B):
  if not _admin(B,q.from_user.id):await q.answer("❌ دسترسی مدیریت ندارید.",show_alert=True);raise ApplicationHandlerStop
  enabled=q.data=="adm:night_on"; value="1" if enabled else "0"
  try:
-  # Night switch controls only the approved night-worker window.
-  # It must never silently turn public customer access on.
+  # Keep global night mode and public night access synchronized.
+  # "باز کردن ربات در شب" must actually reopen public access outside 07:00-19:00.
   B.db.set_setting("night_shift_enabled",value)
-  B.db.set_setting("night_public_open","0")
+  B.db.set_setting("night_public_open","1" if enabled else "0")
   B.db.set_setting("bot_enabled","1")
   try:B.db.conn.commit()
   except Exception:pass
   saved_shift=str(B.db.setting("night_shift_enabled","") or "")
   saved_public=str(B.db.setting("night_public_open","") or "")
-  if saved_shift!=value or saved_public!="0" or str(B.db.setting("bot_enabled","0") or "0")!="1":
+  expected_public="1" if enabled else "0"
+  if saved_shift!=value or saved_public!=expected_public or str(B.db.setting("bot_enabled","0") or "0")!="1":
    raise RuntimeError("night policy persistence mismatch")
-  B._netyar_night_shift_enabled=enabled;B._netyar_night_public_open=False
+  B._netyar_night_shift_enabled=enabled;B._netyar_night_public_open=enabled
   try:
    import telegram_offhours_partner_gate_v2 as G
    G.enforce_24x7(B)
   except Exception:log.exception("night gate refresh warning")
   await q.answer("🟢 دسترسی شبانه باز شد" if enabled else "🔴 دسترسی شبانه بسته شد")
   status="🟢 باز" if enabled else "🔴 بسته"
-  await q.message.reply_text(f"🌙 کنترل ربات در شب\n\nوضعیت: {status}\n\n⏰ ساعت کاری روزانه: ۰۷:۰۰ تا ۱۹:۰۰.\nخارج از ساعت کاری، دسترسی عمومی طبق همین دکمه "باز کردن/بستن ربات در شب" کنترل می‌شود.\nهمکاران شب‌کار از بخش جداگانه مدیریت می‌شوند.",reply_markup=menu())
+  night_access_text="فعال" if enabled else "بسته"
+  await q.message.reply_text(f"🌙 کنترل ربات در شب\n\nوضعیت: {status}\n\n⏰ ساعت کاری روزانه: ۰۷:۰۰ تا ۱۹:۰۰.\nخارج از ساعت کاری، دسترسی عمومی {night_access_text} است.\nهمکاران شب‌کار از بخش جداگانه مدیریت می‌شوند.",reply_markup=menu())
  except Exception:
   log.exception("canonical night switch failed")
   try:await q.answer("❌ ذخیره وضعیت شبانه ناموفق بود.",show_alert=True);await q.message.reply_text("❌ تغییر حالت شبانه انجام نشد. وضعیت قبلی حفظ شد.",reply_markup=menu())
