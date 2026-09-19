@@ -106,6 +106,13 @@ async def _start(update,context):
     else:B.S[uid]["partner_logged_out"]=True
     if update.message:
         await update.message.reply_text(WELCOME,reply_markup=_restart_keyboard())
+        # Persistent ReplyKeyboard: «شروع مجدد» remains below the chat while
+        # the user moves through partner/admin/customer flows.
+        try:
+            from telegram_final_ui_guard_v1 import _restart_kb
+            await update.message.reply_text("دسترسی سریع:", reply_markup=_restart_kb())
+        except Exception:
+            log.exception("persistent restart keyboard unavailable")
     raise ApplicationHandlerStop
 async def _use_services(update,context):
     uid=getattr(getattr(update,"effective_user",None),"id",None)
@@ -280,6 +287,19 @@ async def _install_features(app):
         log.info("RUNTIME DESKTOP AGENT API OWNER ACTIVE")
     except Exception:
         log.exception("Desktop Agent API installation failed")
+    try:
+        import telegram_iranian_contact_final as IC
+        IC.install(app,B)
+        log.info("RUNTIME IRANIAN CONTACT OWNER ACTIVE")
+    except Exception:
+        log.exception("Iranian contact owner unavailable")
+    try:
+        import telegram_final_ui_guard_v1 as UIG
+        UIG.install(app,B)
+        log.info("RUNTIME FINAL UI GUARD ACTIVE: persistent restart + contact")
+    except Exception:
+        log.exception("CRITICAL: final UI guard unavailable")
+        raise
     B.start=_start
     app.add_handler(CommandHandler("start",_start),group=-10000000)
     app.add_handler(CallbackQueryHandler(_start_services_callback,pattern=r"^start:services$"),group=-9999999)
