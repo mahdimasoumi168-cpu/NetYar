@@ -291,7 +291,7 @@ async def _initialize_integrations():
     telegram_ready=False
     try:
         import telegram_runtime_clean as tg
-        telegram_app=tg.build()
+        telegram_app=await tg.build()
         try:
             import sizpay_gateway as SP
             SP.install_web(api, __import__("bot"))
