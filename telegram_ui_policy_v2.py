@@ -26,12 +26,23 @@ def _token(B, uid, label):
     st=B.S.get(uid,{}) if uid is not None else {}; token=secrets.token_urlsafe(24)
     B.db.conn.execute("INSERT INTO ui2_callbacks(token,user_id,label,lang,status,created_at) VALUES(?,?,?,?,?,?)",(token,str(uid or ""),str(label),st.get("lang"),st.get("status"),B.now())); B.db.conn.commit(); return token
 
+_REMOVED_SERVICE_LABELS = {
+    "🖨 خدمات چاپ", "📱 خدمات سیم کارت", "📱 حل مشکل سیم کارت ایرانسل",
+    "🖨 Printing", "📱 SIM services", "📱 خدمات الطباعة", "📱 خدمات شرائح الهاتف",
+}
+
+def _service_removed(label):
+    return str(label or "").strip() in _REMOVED_SERVICE_LABELS
+
 def inline(rows,B,uid=None):
     uid=uid if uid is not None else _uid(); out=[]
     for row in rows or []:
         buttons=[]
         for item in row or []:
-            label=str(item[0] if isinstance(item,(tuple,list)) else item); buttons.append(InlineKeyboardButton(label,callback_data="ui2:"+_token(B,uid,label)))
+            label=str(item[0] if isinstance(item,(tuple,list)) else item)
+            if _service_removed(label):
+                continue
+            buttons.append(InlineKeyboardButton(label,callback_data="ui2:"+_token(B,uid,label)))
         if buttons: out.append(buttons)
     return InlineKeyboardMarkup(out)
 
@@ -58,7 +69,7 @@ def _main_rows(B,uid):
     else: rows=[["🪪 فیدای غیر حضوری","🪪 حل مشکل ورود اتباع دولت من"],["🎫 کد رهگیری تمدید کارت‌ها","📝 آزمون غربالگری"],["🎫 پیگیری","💰 کیف پول من"],["📞 تماس با ما","📝 ثبت شکایت مشتریان"],["🏛 خدمات ایرانی"]]
     rows.append(["👥 پنل همکاران"])
     if B.admin(uid): rows.append(["🛠 پنل مدیریت بات"])
-    return rows
+    return [[x for x in row if not _service_removed(x)] for row in rows if any(not _service_removed(x) for x in row)]
 
 def _fake(update,label):
     q=update.callback_query
