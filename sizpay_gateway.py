@@ -107,7 +107,7 @@ def install(app,B):
         try: await q.answer()
         except Exception: pass
         if not configured():
-            await q.message.reply_text("❌ درگاه سیزپی تنظیم نشده است.\n\nچهار متغیر SIZPAY_MERCHANT_ID، SIZPAY_TERMINAL_ID، SIZPAY_USERNAME و SIZPAY_PASSWORD را در Railway قرار دهید.")
+            await q.message.reply_text("❌ درگاه سیزپی تنظیم نشده است.\n\nچهار متغیر SIZPAY_MERCHANT_ID، SIZPAY_TERMINAL_ID، SIZPAY_USERNAME و SIZPAY_PASSWORD را در Railway قرار دهید.", reply_markup=B.main(uid))
             raise ApplicationHandlerStop
         try:
             order_id,invoice_no,token,rial=_create_token(uid,TEST_AMOUNT_TOMAN)
@@ -118,7 +118,7 @@ def install(app,B):
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("💳 ورود به درگاه سیزپی",url=url)],
                 [InlineKeyboardButton("↩️ بازگشت به منوی ایرانی",callback_data="iranian:back")]]))
         except Exception as e:
-            log.exception("SizPay token creation failed"); await q.message.reply_text("❌ اتصال سیزپی انجام نشد.\n\n"+_safe_text(e))
+            log.exception("SizPay token creation failed"); await q.message.reply_text("❌ اتصال سیزپی انجام نشد.\n\n"+_safe_text(e), reply_markup=B.main(uid))
         raise ApplicationHandlerStop
     app.add_handler(CallbackQueryHandler(test_callback,pattern=r"^sizpay:test$"),group=-100000000)
     B._sizpay_gateway_installed=True; log.info("SIZPAY gateway owner installed: test=100000 Toman"); return True
