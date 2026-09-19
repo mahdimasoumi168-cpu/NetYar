@@ -121,6 +121,10 @@ async def _management_chat(update,context,B,q,st):
 async def _dispatch(update,context,B,label):
     q=update.callback_query; uid=q.from_user.id; st=B.S.setdefault(uid,{}); fake=_fake(update,label)
     if label==RESTART:return await B.start(fake,context)
+    if label=="🏛 خدمات ایرانی":
+        st["status"]="iranian"; st["mode"]=None
+        import telegram_final_iranian_menu_v38 as I
+        return await q.message.reply_text("🇮🇷 بخش خدمات ایرانی\n\nگزینه موردنظر را انتخاب کنید:", reply_markup=I._keyboard(B, uid))
     if label==CANCEL:return await B.cancel(fake,context)
     if label=="👥 پنل همکاران":
         if st.get("partner_logged_out"):
