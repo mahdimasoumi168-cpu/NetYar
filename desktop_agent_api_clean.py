@@ -118,20 +118,24 @@ def install(app, B):
     @server.api.get("/desktop-agent/next")
     async def desktop_next(x_desktop_agent_key: str | None = Header(default=None)):
         auth(x_desktop_agent_key)
-        row = B.db.conn.execute("""
-            SELECT r.id,r.tracking_code,r.service_key,r.status
+        conn = B.db.conn
+        row = conn.execute("""
+            SELECT r.id,r.tracking_code,r.service_key,r.status,r.payment_status
             FROM requests r
             LEFT JOIN desktop_agent_jobs j ON j.request_id=r.id
             WHERE r.service_key='government'
-              AND r.status IN ('reviewing','processing','awaiting_agent')
+              AND r.payment_status='paid'
+              AND r.status IN ('submitted','reviewing','processing','awaiting_agent')
               AND (j.status IS NULL OR j.status IN ('queued','retry'))
             ORDER BY r.id ASC LIMIT 1
         """).fetchone()
         if not row:
             return {"ok": True, "job": None}
         rid = int(row["id"])
-        upsert_job(rid, "queued", "idle")
-        return {"ok": True, "job": {"request_id": rid, "tracking_code": row["tracking_code"], "answers": answer_map(rid)}}
+        upsert_job(rid, "running", "job_claimed", 1)
+        conn.execute("UPDATE requests SET status='processing',updated_at=? WHERE id=?", (now(), rid))
+        conn.commit()
+        return {"ok": True, "job": {"request_id": rid, "tracking_code": row["tracking_code"], "answers": answer_map(rid), "status":"processing"}}
 
     @server.api.get("/desktop-agent/job/{rid}")
     async def desktop_job(rid: int, x_desktop_agent_key: str | None = Header(default=None)):
@@ -183,10 +187,20 @@ def install(app, B):
         if partner_telegram_id(rid) != q.from_user.id:
             await q.answer("این درخواست برای شما نیست.", show_alert=True)
             raise ApplicationHandlerStop
-        B.S.setdefault(q.from_user.id, {})["desktop_agent_wait"] = parts[1]
+        if parts[1] == "verify":
+            try:
+                target = int(B.db.setting(f"request_code_chat_{rid}", "") or 0) or None
+            except Exception:
+                target = None
+            if target:
+                upsert_job(rid, "waiting_verify", "verify_requested")
+                await app.bot.send_message(chat_id=target, text=f"🔐 کد تأیید درخواست {rid} را برای مدیریت ارسال کنید.")
+            await q.answer("درخواست کد تأیید ارسال شد.")
+            raise ApplicationHandlerStop
+        B.S.setdefault(q.from_user.id, {})["desktop_agent_wait"] = "captcha"
         B.S[q.from_user.id]["desktop_agent_rid"] = rid
         await q.answer()
-        await q.message.reply_text("🔢 کد را همینجا ارسال کنید:")
+        await q.message.reply_text("🔢 کد امنیتی را همینجا ارسال کنید:")
         raise ApplicationHandlerStop
 
     async def request_code_text(update, context):
@@ -208,14 +222,47 @@ def install(app, B):
         await msg.reply_text("✅ کد دریافت شد و به برنامه ویندوزی تحویل می‌شود.")
         raise ApplicationHandlerStop
 
+    async def partner_verify_text(update, context):
+        msg = update.message
+        if not msg or not msg.text:
+            return
+        uid = int(update.effective_user.id)
+        rows = B.db.conn.execute(
+            "SELECT request_id FROM desktop_agent_jobs WHERE status='waiting_verify' ORDER BY request_id ASC"
+        ).fetchall()
+        for x in rows:
+            rid = int(x["request_id"])
+            try:
+                target = int(B.db.setting(f"request_code_chat_{rid}", "") or 0) or None
+            except Exception:
+                target = None
+            if target and target == uid:
+                value = digits(msg.text).strip()
+                if value and len(value) <= 64:
+                    upsert_job(rid, "running", "verify_code_received", verify_code=value)
+                    await msg.reply_text("✅ کد تأیید دریافت شد و به برنامه ویندوزی تحویل شد.")
+                    raise ApplicationHandlerStop
+                return
+
     app.add_handler(CallbackQueryHandler(request_code_callback, pattern=r"^dta:(captcha|verify):"), group=-1000012)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, partner_verify_text), group=-1000014)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, request_code_text), group=-1000012)
 
     @server.api.get("/desktop-agent/job/{rid}/codes")
     async def desktop_codes(rid: int, x_desktop_agent_key: str | None = Header(default=None)):
         auth(x_desktop_agent_key)
-        row = B.db.conn.execute("SELECT captcha_code,verify_code,phase,attempt,status FROM desktop_agent_jobs WHERE request_id=?", (rid,)).fetchone()
-        return {"ok": True, **(dict(row) if row else {"captcha_code":"","verify_code":"","phase":"idle","attempt":1,"status":"queued"})}
+        job = B.db.conn.execute("SELECT captcha_code,verify_code,phase,attempt,status FROM desktop_agent_jobs WHERE request_id=?", (rid,)).fetchone()
+        result = dict(job) if job else {"captcha_code":"","verify_code":"","phase":"idle","attempt":1,"status":"queued"}
+        # Bridge the existing manager->partner captcha workflow into Desktop Agent.
+        if not result["captcha_code"]:
+            partner = B.db.conn.execute(
+                "SELECT answer FROM request_answers WHERE request_id=? AND field_key='partner_code' AND answer!='' ORDER BY id DESC LIMIT 1",
+                (rid,),
+            ).fetchone()
+            if partner and partner["answer"]:
+                result["captcha_code"] = str(partner["answer"]).strip()
+                upsert_job(rid, "waiting_verify" if result["verify_code"] else "waiting_code", "captcha_code_received", result["attempt"], captcha_code=result["captcha_code"])
+        return {"ok": True, **result}
 
     @server.api.post("/desktop-agent/job/{rid}/request-verify")
     async def desktop_request_verify(rid: int, x_desktop_agent_key: str | None = Header(default=None)):
@@ -223,14 +270,19 @@ def install(app, B):
         row = request_row(rid)
         if not row:
             raise HTTPException(status_code=404, detail="request not found")
-        target = partner_telegram_id(rid)
+        target = None
+        try:
+            target = int(B.db.setting(f"request_code_chat_{rid}", "") or 0) or None
+        except Exception:
+            target = None
         if not target:
-            raise HTTPException(status_code=404, detail="linked partner Telegram account not found")
+            target = partner_telegram_id(rid)
+        if not target:
+            raise HTTPException(status_code=404, detail="partner Telegram chat not found")
         upsert_job(rid, "waiting_verify", "verify_requested")
         await app.bot.send_message(
             chat_id=target,
-            text=f"🔐 کد تأیید درخواست {row['tracking_code']} را پس از دریافت از سامانه ارسال کنید.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📩 ارسال کد تأیید", callback_data=f"dta:verify:{rid}")]]),
+            text=f"🔐 کد تأیید درخواست {row['tracking_code']} را پس از دریافت از سامانه برای مدیریت ارسال کنید.",
         )
         return {"ok": True}
 
