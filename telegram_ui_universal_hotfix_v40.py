@@ -12,7 +12,7 @@ from telegram.ext import CallbackQueryHandler, ApplicationHandlerStop
 
 log = logging.getLogger("netyar.telegram.ui_universal_v40")
 
-TRUST_LABELS = {"🛡 اعتماد", "🛡️ اعتماد"}
+TRUST_LABELS = set()
 TRUST_URL = "https://trustseal.enamad.ir/?id=7717012&Code=hEHTsn6HzG7ZsxeorkqzvLbTkOTEpRbH"
 SITE_URL = "https://netyarmohajer.sizpay.ir"
 
@@ -27,11 +27,10 @@ ALIASES = {
 
 KNOWN = {
     "➕ شارژ حساب", "🏛 حل مشکل سامانه دولت من", "🏛 خدمات ایرانی", "📋 سوابق", "🔎 پیگیری کد",
-    "🪪 فیدای غیر حضوری", "🖨 خدمات چاپ", "💰 موجودی", "🎫 تیکت به مدیریت",
-    "💬 ارتباط با مدیریت", "📱 خدمات سیم کارت", "📱 حل مشکل سیم کارت ایرانسل",
+    "🪪 فیدای غیر حضوری", "💰 موجودی", "🎫 تیکت به مدیریت",
+    "💬 ارتباط با مدیریت",
     "🚪 خروج از پنل", "❌ انصراف", "👥 پنل همکاران", "💰 کیف پول من",
     "🎫 پیگیری", "📞 تماس با ما", "📝 ثبت شکایت مشتریان", "🔄 شروع مجدد",
-    "🛡 اعتماد", "🛡️ اعتماد",
 }
 
 
@@ -83,15 +82,6 @@ def install(app, B):
             await q.answer()
         except Exception:
             pass
-
-        # Critical menu action: never send eNAMAD through the generic router.
-        if label in TRUST_LABELS:
-            await q.message.reply_text(
-                _trust_message(),
-                reply_markup=_trust_markup(),
-                disable_web_page_preview=True,
-            )
-            raise ApplicationHandlerStop
 
         # Iranian services is a menu navigation action, not a service router.
         if label == "🏛 خدمات ایرانی":
