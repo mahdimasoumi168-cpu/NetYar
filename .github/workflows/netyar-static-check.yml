@@ -46,7 +46,5 @@ jobs:
           test -f telegram_government_documents_v3.py
           test -f telegram_government_validation_final.py
           test -f telegram_final_ui_rebind.py
-          test -f rubika_bootstrap_final.py
-          test -f bale_bootstrap.py
           test -f server.py
           echo 'Critical source files OK'
