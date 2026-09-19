@@ -21,22 +21,17 @@ def _setting(B,key,default):
     except Exception:return default
 
 def _public_night_open(B):
-    # One authoritative public-night switch. Keep the historical key as a
-    # fallback, and tolerate either key being present after upgrades.
-    if hasattr(B,"_netyar_night_public_open"):
-        return bool(B._netyar_night_public_open)
-    value=_setting(B,NIGHT_PUBLIC_KEY,"")
-    if value not in {"0","1"}:
-        value=_setting(B,NIGHT_KEY,"1")
-    return value=="1"
+    # Permanent 24/7 policy: the historical night switch no longer blocks
+    # public users. Keep the settings for backward compatibility only.
+    return True
 
 def _clock_is_open(B):
     now=datetime.now(TZ).time()
     return OPEN <= now < CLOSE
 
-def night_shift_enabled(B): return _public_night_open(B)
-def night_public_open(B): return _public_night_open(B)
-def _is_open(B): return _clock_is_open(B) or _public_night_open(B)
+def night_shift_enabled(B): return True
+def night_public_open(B): return True
+def _is_open(B): return True
 
 def _partner_by_phone(B,phone):
     phone=normalize_phone(phone)
@@ -94,12 +89,12 @@ def enforce_24x7(B):
         uid=kwargs.get("uid")
         if uid is None and len(args)>1: uid=args[1]
         if uid is None and args and isinstance(args[0], int): uid=args[0]
-        return _is_open(B) if uid is None else night_access_open(B, uid)
+        return True
     def _allowed(*args, **kwargs):
         uid=kwargs.get("uid")
         if uid is None and len(args)>1: uid=args[1]
         return True if uid is None else night_access_open(B, uid)
-    def _closed(*args, **kwargs): return not _is_open(B)
+    def _closed(*args, **kwargs): return False
     def _clock(*args, **kwargs): return _clock_is_open(B)
     for name in (
         "telegram_business_hours_guard","telegram_night_shift_v2",
@@ -121,7 +116,7 @@ def enforce_24x7(B):
 
 def install(app,B):
     if getattr(B,"_offhours_partner_gate_v11",False): return True
-    B._netyar_24x7=False
+    B._netyar_24x7=True
     B._netyar_night_gate_authoritative=True
     B._offhours_partner_gate_v11=True
     return True
