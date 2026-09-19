@@ -97,20 +97,39 @@ def install(app, B):
             q = getattr(update, "callback_query", None)
             if not q or str(q.data or "") != "off:partner":
                 return
+            uid = q.from_user.id
+            if _is_admin(B, uid):
+                try:
+                    await q.answer()
+                except Exception:
+                    pass
+                await q.message.reply_text("🛠 پنل مدیریت فعال است.", reply_markup=B.main(uid))
+                raise ApplicationHandlerStop
             try:
-                if G._is_open(B):
+                if G._clock_is_open(B):
                     return
+                if not G.night_shift_enabled(B):
+                    await q.answer("🌙 شیفت شب بسته است.", show_alert=True)
+                    raise ApplicationHandlerStop
+            except ApplicationHandlerStop:
+                raise
             except Exception:
                 return
-            uid = q.from_user.id
-            active = G._active_partner_session(B, uid)
-            if not active or not G.is_night_worker(B, uid):
-                return
+
+            # The closed-hours button must start a fresh partner login.
+            # Do not require an already-active session here: the user has to
+            # authenticate first, and telegram_partner_login_fix then checks
+            # the exact night-worker whitelist after password verification.
+            st = B.S.setdefault(uid, {})
+            for key in ("partner_id","pending_partner_id","partner_phone","partner"):
+                st.pop(key, None)
+            st["mode"] = "p_phone"
+            st["step"] = "partner_phone"
             try:
                 await q.answer()
             except Exception:
                 pass
-            await q.message.reply_text("🌙 پنل همکاران شیفت شب فعال است.", reply_markup=_night_menu(B, uid))
+            await q.message.reply_text("🌙 ورود همکاران شیفت شب\n\n📱 شماره موبایل اختصاصی همکار را وارد کنید:")
             raise ApplicationHandlerStop
         app.add_handler(CallbackQueryHandler(cb, pattern=r"^off:partner$"), group=-31001)
     except Exception:
