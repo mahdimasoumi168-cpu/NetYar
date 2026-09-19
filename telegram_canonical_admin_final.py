@@ -57,7 +57,8 @@ async def _night(update,context,B):
  # database update into the misleading "کنترل شب انجام نشد" error.
  try:
   B.db.set_setting('night_shift_enabled',value)
-  saved=str(B.db.setting('night_shift_enabled',''))==value
+  B.db.set_setting('night_public_open',value)
+  saved=(str(B.db.setting('night_shift_enabled',''))==value and str(B.db.setting('night_public_open',''))==value)
  except Exception:
   saved=False
  if not saved:
@@ -68,6 +69,7 @@ async def _night(update,context,B):
   except Exception: pass
   raise ApplicationHandlerStop
  B._netyar_night_shift_enabled=enabled
+ B._netyar_night_public_open=enabled
  # Best-effort runtime refresh; persistence is already confirmed.
  try:
   import telegram_admin_cleanup_and_night_switch_v1 as N
