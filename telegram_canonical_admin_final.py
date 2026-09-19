@@ -90,16 +90,18 @@ async def _night(update,context,B):
  if not _admin(B,q.from_user.id):await q.answer("❌ دسترسی مدیریت ندارید.",show_alert=True);raise ApplicationHandlerStop
  enabled=q.data=="adm:night_on"; value="1" if enabled else "0"
  try:
+  # Night switch controls only the approved night-worker window.
+  # It must never silently turn public customer access on.
   B.db.set_setting("night_shift_enabled",value)
-  B.db.set_setting("night_public_open",value)
-  if enabled:
-   B.db.set_setting("bot_enabled","1")
+  B.db.set_setting("night_public_open","0")
+  B.db.set_setting("bot_enabled","1")
   try:B.db.conn.commit()
   except Exception:pass
   saved_shift=str(B.db.setting("night_shift_enabled","") or "")
   saved_public=str(B.db.setting("night_public_open","") or "")
-  if saved_shift!=value or saved_public!=value:raise RuntimeError("night policy persistence mismatch")
-  B._netyar_night_shift_enabled=enabled;B._netyar_night_public_open=enabled
+  if saved_shift!=value or saved_public!="0" or str(B.db.setting("bot_enabled","0") or "0")!="1":
+   raise RuntimeError("night policy persistence mismatch")
+  B._netyar_night_shift_enabled=enabled;B._netyar_night_public_open=False
   try:
    import telegram_offhours_partner_gate_v2 as G
    G.enforce_24x7(B)
