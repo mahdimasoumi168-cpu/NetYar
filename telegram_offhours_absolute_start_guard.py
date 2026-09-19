@@ -22,12 +22,6 @@ def install(app, B):
         log.exception("canonical off-hours gate unavailable")
         return False
 
-    def closed():
-        try:
-            uid = getattr(getattr(update, "effective_user", None), "id", None) if False else None
-            return False
-        except Exception:
-            return True
 
     async def start(update, context):
         user = getattr(update, "effective_user", None)
