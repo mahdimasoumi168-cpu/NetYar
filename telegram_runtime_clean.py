@@ -11,10 +11,15 @@ RESTART="🔄 شروع مجدد"; USE_SERVICES="🛎 استفاده از خدم�
 def _restart_keyboard(): return ReplyKeyboardMarkup([[RESTART]],resize_keyboard=True,is_persistent=True)
 def _services_keyboard(): return InlineKeyboardMarkup([[InlineKeyboardButton(USE_SERVICES,callback_data="start:services")]])
 def _offhours_state(uid=None):
-    # Permanent 24/7 public access. The separate full-bot switch (bot_enabled)
-    # remains available to administrators and is the only global blocker.
-    return False, "", None
-def _is_offhours(uid=None): return False
+    try:
+        from telegram_offhours_partner_gate_v2 import _clock_is_open, night_access_open
+        if _clock_is_open(B): return False, "", None
+        if uid is not None and night_access_open(B, uid): return False, "", None
+        return True, "خارج از ساعت کاری", uid
+    except Exception:
+        return False, "", None
+def _is_offhours(uid=None):
+    return bool(_offhours_state(uid)[0])
 
 def _full_bot_open(uid=None):
     try:
@@ -31,12 +36,20 @@ async def _reply_full_closed(message):
     await message.reply_text("🔒 ربات در حال حاضر به‌طور کامل بسته است.\\n\\n🚫 هیچ خدمت، ثبت درخواست یا ادامه فرایندی در این زمان امکان‌پذیر نیست.")
     return True
 def _night_worker_active(uid):
-    # Night-shift authorization is obsolete under the permanent 24/7 policy.
-    return False
+    try:
+        from telegram_offhours_partner_gate_v2 import is_night_worker
+        return bool(is_night_worker(B,uid))
+    except Exception:return False
 
-async def _reply_closed(message):
-    # 24/7 mode: never block ordinary users because of clock/night state.
-    return False
+async def _reply_closed(message,uid=None):
+    try:
+        from telegram_offhours_partner_gate_v2 import _clock_is_open, night_access_open, _closed_markup, _closed_text
+        if _clock_is_open(B): return False
+        if uid is not None and night_access_open(B,uid): return False
+        await message.reply_text(_closed_text(B),reply_markup=_closed_markup())
+        return True
+    except Exception:
+        return False
 async def _safe_call(fn,update,context,*extra):
     try:
         r=fn(update,context,*extra); return await r if inspect.isawaitable(r) else r
@@ -49,7 +62,7 @@ async def _start(update,context):
     if not _full_bot_open(uid):
         await _reply_full_closed(update.effective_message)
         raise ApplicationHandlerStop
-    if await _reply_closed(update.effective_message):
+    if await _reply_closed(update.effective_message,uid):
         raise ApplicationHandlerStop
     if _night_worker_active(uid):
         try:
@@ -83,7 +96,7 @@ async def _restart(update,context):
     if uid is not None and not _full_bot_open(uid):
         await _reply_full_closed(update.effective_message)
         raise ApplicationHandlerStop
-    if update.effective_message and await _reply_closed(update.effective_message):raise ApplicationHandlerStop
+    if update.effective_message and await _reply_closed(update.effective_message,uid):raise ApplicationHandlerStop
     return await _start(update,context)
 async def _services_callback(update,context):
     q=getattr(update,"callback_query",None)
@@ -115,7 +128,7 @@ def _install_features(app):
     except Exception:
         log.exception("CRITICAL: absolute access owner unavailable")
         raise
-    first=("telegram_global_full_close_gate","telegram_offhours_partner_gate_v2","telegram_night_shift_consistency","telegram_offhours_absolute_start_guard","telegram_startup_button_firewall","telegram_business_features","telegram_ui_policy_v2","telegram_partner_ui_fix","telegram_public_tracking","telegram_service_billing_v3_fix","telegram_sim_service_v2","telegram_irancell_partner_service","telegram_government_strict_validation")
+    first=("telegram_global_full_close_gate","telegram_offhours_partner_gate_v2","telegram_night_shift_consistency","telegram_offhours_absolute_start_guard","telegram_startup_button_firewall","telegram_business_features","telegram_ui_policy_v2","telegram_partner_ui_fix","telegram_public_tracking","telegram_service_billing_v3_fix","telegram_government_strict_validation")
     for module in first:
         try:
             m=__import__(module); f=getattr(m,"install",None)
@@ -222,7 +235,7 @@ def _install_features(app):
     app.add_handler(CallbackQueryHandler(_services_callback,pattern=r"^start:services$"),group=-9999997)
 
 def _self_check():
-    required=("main","partner","fida","gov","prt","ptrack","phistory","media","router","admin","cancel"); missing=[n for n in required if not callable(getattr(B,n,None))]
+    required=("main","partner","fida","gov","ptrack","phistory","media","router","admin","cancel"); missing=[n for n in required if not callable(getattr(B,n,None))]
     if missing:log.error("Telegram runtime self-check FAILED; missing hooks: %s",missing)
 def build():
     token=str(getattr(B,"BOT_TOKEN","") or "").strip()
