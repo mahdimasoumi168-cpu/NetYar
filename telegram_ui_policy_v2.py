@@ -192,9 +192,10 @@ async def _dispatch(update,context,B,label):
     if label=="🎫 پیگیری":st["mode"]="public_tracking";return await q.message.reply_text("🎫 کد پیگیری را وارد کنید:",reply_markup=B.cancel_kb(st.get("lang","fa")))
     if label=="💰 کیف پول من":return await _wallet(fake,context,B)
     if label=="📞 تماس با ما":return await q.message.reply_text("📞 تماس با ما\n\nبرای ارتباط با پشتیبانی روی دکمه زیر بزنید:",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("💬 ارتباط با پشتیبانی",url="https://t.me/Good_ok_2000")]]))
-        if label=="📝 انتقادات یا پیشنهادات":
+    if label=="📝 انتقادات یا پیشنهادات":
         st["mode"]="ui2_feedback"
         return await q.message.reply_text("📝 انتقادات یا پیشنهادات\n\nلطفاً متن انتقاد یا پیشنهاد خود را ارسال کنید:",reply_markup=B.cancel_kb(st.get("lang","fa")))
+    result=await B.router(fake,context)
     if result is not None:return result
     if st.get("partner_id") and st.get("partner_active",True):
         return await q.message.reply_text("⛔ این گزینه فعلاً اجرا نشد؛ پنل همکاران شما حفظ شد. لطفاً دوباره تلاش کنید.",reply_markup=B.partner_kb(st.get("lang","fa")))
