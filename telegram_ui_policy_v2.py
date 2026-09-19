@@ -65,8 +65,8 @@ def _resolve_partner(B, uid):
 
 def _main_rows(B,uid):
     st=B.S.setdefault(uid,{})
-    if st.get("status")=="iranian": rows=[["🎫 پیگیری","💰 کیف پول من"],["📞 تماس با ما","📝 ثبت شکایت مشتریان"]]
-    else: rows=[["🪪 فیدای غیر حضوری","🪪 حل مشکل ورود اتباع دولت من"],["🎫 کد رهگیری تمدید کارت‌ها","📝 آزمون غربالگری"],["🎫 پیگیری","💰 کیف پول من"],["📞 تماس با ما","📝 ثبت شکایت مشتریان"],["🏛 خدمات ایرانی"]]
+    if st.get("status")=="iranian": rows=[["🎫 پیگیری","💰 کیف پول من"],["📞 تماس با ما","📝 انتقادات یا پیشنهادات"]]
+    else: rows=[["🪪 فیدای غیر حضوری","🪪 حل مشکل ورود اتباع دولت من"],["🎫 کد رهگیری تمدید کارت‌ها","📝 آزمون غربالگری"],["🎫 پیگیری","💰 کیف پول من"],["📞 تماس با ما","📝 انتقادات یا پیشنهادات"],["🏛 خدمات ایرانی"]]
     rows.append(["👥 پنل همکاران"])
     if B.admin(uid): rows.append(["🛠 پنل مدیریت بات"])
     return [[x for x in row if not _service_removed(x)] for row in rows if any(not _service_removed(x) for x in row)]
@@ -87,14 +87,14 @@ async def _wallet(update,context,B):
 async def _complaint_text(update,context,B):
     if not update.message:return
     uid=update.effective_user.id; st=B.S.setdefault(uid,{})
-    if st.get("mode")!="ui2_complaint":return
+    if st.get("mode")!="ui2_feedback":return
     text=(update.message.text or "").strip()
-    if not text:return await update.message.reply_text("❌ متن شکایت خالی است.",reply_markup=B.cancel_kb(st.get("lang","fa")))
+    if not text:return await update.message.reply_text("❌ متن انتقاد یا پیشنهاد خالی است.",reply_markup=B.cancel_kb(st.get("lang","fa")))
     user=update.effective_user; username=f"@{user.username}" if user.username else "ندارد"
-    message=("📝 شکایت/انتقاد جدید\n\n" f"👤 نام: {user.full_name or '-'}\n" f"🔹 آیدی: {user.id}\n" f"🔹 یوزرنیم: {username}\n\n" f"💬 متن:\n{text}")
+    message=("📩 انتقاد یا پیشنهاد جدید\n\n" f"👤 نام: {user.full_name or '-'}\n" f"🔹 آیدی: {user.id}\n" f"🔹 یوزرنیم: {username}\n\n" f"💬 متن:\n{text}")
     try: await B.notify_admins(context.application,message)
     except Exception: log.exception("complaint notification failed")
-    st["mode"]=None; await update.message.reply_text("✅ شکایت شما برای مدیریت ارسال شد.",reply_markup=B.main(uid)); raise ApplicationHandlerStop
+    st["mode"]=None; await update.message.reply_text("✅ انتقاد یا پیشنهاد شما با موفقیت برای مدیریت ارسال شد.",reply_markup=B.main(uid)); raise ApplicationHandlerStop
 
 async def _management_chat(update,context,B,q,st):
     """Open the partner's direct management chat without raising through ui2."""
@@ -143,6 +143,21 @@ async def _dispatch(update,context,B,label):
     if label=="👥 پنل همکاران":
         if st.get("partner_logged_out"):
             st.pop("partner_id",None);st.pop("partner_active",None)
+        if not st.get("partner_logged_out"):
+            try:
+                from telegram_partner_registration import _remembered_partner
+                saved = _remembered_partner(B, uid)
+            except Exception:
+                saved = None
+            if saved:
+                return await q.message.reply_text(
+                    f"👥 پنل همکاران\n\n📱 شماره ثبت‌شده برای این حساب:\n{saved['phone']}\n\nاگر همین شماره متعلق به شماست، آن را انتخاب کنید تا ادامه ورود انجام شود.",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton(f"📱 استفاده از شماره {saved['phone']}", callback_data="partnerreg:use_saved")],
+                        [InlineKeyboardButton("✍️ ورود با شماره دیگر", callback_data="partnerreg:other_phone")],
+                        [InlineKeyboardButton("❌ انصراف", callback_data="partnerreg:cancel")],
+                    ]),
+                )
         pid=st.get("partner_id")
         if pid and st.get("partner_active", True):
             try:p=B.db.conn.execute("SELECT * FROM partners WHERE id=? AND active=1 LIMIT 1",(pid,)).fetchone()
@@ -177,8 +192,9 @@ async def _dispatch(update,context,B,label):
     if label=="🎫 پیگیری":st["mode"]="public_tracking";return await q.message.reply_text("🎫 کد پیگیری را وارد کنید:",reply_markup=B.cancel_kb(st.get("lang","fa")))
     if label=="💰 کیف پول من":return await _wallet(fake,context,B)
     if label=="📞 تماس با ما":return await q.message.reply_text("📞 تماس با ما\n\nبرای ارتباط با پشتیبانی روی دکمه زیر بزنید:",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("💬 ارتباط با پشتیبانی",url="https://t.me/Good_ok_2000")]]))
-    if label=="📝 ثبت شکایت مشتریان":st["mode"]="ui2_complaint";return await q.message.reply_text("📝 ثبت شکایت مشتریان\n\nمتن شکایت یا انتقاد خود را ارسال کنید:",reply_markup=B.cancel_kb(st.get("lang","fa")))
-    result=await B.router(fake,context)
+        if label=="📝 انتقادات یا پیشنهادات":
+        st["mode"]="ui2_feedback"
+        return await q.message.reply_text("📝 انتقادات یا پیشنهادات\n\nلطفاً متن انتقاد یا پیشنهاد خود را ارسال کنید:",reply_markup=B.cancel_kb(st.get("lang","fa")))
     if result is not None:return result
     if st.get("partner_id") and st.get("partner_active",True):
         return await q.message.reply_text("⛔ این گزینه فعلاً اجرا نشد؛ پنل همکاران شما حفظ شد. لطفاً دوباره تلاش کنید.",reply_markup=B.partner_kb(st.get("lang","fa")))
@@ -230,5 +246,5 @@ def install(app,B):
             log.exception("ui2 callback failed label=%r",row["label"])
             return await q.message.reply_text("❌ اجرای گزینه با خطا مواجه شد.\nلطفاً «🔄 شروع مجدد» را بزنید.",reply_markup=restart_keyboard())
     app.add_handler(CallbackQueryHandler(callback,pattern=r"^ui2:"),group=-10)
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,_complaint_text),group=30)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,_complaint_text),group=-9)
     B._inline_ui_v2=True
