@@ -173,7 +173,15 @@ async def _blocked_language_callback(update,context):
         except Exception:pass
         await _reply_full_closed(q.message)
         raise ApplicationHandlerStop
-    B.S.setdefault(q.from_user.id,{"lang":"fa"}); await q.answer("زبان فارسی است."); await q.message.reply_text("لطفاً از «🔄 شروع مجدد» استفاده کنید.",reply_markup=_restart_kb() if False else None); raise ApplicationHandlerStop
+    B.S.setdefault(q.from_user.id,{"lang":"fa"})
+    await q.answer("زبان فارسی است.")
+    try:
+        from telegram_final_ui_guard_v1 import _restart_kb
+        kb=_restart_kb()
+    except Exception:
+        kb=None
+    await q.message.reply_text("لطفاً از «🔄 شروع مجدد» استفاده کنید.",reply_markup=kb)
+    raise ApplicationHandlerStop
 
 async def _install_features(app):
     try:
