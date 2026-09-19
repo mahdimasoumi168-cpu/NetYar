@@ -17,21 +17,28 @@ def install(app, B):
         return True
 
     try:
-        from telegram_offhours_partner_gate_v2 import _is_open, _closed_text, _closed_markup
+        from telegram_offhours_partner_gate_v2 import _clock_is_open, night_access_open, _closed_text, _closed_markup
     except Exception:
         log.exception("canonical off-hours gate unavailable")
         return False
 
     def closed():
         try:
-            return not bool(_is_open(B))
+            uid = getattr(getattr(update, "effective_user", None), "id", None) if False else None
+            return False
         except Exception:
             return True
 
     async def start(update, context):
         user = getattr(update, "effective_user", None)
         msg = getattr(update, "effective_message", None)
-        if not user or not msg or not closed():
+        if not user or not msg:
+            return
+        try:
+            blocked = (not _clock_is_open(B)) and (not night_access_open(B, user.id))
+        except Exception:
+            blocked = True
+        if not blocked:
             return
         await msg.reply_text(_closed_text(B), reply_markup=_closed_markup())
         raise ApplicationHandlerStop
@@ -43,7 +50,11 @@ def install(app, B):
         data = str(q.data or "").strip().lower()
         if data not in {"start", "restart", "start:restart", "main:restart", "home:restart"}:
             return
-        if not closed():
+        try:
+            blocked = (not _clock_is_open(B)) and (not night_access_open(B, q.from_user.id))
+        except Exception:
+            blocked = True
+        if not blocked:
             return
         try:
             await q.answer("❌ خارج از ساعت کاری است.", show_alert=True)
