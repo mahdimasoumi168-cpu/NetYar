@@ -108,6 +108,8 @@ async def _services_callback(update,context):
         except Exception:pass
         await _reply_full_closed(q.message)
         raise ApplicationHandlerStop
+    if await _reply_closed(q.message, q.from_user.id):
+        raise ApplicationHandlerStop
     await q.answer(); uid=q.from_user.id; B.S.setdefault(uid,{})["lang"]="fa"
     await q.message.reply_text("نوع کاربری خود را انتخاب کنید:",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🪪 اتباع هستم",callback_data="st:foreign"),InlineKeyboardButton("🇮🇷 ایرانی هستم",callback_data="st:iranian")]])); raise ApplicationHandlerStop
 async def _blocked_language_callback(update,context):
