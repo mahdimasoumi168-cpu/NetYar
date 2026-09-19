@@ -16,7 +16,7 @@ def _bot_is_open(B):
  except Exception:return True
 def menu():
  full_label="🔴 بستن کامل ربات" if _bot_is_open(__import__("bot")) else "🟢 باز کردن کامل ربات"
- rows=[[('👤 کاربران','adm:users'),('👥 همکاران','adm:partners')],[('➕ افزودن همکار','adm:addpartner')] ,[('🌙 همکاران شب‌کار','night2:menu')],[('🌙 بستن ربات در شب','adm:night_off'),('☀️ باز کردن ربات در شب','adm:night_on')],[('📋 درخواست‌ها','adm:requests'),('💳 پرداخت‌ها','adm:payments')],[('💰 شارژها','adm:topups'),('⚙️ قیمت‌ها','adm:prices')],[('🟢 خدمات','adm:services')],[('📈 قیمت‌گذاری تک‌تک خدمات','adm:price_seq'),('📈 قیمت همکار خاص','adm:partner_price_seq')],[('🎫 تیکت/ارتباط با همکاران','adminpartner:list')],[('💵 افزایش شارژ','adm:creditup'),('💸 کاهش شارژ','adm:creditdown')],[('✏️ تغییر متن‌ها','adm:texts')],[('📊 گزارش کامل','adm:report'),('📣 اعلان همگانی','adm:announce')],[('🤖 بات‌های متصل','adm:bots'),('🧾 لاگ مدیریت','adm:logs')],[('⚙️ تنظیمات','adm:settings')],[(full_label,'adm:bot_toggle')],[('⬅️ منوی اصلی','adm:main')]]
+ rows=[[('👤 کاربران','adm:users'),('👥 همکاران','adm:partners')],[('➕ افزودن همکار','adm:addpartner')] ,[('🌙 همکاران شب‌کار','night2:menu')],[('📋 درخواست‌ها','adm:requests'),('💳 پرداخت‌ها','adm:payments')],[('💰 شارژها','adm:topups'),('⚙️ قیمت‌ها','adm:prices')],[('🟢 خدمات','adm:services')],[('📈 قیمت‌گذاری تک‌تک خدمات','adm:price_seq'),('📈 قیمت همکار خاص','adm:partner_price_seq')],[('🎫 تیکت/ارتباط با همکاران','adminpartner:list')],[('💵 افزایش شارژ','adm:creditup'),('💸 کاهش شارژ','adm:creditdown')],[('✏️ تغییر متن‌ها','adm:texts')],[('📊 گزارش کامل','adm:report'),('📣 اعلان همگانی','adm:announce')],[('🤖 بات‌های متصل','adm:bots'),('🧾 لاگ مدیریت','adm:logs')],[('⚙️ تنظیمات','adm:settings')],[(full_label,'adm:bot_toggle')],[('⬅️ منوی اصلی','adm:main')]]
  return InlineKeyboardMarkup([[InlineKeyboardButton(t,callback_data=d) for t,d in r] for r in rows])
 def _reset(B,uid):
  st=B.S.setdefault(uid,{});st.update({'mode':'main','admin':True,'admin_plus_mode':None,'night_mode':None});return st
@@ -52,39 +52,34 @@ async def _night(update,context,B):
  if not q or q.data not in {'adm:night_on','adm:night_off'}:return
  if not _admin(B,q.from_user.id):
   await q.answer('❌ دسترسی مدیریت ندارید.',show_alert=True);raise ApplicationHandlerStop
- enabled=(q.data=='adm:night_on'); value='1' if enabled else '0'
- # Persist first. A refresh/patch failure must never turn a successful
- # database update into the misleading "کنترل شب انجام نشد" error.
+ # Legacy night-control callbacks are kept only for backward compatibility.
+ # The bot is now permanently public 24/7, so neither legacy callback can
+ # close public access.
+ enabled=True; value='1'
  try:
-  B.db.set_setting('night_shift_enabled',value)
-  B.db.set_setting('night_public_open',value)
-  saved=(str(B.db.setting('night_shift_enabled',''))==value and str(B.db.setting('night_public_open',''))==value)
- except Exception:
-  saved=False
- if not saved:
-  log.exception('canonical night control persistence failed')
-  try: await q.answer('❌ ذخیره وضعیت شیفت شب ناموفق بود.',show_alert=True)
+  B.db.set_setting('night_shift_enabled','1')
+  B.db.set_setting('night_public_open','1')
+  try: B.db.conn.commit()
   except Exception: pass
-  try: await q.message.reply_text('❌ وضعیت شیفت شب تغییر نکرد. دوباره تلاش کنید.',reply_markup=menu())
-  except Exception: pass
-  raise ApplicationHandlerStop
- B._netyar_night_shift_enabled=enabled
- B._netyar_night_public_open=enabled
- # Best-effort runtime refresh; persistence is already confirmed.
- try:
-  import telegram_admin_cleanup_and_night_switch_v1 as N
-  N._patch_night_gate(B)
+  B._netyar_night_shift_enabled=True
+  B._netyar_night_public_open=True
+  try:
+   import telegram_offhours_partner_gate_v2 as G
+   G.enforce_24x7(B)
+  except Exception:
+   log.exception('24/7 gate refresh warning')
+  await q.answer('🟢 ربات ۲۴ ساعته باز است')
  except Exception:
-  log.exception('night gate refresh warning after successful save')
- try: await q.answer('ذخیره شد')
- except Exception: pass
- status='🟢 باز و قابل استفاده' if enabled else '🔴 بسته'
+  log.exception('legacy night callback normalization failed')
+  try: await q.answer('🟢 حالت ۲۴ ساعته فعال است',show_alert=True)
+  except Exception: pass
+ status='🟢 باز و فعال ۲۴ ساعته'
  try:
   await q.message.reply_text(
    f"🌙 کنترل ربات در شب\\n\\nوضعیت: {status}\\n\\n"
-   "⏰ ساعت کاری روزانه همچنان ۰۷:۰۰ تا ۱۹:۰۰ است.\\n"
-   "در حالت 🟢 باز، ربات خارج از ساعت کاری هم برای کاربران قابل استفاده است.\\n"
-   "دسترسی اختصاصی همکاران شب‌کار همچنان از بخش «🌙 همکاران شب‌کار» مدیریت می‌شود.",
+   "⏰ وضعیت فعلی: ۲۴ ساعت شبانه‌روز فعال است.\\n"
+   "همه خدمات عمومی در تمام ساعات قابل استفاده هستند.\\n"
+   "بخش «🌙 همکاران شب‌کار» فقط برای مدیریت دسترسی همکاران است و مانع استفاده عمومی از ربات نمی‌شود.",
    reply_markup=menu()
   )
  except Exception:
