@@ -1,4 +1,5 @@
 import os,asyncio,logging,json,time,hashlib
+from collections import OrderedDict
 from fastapi import FastAPI,Request
 from app.config import PUBLIC_BASE_URL,RAILWAY_PUBLIC_DOMAIN
 from app.db import init_db
@@ -11,7 +12,10 @@ telegram_ready=False
 rubika_ready=False
 _telegram_queue=asyncio.Queue(maxsize=1000)
 _telegram_workers=[]
+_TELEGRAM_SEEN=OrderedDict()
+_TELEGRAM_LOCKS={}
 _RB_SEEN={}
+_RB_LOCKS={}
 _RB_SEEN_TTL=30
 
 
@@ -58,9 +62,41 @@ async def telegram_update(request:Request):
         return {"ok":False,"error":"telegram_update_failed"}
 
 
+def _telegram_lock(uid):
+    key=str(uid or "unknown")
+    lock=_TELEGRAM_LOCKS.get(key)
+    if lock is None:
+        lock=asyncio.Lock()
+        _TELEGRAM_LOCKS[key]=lock
+    return lock
+
+def _telegram_duplicate(update):
+    update_id=getattr(update,"update_id",None)
+    if update_id is None:return False
+    try:update_id=int(update_id)
+    except (TypeError,ValueError):return False
+    if update_id in _TELEGRAM_SEEN:
+        _TELEGRAM_SEEN.move_to_end(update_id)
+        return True
+    _TELEGRAM_SEEN[update_id]=time.monotonic()
+    while len(_TELEGRAM_SEEN)>2048:_TELEGRAM_SEEN.popitem(last=False)
+    return False
+
 async def _process_telegram_update(update):
-    try: await telegram_app.process_update(update)
-    except Exception: log.exception("Telegram background update processing failed")
+    if _telegram_duplicate(update):
+        log.warning("duplicate Telegram update ignored: update_id=%s",getattr(update,"update_id",None))
+        return
+    uid=None
+    try: uid=update.effective_chat.id if update.effective_chat else None
+    except Exception: pass
+    try:
+        if getattr(update,"callback_query",None) is not None:
+            await telegram_app.process_update(update)
+        else:
+            async with _telegram_lock(uid):
+                await telegram_app.process_update(update)
+    except Exception:
+        log.exception("Telegram background update processing failed")
 
 
 async def _telegram_worker(n):
@@ -169,11 +205,15 @@ def _normalize_rubika_button(update,rb):
 
 
 async def _run_rubika(update,rb):
-    try:
-        normalized=_normalize_rubika_button(update,rb)
-        await asyncio.to_thread(rb.process,normalized)
-        log.info("Rubika update processed: user=%s",_rubika_user(update))
-    except Exception: log.exception("Rubika background update processing failed")
+    uid=_rubika_user(update)
+    lock=_RB_LOCKS.setdefault(str(uid),asyncio.Lock())
+    async with lock:
+        try:
+            normalized=_normalize_rubika_button(update,rb)
+            await asyncio.to_thread(rb.process,normalized)
+            log.info("Rubika update processed: user=%s",uid)
+        except Exception:
+            log.exception("Rubika background update processing failed: user=%s",uid)
 
 
 @api.get("/rubika/update")
