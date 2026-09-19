@@ -1,4 +1,5 @@
 import os
+from core import DB_PATH as CORE_DB_PATH
 
 # Telegram token: accept the canonical BOT_TOKEN plus the legacy/explicit
 # TELEGRAM_BOT_TOKEN name so a Railway variable rename cannot silently
@@ -10,7 +11,7 @@ BOT_TOKEN = (
 )
 
 ADMIN_IDS = {int(x.strip()) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip().isdigit()}
-DB_PATH = os.getenv("DB_PATH", "netyar.sqlite3")
+DB_PATH = CORE_DB_PATH
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
 RAILWAY_PUBLIC_DOMAIN = os.getenv("RAILWAY_PUBLIC_DOMAIN", "").strip().strip("/")
 REQUEST_TIMEOUT = float(os.getenv("REQUEST_TIMEOUT", "20"))
