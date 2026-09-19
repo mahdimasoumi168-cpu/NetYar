@@ -229,7 +229,34 @@ async def _install_features(app):
     B.start=_start
     app.add_handler(CommandHandler("start",_start),group=-10000000)
     app.add_handler(MessageHandler(filters.Regex(r"^🔄 شروع مجدد$"),_restart),group=-9999999)
+    app.add_error_handler(_global_error_handler)
     app.add_handler(CallbackQueryHandler(_blocked_language_callback,pattern=r"^(lang|language):"),group=-9999998)
+
+async def _global_error_handler(update, context):
+    """Recover every uncaught handler error to the user's current menu."""
+    try:
+        uid=getattr(getattr(update,"effective_user",None),"id",None)
+        if uid is None:return
+        try:
+            q=getattr(update,"callback_query",None)
+            if q: await q.answer("❌ خطایی رخ داد؛ به منوی مربوطه برگشتید.",show_alert=False)
+        except Exception: pass
+        st=B.S.get(uid,{})
+        msg=getattr(update,"effective_message",None)
+        if msg is None:return
+        if st.get("partner_id") and st.get("partner_active",True) and not st.get("partner_logged_out"):
+            await msg.reply_text("❌ در این مرحله خطایی رخ داد. به پنل همکاران برگشتید.",reply_markup=B.partner_kb(st.get("lang","fa")))
+            return
+        if st.get("status")=="iranian":
+            import telegram_final_iranian_menu_v38 as I
+            await msg.reply_text("❌ خطایی رخ داد. به منوی خدمات ایرانی برگشتید.",reply_markup=I._keyboard(B,uid))
+            return
+        if st.get("mode"):
+            await msg.reply_text("❌ در این مرحله خطایی رخ داد. عملیات لغو و به منوی مربوطه برگشتید.",reply_markup=B.cancel_kb(st.get("lang","fa")))
+            return
+        await msg.reply_text("❌ خطایی رخ داد. به منوی اصلی برگشتید.",reply_markup=B.main(uid))
+    except Exception:
+        log.exception("global error recovery failed")
 
 def _self_check():
     required=("main","partner","fida","gov","ptrack","phistory","media","router","admin","cancel"); missing=[n for n in required if not callable(getattr(B,n,None))]
