@@ -21,16 +21,18 @@ def _setting(B,key,default):
     except Exception:return default
 
 def _public_night_open(B):
-    return _setting(B,NIGHT_PUBLIC_KEY,"1")=="1" and _setting(B,NIGHT_KEY,"1")=="1"
+    return _setting(B, NIGHT_PUBLIC_KEY, "0") == "1"
 
+def _clock_is_open(B):
 def _clock_is_open(B):
     now=datetime.now(TZ).time()
     return OPEN <= now < CLOSE
 
-def night_shift_enabled(B): return _setting(B,NIGHT_KEY,"1")=="1"
+def night_shift_enabled(B): return _setting(B, NIGHT_KEY, "0") == "1"
 def night_public_open(B): return _public_night_open(B)
-def _is_open(B): return _clock_is_open(B) or _public_night_open(B)
+def _is_open(B): return _clock_is_open(B)
 
+def _partner_by_phone(B,phone):
 def _partner_by_phone(B,phone):
     phone=normalize_phone(phone)
     try:
@@ -83,7 +85,7 @@ def enforce_24x7(B):
     # of truth so no older module can silently reopen/close the bot.
     B._netyar_24x7=False
     B._netyar_night_gate_authoritative=True
-    def _open(*args, **kwargs):
+    try:\n        B.db.set_setting(NIGHT_PUBLIC_KEY, "0")\n        B.db.conn.commit()\n    except Exception:\n        pass\n    def _open(*args, **kwargs):
         uid=kwargs.get("uid")
         if uid is None and len(args)>1: uid=args[1]
         if uid is None and args and isinstance(args[0], int): uid=args[0]
