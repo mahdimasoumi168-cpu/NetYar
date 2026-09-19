@@ -9,7 +9,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackQueryHandler, MessageHandler, CommandHandler, filters, ApplicationHandlerStop
 
 log = logging.getLogger("netyar.telegram.partner_runtime_v31")
-IRANCELL = "📱 حل مشکل سیم کارت ایرانسل"
+
 MANAGEMENT = "💬 ارتباط با مدیریت"
 RESTART = "🔄 شروع مجدد"
 
@@ -18,19 +18,16 @@ def _night_menu(B, uid):
     try:
         import telegram_ui_policy_v2 as UI
         return UI.inline([
-            ["➕ شارژ حساب", IRANCELL],
+    ["➕ شارژ حساب", "🏛 حل مشکل سامانه دولت من"],
             ["🏛 حل مشکل سامانه دولت من", "🔎 پیگیری کد"],
             ["📋 سوابق", "💰 موجودی"],
-            ["📱 خدمات سیم کارت", "🪪 فیدای غیر حضوری"],
+
             ["🎫 تیکت به مدیریت", MANAGEMENT],
             ["🚪 خروج از پنل"],
             ["❌ انصراف"],
         ], B, uid)
     except Exception:
-        return InlineKeyboardMarkup([
-            [InlineKeyboardButton(IRANCELL, callback_data="__never__")],
-            [InlineKeyboardButton(MANAGEMENT, callback_data="__never__")],
-        ])
+        return InlineKeyboardMarkup([[InlineKeyboardButton(MANAGEMENT, callback_data="__never__")]])
 
 
 def _is_admin(B, uid):
@@ -71,19 +68,6 @@ def install(app, B):
 
     app.add_handler(CommandHandler("start", admin_start), group=-10000001)
     app.add_handler(MessageHandler(filters.Regex(r"^🔄 شروع مجدد$"), admin_restart), group=-10000002)
-
-    # Admins should not be blocked by the canonical public start-services gate.
-    async def admin_services(update, context):
-        q = getattr(update, "callback_query", None)
-        if not q or str(q.data or "") != "start:services":
-            return
-        if not _is_admin(B, q.from_user.id):
-            return
-        await q.answer()
-        await q.message.reply_text("🛎 خدمات مدیر\n\n✅ همه خدمات برای مدیر فعال است.", reply_markup=B.main(q.from_user.id))
-        raise ApplicationHandlerStop
-
-    app.add_handler(CallbackQueryHandler(admin_services, pattern=r"^start:services$"), group=-10000003)
 
     # Make the canonical off-hours handler neutral for admins. Other users
     # continue through the normal public/night-shift restrictions.

@@ -6,10 +6,10 @@ import bot as B
 log=logging.getLogger("netyar.telegram_runtime")
 WELCOME=("👋 سلام!\n\nبه سامانه خدمات آنلاین بات، کمک یار مهاجر خوش آمدید. 🌟\n\n"
 "اینجا تلاش کرده‌ایم خدمات موردنیاز شما را به‌صورت سریع، ساده و آنلاین در اختیارتان قرار دهیم تا بدون سردرگمی بتوانید خدمت موردنظر خود را دریافت یا پیگیری کنید.\n\n"
-"🚀 بات، کمک یار مهاجر؛ خدماتی برای شما، درآمدی برای همه\n\n📌 برای شروع دریافت خدمات، روی دکمه «🛎 استفاده از خدمات» بزنید.")
-RESTART="🔄 شروع مجدد"; USE_SERVICES="🛎 استفاده از خدمات"
+"🚀 بات، کمک یار مهاجر؛ خدماتی برای شما، درآمدی برای همه")
+RESTART="🔄 شروع مجدد"
 def _restart_keyboard(): return ReplyKeyboardMarkup([[RESTART]],resize_keyboard=True,is_persistent=True)
-def _services_keyboard(): return InlineKeyboardMarkup([[InlineKeyboardButton(USE_SERVICES,callback_data="start:services")]])
+
 def _offhours_state(uid=None):
     try:
         from telegram_offhours_partner_gate_v2 import _clock_is_open, night_access_open, _closed_markup, _closed_text
@@ -91,7 +91,7 @@ async def _start(update,context):
             if k in old:B.S[uid][k]=old[k]
     else:B.S[uid]["partner_logged_out"]=True
     if update.message:
-        await update.message.reply_text(WELCOME,reply_markup=_services_keyboard()); await update.message.reply_text(RESTART,reply_markup=_restart_keyboard())
+        await update.message.reply_text(WELCOME,reply_markup=_restart_keyboard())
     raise ApplicationHandlerStop
 async def _restart(update,context):
     uid=getattr(getattr(update,"effective_user",None),"id",None)
@@ -100,18 +100,6 @@ async def _restart(update,context):
         raise ApplicationHandlerStop
     if update.effective_message and await _reply_closed(update.effective_message,uid):raise ApplicationHandlerStop
     return await _start(update,context)
-async def _services_callback(update,context):
-    q=getattr(update,"callback_query",None)
-    if not q or q.data!="start:services":return
-    if not _full_bot_open(q.from_user.id):
-        try:await q.answer("🔒 ربات کاملاً بسته است.",show_alert=True)
-        except Exception:pass
-        await _reply_full_closed(q.message)
-        raise ApplicationHandlerStop
-    if await _reply_closed(q.message, q.from_user.id):
-        raise ApplicationHandlerStop
-    await q.answer(); uid=q.from_user.id; B.S.setdefault(uid,{})["lang"]="fa"
-    await q.message.reply_text("نوع کاربری خود را انتخاب کنید:",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🪪 اتباع هستم",callback_data="st:foreign"),InlineKeyboardButton("🇮🇷 ایرانی هستم",callback_data="st:iranian")]])); raise ApplicationHandlerStop
 async def _blocked_language_callback(update,context):
     q=getattr(update,"callback_query",None)
     if not q:return
@@ -122,7 +110,7 @@ async def _blocked_language_callback(update,context):
         except Exception:pass
         await _reply_full_closed(q.message)
         raise ApplicationHandlerStop
-    B.S.setdefault(q.from_user.id,{})["lang"]="fa"; await q.answer("زبان فارسی است."); await q.message.reply_text("لطفاً از دکمه «🛎 استفاده از خدمات» استفاده کنید.",reply_markup=_services_keyboard()); raise ApplicationHandlerStop
+    B.S.setdefault(q.from_user.id,{"lang":"fa"}); await q.answer("زبان فارسی است."); await q.message.reply_text("لطفاً از «🔄 شروع مجدد» استفاده کنید.",reply_markup=_restart_keyboard()); raise ApplicationHandlerStop
 
 def _install_features(app):
     try:
@@ -168,7 +156,7 @@ def _install_features(app):
                 if inspect.isawaitable(r):asyncio.run(r)
             except Exception:log.exception("optional Telegram layer unavailable: %s",name)
         except Exception:log.exception("optional Telegram layer unavailable: %s",name)
-    final=(("telegram_partner_runtime_fix_v31","partner runtime fix v31"),("telegram_partner_final_router_v29","partner router v29"),("telegram_absolute_callback_hardening_v30","absolute callback hardening v30"),("telegram_management_only_v32","management-only partner UI v32"),("telegram_session_and_context_hardening_v33","session/context hardening v33"),("telegram_final_admin_navigation_v3","final admin navigation v3"),("telegram_partner_navigation_final_v33","partner navigation v33"),("telegram_final_iranian_menu_v38","Iranian menu v38"),("sizpay_gateway","SizPay gateway"),("telegram_final_request_partner_guard_v1","final request/partner routing guard v1"),("telegram_security_code_image_flow_v4","security-code image workflow v4"))
+    final=(("telegram_partner_runtime_fix_v31","partner runtime fix v31"),("telegram_partner_final_router_v29","partner router v29"),("telegram_management_only_v32","management-only partner UI v32"),("telegram_session_and_context_hardening_v33","session/context hardening v33"),("telegram_final_admin_navigation_v3","final admin navigation v3"),("telegram_partner_navigation_final_v33","partner navigation v33"),("telegram_final_iranian_menu_v38","Iranian menu v38"),("sizpay_gateway","SizPay gateway"),("telegram_final_request_partner_guard_v1","final request/partner routing guard v1"),("telegram_security_code_image_flow_v4","security-code image workflow v4"))
     for module,label in final:
         try:
             m=__import__(module); r=m.install(app,B)
@@ -242,7 +230,6 @@ def _install_features(app):
     app.add_handler(CommandHandler("start",_start),group=-10000000)
     app.add_handler(MessageHandler(filters.Regex(r"^🔄 شروع مجدد$"),_restart),group=-9999999)
     app.add_handler(CallbackQueryHandler(_blocked_language_callback,pattern=r"^(lang|language):"),group=-9999998)
-    app.add_handler(CallbackQueryHandler(_services_callback,pattern=r"^start:services$"),group=-9999997)
 
 def _self_check():
     required=("main","partner","fida","gov","ptrack","phistory","media","router","admin","cancel"); missing=[n for n in required if not callable(getattr(B,n,None))]

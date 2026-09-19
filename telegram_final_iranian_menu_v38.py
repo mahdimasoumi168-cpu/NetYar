@@ -10,12 +10,11 @@ TRUST_URL = "https://trustseal.enamad.ir/?id=7717012&Code=hEHTsn6HzG7ZsxeorkqzvL
 
 
 def _keyboard(B, uid):
-    rows = [["🏛 خدمات ایرانی", TRUST], ["💳 تست درگاه سیزپی — ۱۰۰٬۰۰۰ تومان"], ["👥 پنل همکاران", "🎫 پیگیری"], ["🔄 شروع مجدد"]]
+    rows = [[TRUST, "💳 تست درگاه سیزپی — ۱۰۰٬۰۰۰ تومان"], ["👥 پنل همکاران", "🎫 پیگیری"], ["🔄 شروع مجدد"]]
     try:
         return B.kb(rows)
     except Exception:
         return InlineKeyboardMarkup([
-            [InlineKeyboardButton("🏛 خدمات ایرانی", callback_data="iranian:services")],
             [InlineKeyboardButton(TRUST, callback_data="enamad:trust")],
             [InlineKeyboardButton("👥 پنل همکاران", callback_data="iranian:partner")],
             [InlineKeyboardButton("🎫 پیگیری", callback_data="iranian:track")],
@@ -91,7 +90,7 @@ def install(app, B):
         if not data.startswith("iranian:"): return
         act = data.split(":", 1)[1]; uid = int(q.from_user.id); st = B.S.setdefault(uid, {})
         await q.answer()
-        if act in {"back", "services"}:
+        if act == "back":
             st["status"] = "iranian"; st["mode"] = None
             await q.message.reply_text("🇮🇷 بخش خدمات ایرانی\n\nگزینه موردنظر را انتخاب کنید:", reply_markup=_keyboard(B, uid))
         elif act == "restart":
