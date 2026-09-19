@@ -135,7 +135,7 @@ def install(app, B):
     async def ask(update, context):
         q = update.callback_query
         data = str(q.data or "")
-        if not (data.startswith("panel:askcode:") or data.startswith("rq:ask:")):
+        if not (data.startswith("panel:askcode:") or data.startswith("rq:ask:") or data.startswith("req:p:")):
             return
         if not B.admin(q.from_user.id):
             await q.answer("دسترسی ندارید", show_alert=True)
@@ -302,7 +302,7 @@ def install(app, B):
         await q.edit_message_text("❌ درخواست کد لغو شد.")
         raise ApplicationHandlerStop
 
-    app.add_handler(CallbackQueryHandler(ask, pattern=r"^(panel:askcode|rq:ask):\d+$"), group=-200)
+    app.add_handler(CallbackQueryHandler(ask, pattern=r"^(panel:askcode|rq:ask|req:p):\d+$"), group=-200)
     app.add_handler(CallbackQueryHandler(cancel, pattern=r"^pc:x:\d+$"), group=-201)
     app.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL, admin_media), group=-200)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, reply), group=-200)
