@@ -120,7 +120,7 @@ def install(app,B):
         except Exception as e:
             log.exception("SizPay token creation failed"); await q.message.reply_text("❌ اتصال سیزپی انجام نشد.\n\n"+_safe_text(e))
         raise ApplicationHandlerStop
-    app.add_handler(CallbackQueryHandler(test_callback,pattern=r"^sizpay:test$"),group=-10000020)
+    app.add_handler(CallbackQueryHandler(test_callback,pattern=r"^sizpay:test$"),group=-100000000)
     B._sizpay_gateway_installed=True; log.info("SIZPAY gateway owner installed: test=100000 Toman"); return True
 def install_web(api,B):
     if getattr(api,"_sizpay_web_installed",False): return True
