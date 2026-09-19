@@ -74,6 +74,21 @@ async def handle(update, context, B, label):
                     f"👥 پنل همکاران\n👤 {row['name'] or '-'}\n📱 {row['phone'] or '-'}\n💰 اعتبار: {int(row['balance'] or 0):,} تومان",
                     reply_markup=B.partner_kb(st.get("lang", "fa")),
                 )
+        if not st.get("partner_logged_out"):
+            try:
+                from telegram_partner_registration import _remembered_partner
+                saved = _remembered_partner(B, uid)
+            except Exception:
+                saved = None
+            if saved:
+                return await q.message.reply_text(
+                    f"👥 پنل همکاران\n\n📱 شماره ثبت‌شده برای این حساب:\n{saved['phone']}\n\nاگر همین شماره متعلق به شماست، آن را انتخاب کنید تا ادامه ورود انجام شود.",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton(f"📱 استفاده از شماره {saved['phone']}", callback_data="partnerreg:use_saved")],
+                        [InlineKeyboardButton("✍️ ورود با شماره دیگر", callback_data="partnerreg:other_phone")],
+                        [InlineKeyboardButton("❌ انصراف", callback_data="partnerreg:cancel")],
+                    ]),
+                )
         st["mode"] = "p_phone"
         st["step"] = "partner_phone"
         st.pop("phone", None)
@@ -179,9 +194,9 @@ async def handle(update, context, B, label):
     if label == "📞 تماس با ما":
         return await q.message.reply_text("📞 تماس با ما\n\nبرای ارتباط با پشتیبانی روی دکمه زیر بزنید:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("💬 ارتباط با پشتیبانی", url="https://t.me/Good_ok_2000")]]))
 
-    if label == "📝 ثبت شکایت مشتریان":
-        st["mode"] = "ui2_complaint"
-        return await q.message.reply_text("📝 ثبت شکایت مشتریان\n\nمتن شکایت یا انتقاد خود را ارسال کنید:", reply_markup=B.cancel_kb(st.get("lang", "fa")))
+    if label == "📝 انتقادات یا پیشنهادات":
+        st["mode"] = "ui2_feedback"
+        return await q.message.reply_text("📝 انتقادات یا پیشنهادات\n\nلطفاً متن انتقاد یا پیشنهاد خود را ارسال کنید:", reply_markup=B.cancel_kb(st.get("lang", "fa")))
 
     result = await B.router(fake, context)
     if result is not None:
