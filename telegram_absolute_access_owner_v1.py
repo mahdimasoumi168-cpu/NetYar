@@ -30,9 +30,16 @@ def _closed_text():
         "فقط مدیریت می‌تواند ربات را دوباره باز کند."
     )
 
+def _night_public_open(B):
+    try:
+        from telegram_offhours_partner_gate_v2 import _clock_is_open, night_public_open
+        return (not _clock_is_open(B)) and bool(night_public_open(B))
+    except Exception:
+        return False
+
 async def _callback(update, context, B):
     q = getattr(update, "callback_query", None)
-    if not q or _enabled(B) or _admin(B, q.from_user.id):
+    if not q or _enabled(B) or _admin(B, q.from_user.id) or _night_public_open(B):
         return
     try:
         await q.answer("🔒 ربات کاملاً بسته است.", show_alert=True)
@@ -46,7 +53,7 @@ async def _callback(update, context, B):
 async def _message(update, context, B):
     u = getattr(update, "effective_user", None)
     msg = getattr(update, "effective_message", None)
-    if not u or not msg or _enabled(B) or _admin(B, u.id):
+    if not u or not msg or _enabled(B) or _admin(B, u.id) or _night_public_open(B):
         return
     await msg.reply_text(_closed_text())
     raise ApplicationHandlerStop
