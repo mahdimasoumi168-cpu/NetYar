@@ -21,8 +21,14 @@ def _setting(B,key,default):
     except Exception:return default
 
 def _public_night_open(B):
-    # Canonical switch: 1 = outside-hours access is open, 0 = closed.
-    return _setting(B,NIGHT_KEY,"1")=="1"
+    # One authoritative public-night switch. Keep the historical key as a
+    # fallback, and tolerate either key being present after upgrades.
+    if hasattr(B,"_netyar_night_public_open"):
+        return bool(B._netyar_night_public_open)
+    value=_setting(B,NIGHT_PUBLIC_KEY,"")
+    if value not in {"0","1"}:
+        value=_setting(B,NIGHT_KEY,"1")
+    return value=="1"
 
 def _clock_is_open(B):
     now=datetime.now(TZ).time()
@@ -57,11 +63,19 @@ def is_night_worker(B,uid):
     return False
 
 def night_access_open(B,uid):
+    # Admins are never blocked. During 07:00–19:00 everyone is open. Outside
+    # those hours the public-night switch is authoritative; enabled night
+    # workers are a separate allow-list and do not depend on stale session state.
     try:
         if B.admin(uid): return True
     except Exception: pass
     if _clock_is_open(B): return True
-    return _public_night_open(B) or is_night_worker(B,uid)
+    if _public_night_open(B): return True
+    try:
+        row=B.db.conn.execute("SELECT id FROM partners WHERE phone=(SELECT phone FROM partners WHERE id=?)",(B.S.get(uid,{}).get("partner_id"),)).fetchone() if B.S.get(uid,{}).get("partner_id") else None
+        if row and _setting(B,PREFIX+str(row["id"]),"0")=="1": return True
+    except Exception: pass
+    return is_night_worker(B,uid)
 
 def _allowed_during_closed(B,uid): return night_access_open(B,uid)
 
