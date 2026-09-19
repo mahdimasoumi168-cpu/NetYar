@@ -19,9 +19,9 @@ PRICE = 980_000
 def _menu(B, uid):
     import telegram_ui_policy_v2 as UI
     return UI.inline([
-        ["➕ شارژ حساب", IRANCELL],
+    ["➕ شارژ حساب", "🏛 حل مشکل سامانه دولت من"],
         ["🏛 حل مشکل سامانه دولت من", "🎫 درخواست‌های من"],
-        [SIM_SERVICE, "🪪 فیدای غیر حضوری"],
+    ["🪪 فیدای غیر حضوری", "🔎 پیگیری کد"],
         ["🔎 پیگیری کد", "📋 سوابق"],
         ["💰 موجودی"],
         ["🎫 تیکت به مدیریت", MANAGEMENT],
@@ -90,55 +90,6 @@ async def _management(update, context, B, st):
         reply_markup=B.cancel_kb(st.get("lang", "fa")),
     )
     raise ApplicationHandlerStop
-
-
-async def _irancell(update, context, B, st):
-    q = update.callback_query
-    uid = q.from_user.id
-    pid = st.get("partner_id")
-    if not pid or not st.get("partner_active") or st.get("partner_logged_out"):
-        await q.message.reply_text("⛔ ابتدا وارد پنل همکاران شوید.", reply_markup=B.main(uid))
-        raise ApplicationHandlerStop
-    try:
-        import telegram_irancell_partner_service as IRS
-        IRS.PRICE = PRICE
-        IRS._ensure_service(B)
-        B.db.conn.execute("UPDATE services SET price=?, active=1 WHERE key=?", (PRICE, "irancell_sim_issue"))
-        B.db.conn.execute("INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)", ("price_irancell_sim", str(PRICE)))
-        B.db.conn.commit()
-    except Exception:
-        try:
-            B.db.conn.rollback()
-        except Exception:
-            pass
-        log.exception("Irancell registration failed")
-    st["mode"] = "irancell_partner_phone"
-    st.pop("irancell", None)
-    await q.message.reply_text(
-        "📱 حل مشکل سیم کارت ایرانسل\n\n"
-        "📱 شماره موبایل ایرانسل که به نام مشترک ثبت شده است را وارد کنید:\n\n"
-        "💰 هزینه خدمت: ۹۸۰٬۰۰۰ تومان\n"
-        "💳 مبلغ فقط از شارژ پنل همکار کسر می‌شود.\n\n"
-        "بعد از ثبت، درخواست همراه با مدرک و جزئیات برای مدیریت ارسال می‌شود.",
-        reply_markup=B.cancel_kb(st.get("lang", "fa")),
-    )
-    raise ApplicationHandlerStop
-
-
-async def _sim_service(update, context, B, st):
-    q = update.callback_query
-    fn = getattr(B, "sim_start", None)
-    if fn:
-        import telegram_ui_policy_v2 as UI
-        fake = UI._fake(update, SIM_SERVICE)
-        await _call(fn, fake, context)
-        raise ApplicationHandlerStop
-    await q.message.reply_text(
-        "📱 خدمات سیم کارت\n\nاین خدمت در حال حاضر فعال نیست.",
-        reply_markup=_menu(B, q.from_user.id),
-    )
-    raise ApplicationHandlerStop
-
 
 async def _service_dispatch(update, context, B, label):
     """Run legacy partner service functions without assuming async callbacks."""
