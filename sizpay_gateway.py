@@ -92,7 +92,7 @@ def _pay_page(B,txid):
     if str(row["status"]) in {"paid","cancelled","failed"}: return "<h3>این تراکنش قبلاً پردازش شده است.</h3>"
     c=_credentials()
     inputs="".join(f'<input type="hidden" name="{html.escape(k)}" value="{html.escape(str(v),quote=True)}">'
-                   for k,v in {"MerchantID":c["MerchantID"],"TerminalID":c["TerminalID"],"Token":row["token"],"SignData":c["SignData"]}.items())
+                   for k,v in {"MerchantID":c["MerchantID"],"TerminalID":c["TerminalID"],"Username":c["UserName"],"Password":c["Password"],"Token":row["token"],"SignData":c["SignData"]}.items())
     return f'''<!doctype html><html lang="fa" dir="rtl"><meta charset="utf-8"><title>درگاه سیزپی</title>
 <body style="font-family:tahoma;text-align:center;padding:40px"><h3>در حال انتقال به درگاه سیزپی…</h3>
 <p>مبلغ: {int(row["amount_toman"]):,} تومان</p><form id="f" method="post" action="{html.escape(PAYMENT_URL,quote=True)}">{inputs}</form>
