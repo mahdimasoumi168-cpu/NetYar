@@ -53,7 +53,7 @@ def _buttons(rid,paid=False):
       [InlineKeyboardButton("🔎 مشاهده اطلاعات کامل",callback_data=f"req:v:{rid}")],
       [InlineKeyboardButton("💰 تأیید دریافت وجه",callback_data=f"req:pay:{rid}"),InlineKeyboardButton("⏳ در حال بررسی",callback_data=f"req:review:{rid}")],
       [InlineKeyboardButton("🔐 درخواست کد از مشترک",callback_data=f"req:c:{rid}")],
-      [InlineKeyboardButton("🔐 درخواست کد از همکار",callback_data=f"req:p:{rid}")],
+      [InlineKeyboardButton("🔐 درخواست کد امنیتی از همکار",callback_data=f"rq:ask:{rid}")],
       [InlineKeyboardButton("✉️ پاسخ به مشترک",callback_data=f"req:r:{rid}")],
       [InlineKeyboardButton("✅ تأیید خدمت",callback_data=f"req:a:{rid}"),InlineKeyboardButton("❌ رد خدمت",callback_data=f"req:x:{rid}")],
       [InlineKeyboardButton("📌 انتقال به آخر چت",callback_data=f"req:bottom:{rid}")],
@@ -129,7 +129,10 @@ async def _callback(update,context,B):
         raise ApplicationHandlerStop
     if action in {"r","reply"}:
         return await _admin_reply(update,context,B,rid)
-    if action in {"review","a","approve","x","reject","pay","payconfirm","c","p","bottom","chat"}:
+    if action=="p":
+        # Let the dedicated partner-code owner process the legacy req:p callback.
+        return
+    if action in {"review","a","approve","x","reject","pay","payconfirm","c","bottom","chat"}:
         now=B.now()
         if action in {"pay","payconfirm"}:
             ready,reason=_payment_ready(B,r)
@@ -155,8 +158,6 @@ async def _callback(update,context,B):
                 B.db.set_setting(f"request_reply_enabled_{rid}","1")
                 msg="📨 درخواست پاسخ از مشترک ارسال شد."
             else:msg="❌ حساب مشترک پیدا نشد."
-        elif action=="p":
-            msg="📨 برای درخواست کد از همکار، از پنل همکار مرتبط با این درخواست استفاده کنید."
         elif action=="bottom":
             target=_customer_uid(B,r)
             if target:
