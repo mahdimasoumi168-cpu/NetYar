@@ -10,8 +10,6 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackQueryHandler, ApplicationHandlerStop
 
 log = logging.getLogger("netyar.telegram.universal_owner_v49")
-TRUST_URL = "https://trustseal.enamad.ir/?id=7717012&Code=hEHTsn6HzG7ZsxeorkqzvLbTkOTEpRbH"
-TRUST = {"🛡 اعتماد", "🛡️ اعتماد"}
 ALIASES = {
     "🎫 درخواست‌های من": "📋 سوابق", "📨 ارسال پیام به مدیریت": "💬 ارتباط با مدیریت",
     "✉️ ارسال تیکت به مدیریت": "🎫 تیکت به مدیریت", "📝 ثبت شکایت": "📝 ثبت شکایت مشتریان",
@@ -21,7 +19,7 @@ ALIASES = {
 }
 KNOWN = {
     "➕ شارژ حساب", "🏛 حل مشکل سامانه دولت من", "🔎 پیگیری کد", "📋 سوابق", "💰 موجودی", "💰 کیف پول من",
-    "🪪 فیدای غیر حضوری", "🖨 خدمات چاپ", "🪪 حل مشکل ورود اتباع دولت من", "📱 خدمات سیم کارت",
+    "🪪 فیدای غیر حضوری", "🪪 حل مشکل ورود اتباع دولت من",
     "📱 حل مشکل سیم کارت ایرانسل", "🎫 تیکت به مدیریت", "💬 ارتباط با مدیریت", "🚪 خروج از پنل", "❌ انصراف",
     "🔄 شروع مجدد", "🔄 شروع دوباره", "👥 پنل همکاران", "🛠 پنل مدیریت بات", "🎫 پیگیری", "📞 تماس با ما", "📝 ثبت شکایت مشتریان",
 }
@@ -54,15 +52,10 @@ def _label(q, B):
             log.exception("ui2 label lookup failed")
     return ""
 
-async def _trust(q):
-    await q.answer()
-    await q.message.reply_text("🛡 نماد اعتماد الکترونیکی\n\n🏢 نام کسب‌وکار: نت یار مهاجر\n🔤 نام لاتین: NetYareMohajer\n☎️ تلفن: 03135674350\n📧 ایمیل: netyaremohajer@gmail.com", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔎 مشاهده نماد در eNAMAD", url=TRUST_URL)]]), disable_web_page_preview=True)
-
 async def callback(update, context, B):
     q = getattr(update, "callback_query", None)
     if not q: return
     data = str(getattr(q, "data", "") or "")
-    if data == "enamad:trust": await _trust(q); raise ApplicationHandlerStop
     if data == "iranian:back":
         try:
             import telegram_ui_absolute_owner_v43 as UI; await UI._iranian_back(q, B)
@@ -75,7 +68,6 @@ async def callback(update, context, B):
     if label == "__FORBIDDEN__":
         await q.answer("این دکمه دیگر مربوط به منوی فعال شما نیست؛ لطفاً از منوی فعلی استفاده کنید.", show_alert=True)
         raise ApplicationHandlerStop
-    if label in TRUST: await _trust(q); raise ApplicationHandlerStop
     try: await q.answer()
     except Exception: pass
     if label in KNOWN:
@@ -100,6 +92,6 @@ async def callback(update, context, B):
 def install(app,B):
     if getattr(B,"_universal_callback_owner_v49",False): return
     async def _bound(update,context): return await callback(update,context,B)
-    app.add_handler(CallbackQueryHandler(_bound,pattern=r"^(ui2:|enamad:trust|iranian:back)"),group=-8000000)
+    app.add_handler(CallbackQueryHandler(_bound,pattern=r"^(ui2:|iranian:back)"),group=-8000000)
     B._universal_callback_owner_v49=True
     log.info("UNIVERSAL Telegram callback owner v49 installed")
