@@ -94,7 +94,7 @@ async def media(u,c):
   if not p or amount<=0:return await u.message.reply_text("❌ درخواست شارژ پیدا نشد.",reply_markup=partner_kb())
   cur=db.conn.execute("INSERT INTO topups(partner_id,amount,receipt_file_id,status,created_at) VALUES(?,?,?,?,?)",(pid,amount,fid,"pending",now()));topup_id=cur.lastrowid;db.conn.commit();st["mode"]=None
   mk=InlineKeyboardMarkup([[InlineKeyboardButton("✅ تأیید شارژ",callback_data=f"tu:a:{pid}:{amount}:{topup_id}"),InlineKeyboardButton("❌ رد شارژ",callback_data=f"tu:r:{pid}:{amount}:{topup_id}")]])
-  await notify_admins(c.application,f"💰 درخواست شارژ حساب\n👤 {p['name']}\n📱 {p['phone']}\n💵 {amount:,} تومان\n🏦 شماره کارت: {os.getenv('PAYMENT_CARD','6037691512755802')}\n📎 رسید ارسال شده است.",inline=mk)
+  await notify_admins(c.application,f"💰 درخواست شارژ حساب\n👤 {p['name']}\n📱 {p['phone']}\n💵 {amount:,} تومان\n🏦 شماره کارت: {os.getenv('PAYMENT_CARD','').strip() or 'تنظیم نشده'}\n📎 رسید ارسال شده است.",inline=mk)
   return await u.message.reply_text("✅ رسید دریافت شد و درخواست برای مدیریت ارسال شد. پس از تأیید، موجودی افزایش می‌یابد.",reply_markup=partner_kb())
  if st.get("mode")=="gov_photo":
   pid=st.get("partner_id");amount=int(db.setting("price_government","500000") or 500000);owner=pid or db.user("telegram",uid,u.effective_user.username,u.effective_user.full_name);rid,code=db.create_request(owner,"government","telegram",amount)
@@ -202,7 +202,8 @@ async def router(u,c):
   if not raw.isdigit() or int(raw)<=0:return await u.message.reply_text("❌ مبلغ نامعتبر است. مثال: 500000",reply_markup=cancel_kb())
   pid=st.get("partner_id");p=db.conn.execute("SELECT * FROM partners WHERE id=?",(pid,)).fetchone()
   if not p:return await u.message.reply_text("❌ حساب همکار پیدا نشد.",reply_markup=partner_kb())
-  amount=int(raw);st["mode"]="topup_receipt";st["topup_amount"]=amount;card=os.getenv("PAYMENT_CARD","6037691512755802");owner=os.getenv("PAYMENT_CARD_OWNER","فریبا خاوری")
+  amount=int(raw);st["mode"]="topup_receipt";st["topup_amount"]=amount;card=os.getenv("PAYMENT_CARD","").strip();owner=os.getenv("PAYMENT_CARD_OWNER","").strip()
+  if not card or not owner:return await u.message.reply_text("❌ اطلاعات کارت شارژ در تنظیمات ربات ثبت نشده است.",reply_markup=partner_kb())
   return await u.message.reply_text(f"💳 فاکتور شارژ حساب\n\n👤 همکار: {p['name']}\n💰 مبلغ: {amount:,} تومان\n\n🏦 شماره کارت: {card}\n👤 به نام: {owner}\n\nپس از واریز، تصویر رسید را ارسال کنید.\n❌ برای لغو، انصراف را بزنید.",reply_markup=cancel_kb())
  if st.get("mode")=="topup_receipt":return await u.message.reply_text("📸 لطفاً تصویر رسید پرداخت را ارسال کنید.",reply_markup=cancel_kb())
  if admin(uid) and st.get("mode")=="admin_reply_code":
