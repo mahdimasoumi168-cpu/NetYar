@@ -112,7 +112,7 @@ async def _blocked_language_callback(update,context):
         raise ApplicationHandlerStop
     B.S.setdefault(q.from_user.id,{"lang":"fa"}); await q.answer("زبان فارسی است."); await q.message.reply_text("لطفاً از «🔄 شروع مجدد» استفاده کنید.",reply_markup=_restart_keyboard()); raise ApplicationHandlerStop
 
-def _install_features(app):
+async def _install_features(app):
     try:
         import telegram_absolute_access_owner_v1 as AA
         AA.install(app,B)
@@ -126,7 +126,7 @@ def _install_features(app):
             m=__import__(module); f=getattr(m,"install",None)
             if callable(f):
                 r=f(app,B)
-                if inspect.isawaitable(r):asyncio.run(r)
+                if inspect.isawaitable(r):await r
         except Exception:log.exception("Telegram layer unavailable: %s",module)
     try:
         import telegram_language_consistency as TLC; r=TLC.install(B)
@@ -234,9 +234,9 @@ def _install_features(app):
 def _self_check():
     required=("main","partner","fida","gov","ptrack","phistory","media","router","admin","cancel"); missing=[n for n in required if not callable(getattr(B,n,None))]
     if missing:log.error("Telegram runtime self-check FAILED; missing hooks: %s",missing)
-def build():
+async def build():
     token=str(getattr(B,"BOT_TOKEN","") or "").strip()
     if not token:raise RuntimeError("Telegram bot token is missing")
     app=Application.builder().token(token).build(); _self_check()
     app.add_handler(CommandHandler("addpartner",B.addpartner),group=-100); app.add_handler(MessageHandler(filters.Regex(r"^/Admin2025$"),B.admin_command),group=-100); app.add_handler(CallbackQueryHandler(B.admin_cb,pattern=r"^(tu|pay|req|admin):"),group=0); app.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL,B.media),group=10); app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,B.router),group=20)
-    _install_features(app); B.start=_start; log.info("Canonical Telegram Application built successfully; Persian-only startup active"); return app
+    await _install_features(app); B.start=_start; log.info("Canonical Telegram Application built successfully; Persian-only startup active"); return app
