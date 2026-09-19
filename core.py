@@ -1,30 +1,78 @@
 import os, sqlite3, secrets, hashlib, hmac, shutil, pathlib
 from datetime import datetime, timezone
-_mount=os.getenv("RAILWAY_VOLUME_MOUNT_PATH","").strip()
-_default_db=os.path.join(_mount,"netyar.db") if _mount else "netyar.db"
-DB_PATH=os.getenv("DB_PATH","").strip() or _default_db
-CARD_NUMBER=os.getenv("PAYMENT_CARD","").strip()
-CARD_OWNER=os.getenv("PAYMENT_CARD_OWNER","").strip()
-WELCOME_FA=("👋 سلام!\n\n"
+
+_mount = os.getenv("RAILWAY_VOLUME_MOUNT_PATH", "").strip()
+_requested_db = os.getenv("DB_PATH", "").strip()
+
+# Railway production must always keep business data on the mounted volume.
+# An accidental DB_PATH such as "netyar.sqlite3" must never move partners,
+# balances, topups or settings back onto ephemeral container storage.
+if _mount:
+    _mount_path = pathlib.Path(_mount).resolve()
+    if _requested_db:
+        try:
+            _requested_path = pathlib.Path(_requested_db).resolve()
+            DB_PATH = str(_requested_path) if _mount_path == _requested_path or _mount_path in _requested_path.parents else str(_mount_path / "netyar.db")
+        except Exception:
+            DB_PATH = str(_mount_path / "netyar.db")
+    else:
+        DB_PATH = str(_mount_path / "netyar.db")
+else:
+    DB_PATH = _requested_db or "netyar.db"
+
+CARD_NUMBER = os.getenv("PAYMENT_CARD", "").strip()
+CARD_OWNER = os.getenv("PAYMENT_CARD_OWNER", "").strip()
+
+WELCOME_FA = ("👋 سلام!\n\n"
 "به سامانه خدمات آنلاین بات، کمک یار مهاجر خوش آمدید. 🌟\n\n"
 "اینجا تلاش کرده‌ایم خدمات موردنیاز شما را به‌صورت سریع، ساده و آنلاین در اختیارتان قرار دهیم تا بدون سردرگمی بتوانید خدمت موردنظر خود را دریافت یا پیگیری کنید.\n\n"
 "🚀 بات، کمک یار مهاجر؛ خدماتی برای شما، درآمدی برای همه\n\n"
 "📌 لطفاً ابتدا زبان موردنظر خود را انتخاب کنید تا ادامه مراحل به زبان انتخابی شما نمایش داده شود.")
-def now(): return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+def now():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
 def hash_password(p):
-    salt=secrets.token_hex(16); digest=hashlib.pbkdf2_hmac("sha256",p.encode(),salt.encode(),120000).hex(); return salt+"$"+digest
-def check_password(p,stored):
+    salt = secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac("sha256", p.encode(), salt.encode(), 120000).hex()
+    return salt + "$" + digest
+
+def check_password(p, stored):
     try:
-        if "$" in str(p) and "$" not in str(stored): p,stored=stored,p
-        salt,digest=str(stored).split("$",1); got=hashlib.pbkdf2_hmac("sha256",str(p).encode(),salt.encode(),120000).hex(); return hmac.compare_digest(got,digest)
-    except Exception:return False
+        if "$" in str(p) and "$" not in str(stored):
+            p, stored = stored, p
+        salt, digest = str(stored).split("$", 1)
+        got = hashlib.pbkdf2_hmac("sha256", str(p).encode(), salt.encode(), 120000).hex()
+        return hmac.compare_digest(got, digest)
+    except Exception:
+        return False
+
 class Database:
-    def __init__(self,path=DB_PATH):
-        pathlib.Path(path).parent.mkdir(parents=True,exist_ok=True)
-        if os.getenv("RAILWAY_VOLUME_MOUNT_PATH") and not os.path.exists(path) and os.path.exists("netyar.db"):
-            try: shutil.copy2("netyar.db",path)
-            except Exception: pass
-        self.conn=sqlite3.connect(path,check_same_thread=False,timeout=30); self.conn.row_factory=sqlite3.Row; self.conn.execute("PRAGMA journal_mode=WAL"); self.conn.execute("PRAGMA busy_timeout=30000"); self.init()
+    def __init__(self, path=DB_PATH):
+        pathlib.Path(path).parent.mkdir(parents=True, exist_ok=True)
+
+        # One-time migration from an older container-local database into the
+        # persistent Railway volume, without overwriting an existing volume DB.
+        if _mount and not os.path.exists(path):
+            candidates = []
+            if _requested_db and os.path.isabs(_requested_db):
+                candidates.append(_requested_db)
+            candidates.extend(["netyar.db", "netyar.sqlite3"])
+            for source in candidates:
+                try:
+                    if os.path.abspath(source) != os.path.abspath(path) and os.path.exists(source):
+                        shutil.copy2(source, path)
+                        break
+                except Exception:
+                    pass
+
+        self.conn = sqlite3.connect(path, check_same_thread=False, timeout=30)
+        self.conn.row_factory = sqlite3.Row
+        self.conn.execute("PRAGMA journal_mode=WAL")
+        self.conn.execute("PRAGMA busy_timeout=30000")
+        self.conn.execute("PRAGMA foreign_keys=ON")
+        self.init()
+
     def init(self):
         self.conn.executescript("""
         CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY AUTOINCREMENT, platform TEXT, external_id TEXT, username TEXT DEFAULT '', full_name TEXT DEFAULT '', phone TEXT DEFAULT '', id_code TEXT DEFAULT '', created_at TEXT, updated_at TEXT, UNIQUE(platform,external_id));
@@ -39,33 +87,127 @@ class Database:
         CREATE TABLE IF NOT EXISTS audit_log(id INTEGER PRIMARY KEY AUTOINCREMENT, platform TEXT, actor_id TEXT, action TEXT, target TEXT DEFAULT '', details TEXT DEFAULT '', created_at TEXT);
         CREATE TABLE IF NOT EXISTS bot_integrations(id INTEGER PRIMARY KEY AUTOINCREMENT, platform TEXT UNIQUE, bot_name TEXT DEFAULT '', token_ref TEXT DEFAULT '', active INTEGER DEFAULT 0, status TEXT DEFAULT 'configured', created_at TEXT, updated_at TEXT);
         """)
-        defaults={"welcome_fa":WELCOME_FA,"welcome_en":"Welcome to Mohajer Helper.","welcome_ar":"مرحباً بكم في مساعد المهاجر.","card_number":CARD_NUMBER,"card_owner":CARD_OWNER,"price_fida":"0","price_government":"500000","bot_open":"1"}
-        for k,v in defaults.items(): self.conn.execute("INSERT OR IGNORE INTO settings VALUES(?,?)",(k,v))
-        self.conn.execute("UPDATE settings SET value=? WHERE key='welcome_fa'",(WELCOME_FA,))
-        sv=[("fida","فیدای غیر حضوری","ارسال مدرک شناسایی و شماره همراه",0),("government","حل مشکل ورود اتباع سامانه دولت من","ثبت درخواست و بررسی مدارک",500000)]
-        for k,n,d,p in sv:self.conn.execute("INSERT OR IGNORE INTO services(key,name,description,price) VALUES(?,?,?,?)",(k,n,d,p))
-        # Removed services: never recreate them and hide them from all service/pricing menus.
+
+        defaults = {
+            "welcome_fa": WELCOME_FA,
+            "welcome_en": "Welcome to Mohajer Helper.",
+            "welcome_ar": "مرحباً بكم في مساعد المهاجر.",
+            "card_number": CARD_NUMBER,
+            "card_owner": CARD_OWNER,
+            "price_fida": "0",
+            "price_government": "500000",
+            "bot_open": "1",
+        }
+        # INSERT OR IGNORE is deliberate: administrator edits are durable and
+        # must never be overwritten on restart/deploy.
+        for k, v in defaults.items():
+            self.conn.execute("INSERT OR IGNORE INTO settings VALUES(?,?)", (k, v))
+
+        sv = [
+            ("fida", "فیدای غیر حضوری", "ارسال مدرک شناسایی و شماره همراه", 0),
+            ("government", "حل مشکل ورود اتباع سامانه دولت من", "ثبت درخواست و بررسی مدارک", 500000),
+        ]
+        for k, n, d, p in sv:
+            self.conn.execute(
+                "INSERT OR IGNORE INTO services(key,name,description,price) VALUES(?,?,?,?)",
+                (k, n, d, p),
+            )
+
+        # Removed services: never recreate them and hide them from all menus.
         self.conn.execute("DELETE FROM services WHERE key IN ('print','sim','sim2','irancell')")
         self.conn.execute("DELETE FROM partner_service_prices WHERE service_key IN ('print','sim','sim2','irancell')")
-        phone=os.getenv("INITIAL_PARTNER_PHONE","").strip(); password=os.getenv("INITIAL_PARTNER_PASSWORD","").strip(); name=os.getenv("INITIAL_PARTNER_NAME","همکار").strip()
-        if phone and password and not self.conn.execute("SELECT 1 FROM partners WHERE phone=?",(phone,)).fetchone():
-            self.conn.execute("INSERT INTO partners(phone,password_hash,name,created_at,updated_at) VALUES(?,?,?,?,?)",(phone,hash_password(password),name,now(),now()))
+
+        phone = os.getenv("INITIAL_PARTNER_PHONE", "").strip()
+        password = os.getenv("INITIAL_PARTNER_PASSWORD", "").strip()
+        name = os.getenv("INITIAL_PARTNER_NAME", "همکار").strip()
+        if phone and password and not self.conn.execute("SELECT 1 FROM partners WHERE phone=?", (phone,)).fetchone():
+            self.conn.execute(
+                "INSERT INTO partners(phone,password_hash,name,created_at,updated_at) VALUES(?,?,?,?,?)",
+                (phone, hash_password(password), name, now(), now()),
+            )
         self.conn.commit()
-    def setting(self,k,default=""):
-        r=self.conn.execute("SELECT value FROM settings WHERE key=?",(k,)).fetchone(); return r["value"] if r else default
-    def set_setting(self,k,v): self.conn.execute("INSERT OR REPLACE INTO settings VALUES(?,?)",(k,str(v))); self.conn.commit()
-    def user(self,platform,external_id,username="",full_name=""):
-        t=now(); self.conn.execute("""INSERT INTO users(platform,external_id,username,full_name,created_at,updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(platform,external_id) DO UPDATE SET username=excluded.username,full_name=excluded.full_name,updated_at=excluded.updated_at""",(platform,str(external_id),username or "",full_name or "",t,t)); self.conn.commit(); return self.conn.execute("SELECT id FROM users WHERE platform=? AND external_id=?",(platform,str(external_id))).fetchone()["id"]
-    def service(self,key): return self.conn.execute("SELECT * FROM services WHERE key=? AND active=1",(key,)).fetchone()
-    def create_request(self,user_id,service_key,platform,amount):
-        code="NYM-"+secrets.token_hex(4).upper(); t=now(); cur=self.conn.execute("INSERT INTO requests(tracking_code,user_id,service_key,platform,status,amount,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)",(code,user_id,service_key,platform,"awaiting_payment",amount,t,t)); self.conn.commit(); return cur.lastrowid,code
-    def answer(self,rid,key,answer="",file_id=""): self.conn.execute("INSERT INTO request_answers(request_id,field_key,answer,file_id,created_at) VALUES(?,?,?,?,?)",(rid,key,answer or "",file_id or "",now()))
-    def partner(self,phone): return self.conn.execute("SELECT * FROM partners WHERE phone=? AND active=1",(str(phone).strip(),)).fetchone()
-    def get_partner(self,phone): return self.partner(phone)
-    def add_partner(self,phone,password,name): self.conn.execute("INSERT INTO partners(phone,password_hash,name,created_at,updated_at) VALUES(?,?,?,?,?)",(phone.strip(),hash_password(password),name.strip(),now(),now())); self.conn.commit()
-    def add_topup(self,pid,amount,file_id):
-        cur=self.conn.execute("INSERT INTO topups(partner_id,amount,receipt_file_id,status,created_at) VALUES(?,?,?,?,?)",(pid,amount,file_id,"pending",now())); self.conn.commit(); return cur.lastrowid
-    def audit(self,*a): self.conn.execute("INSERT INTO audit_log(platform,actor_id,action,target,details,created_at) VALUES(?,?,?,?,?,?)",(*map(str,a[:5]),now())); self.conn.commit()
-    def add_bot(self,platform,bot_name,token_ref): self.conn.execute("INSERT OR REPLACE INTO bot_integrations(platform,bot_name,token_ref,active,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",(platform,bot_name,token_ref,0,"configured",now(),now())); self.conn.commit()
-    def bots(self): return self.conn.execute("SELECT id,platform,bot_name,active,status,created_at,updated_at FROM bot_integrations ORDER BY id DESC").fetchall()
-db=Database()
+
+    def setting(self, k, default=""):
+        r = self.conn.execute("SELECT value FROM settings WHERE key=?", (k,)).fetchone()
+        return r["value"] if r else default
+
+    def set_setting(self, k, v):
+        self.conn.execute("INSERT OR REPLACE INTO settings VALUES(?,?)", (k, str(v)))
+        self.conn.commit()
+
+    def user(self, platform, external_id, username="", full_name=""):
+        t = now()
+        self.conn.execute(
+            """INSERT INTO users(platform,external_id,username,full_name,created_at,updated_at)
+               VALUES(?,?,?,?,?,?)
+               ON CONFLICT(platform,external_id) DO UPDATE SET
+               username=excluded.username,full_name=excluded.full_name,updated_at=excluded.updated_at""",
+            (platform, str(external_id), username or "", full_name or "", t, t),
+        )
+        self.conn.commit()
+        return self.conn.execute(
+            "SELECT id FROM users WHERE platform=? AND external_id=?",
+            (platform, str(external_id)),
+        ).fetchone()["id"]
+
+    def service(self, key):
+        return self.conn.execute("SELECT * FROM services WHERE key=? AND active=1", (key,)).fetchone()
+
+    def create_request(self, user_id, service_key, platform, amount):
+        code = "NYM-" + secrets.token_hex(4).upper()
+        t = now()
+        cur = self.conn.execute(
+            """INSERT INTO requests(tracking_code,user_id,service_key,platform,status,amount,created_at,updated_at)
+               VALUES(?,?,?,?,?,?,?,?)""",
+            (code, user_id, service_key, platform, "awaiting_payment", amount, t, t),
+        )
+        self.conn.commit()
+        return cur.lastrowid, code
+
+    def answer(self, rid, key, answer="", file_id=""):
+        self.conn.execute(
+            "INSERT INTO request_answers(request_id,field_key,answer,file_id,created_at) VALUES(?,?,?,?,?)",
+            (rid, key, answer or "", file_id or "", now()),
+        )
+
+    def partner(self, phone):
+        return self.conn.execute("SELECT * FROM partners WHERE phone=? AND active=1", (str(phone).strip(),)).fetchone()
+
+    def get_partner(self, phone):
+        return self.partner(phone)
+
+    def add_partner(self, phone, password, name):
+        self.conn.execute(
+            "INSERT INTO partners(phone,password_hash,name,created_at,updated_at) VALUES(?,?,?,?,?)",
+            (phone.strip(), hash_password(password), name.strip(), now(), now()),
+        )
+        self.conn.commit()
+
+    def add_topup(self, pid, amount, file_id):
+        cur = self.conn.execute(
+            "INSERT INTO topups(partner_id,amount,receipt_file_id,status,created_at) VALUES(?,?,?,?,?)",
+            (pid, amount, file_id, "pending", now()),
+        )
+        self.conn.commit()
+        return cur.lastrowid
+
+    def audit(self, *a):
+        self.conn.execute(
+            "INSERT INTO audit_log(platform,actor_id,action,target,details,created_at) VALUES(?,?,?,?,?,?)",
+            (*map(str, a[:5]), now()),
+        )
+        self.conn.commit()
+
+    def add_bot(self, platform, bot_name, token_ref):
+        self.conn.execute(
+            "INSERT OR REPLACE INTO bot_integrations(platform,bot_name,token_ref,active,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
+            (platform, bot_name, token_ref, 0, "configured", now(), now()),
+        )
+        self.conn.commit()
+
+    def bots(self):
+        return self.conn.execute(
+            "SELECT id,platform,bot_name,active,status,created_at,updated_at FROM bot_integrations ORDER BY id DESC"
+        ).fetchall()
+
+db = Database()
