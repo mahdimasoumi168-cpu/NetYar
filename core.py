@@ -113,9 +113,11 @@ class Database:
                 (k, n, d, p),
             )
 
-        # Removed services: never recreate them and hide them from all menus.
-        self.conn.execute("DELETE FROM services WHERE key IN ('print','sim','sim2','irancell')")
-        self.conn.execute("DELETE FROM partner_service_prices WHERE service_key IN ('print','sim','sim2','irancell')")
+        # IMPORTANT: initialization must NEVER delete live business data.
+        # Historical partners, balances, top-ups and service-price records are
+        # user data and survive every restart/deploy. Removed services are
+        # merely hidden from menus by the UI/router; their historical rows stay.
+        self.conn.execute("UPDATE services SET active=0 WHERE key IN ('print','sim','sim2','irancell')")
 
         phone = os.getenv("INITIAL_PARTNER_PHONE", "").strip()
         password = os.getenv("INITIAL_PARTNER_PASSWORD", "").strip()
