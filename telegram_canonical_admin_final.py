@@ -108,7 +108,7 @@ async def _night(update,context,B):
   except Exception:log.exception("night gate refresh warning")
   await q.answer("🟢 دسترسی شبانه باز شد" if enabled else "🔴 دسترسی شبانه بسته شد")
   status="🟢 باز" if enabled else "🔴 بسته"
-  await q.message.reply_text(f"🌙 کنترل ربات در شب\n\nوضعیت: {status}\n\n⏰ ساعت کاری روزانه: ۰۷:۰۰ تا ۱۹:۰۰.\nخارج از ساعت کاری، دسترسی عمومی فقط وقتی فعال است که «باز کردن ربات در شب» روشن باشد.\nهمکاران شب‌کار از بخش جداگانه مدیریت می‌شوند.",reply_markup=menu())
+  await q.message.reply_text(f"🌙 کنترل ربات در شب\n\nوضعیت: {status}\n\n⏰ ساعت کاری روزانه: ۰۷:۰۰ تا ۱۹:۰۰.\nخارج از ساعت کاری، دسترسی عمومی طبق همین دکمه "باز کردن/بستن ربات در شب" کنترل می‌شود.\nهمکاران شب‌کار از بخش جداگانه مدیریت می‌شوند.",reply_markup=menu())
  except Exception:
   log.exception("canonical night switch failed")
   try:await q.answer("❌ ذخیره وضعیت شبانه ناموفق بود.",show_alert=True);await q.message.reply_text("❌ تغییر حالت شبانه انجام نشد. وضعیت قبلی حفظ شد.",reply_markup=menu())
