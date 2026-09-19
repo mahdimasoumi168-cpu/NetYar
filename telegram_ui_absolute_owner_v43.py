@@ -12,7 +12,7 @@ from telegram.ext import CallbackQueryHandler, MessageHandler, filters, Applicat
 log = logging.getLogger("netyar.telegram.ui_absolute_v45")
 TRUST_URL = "https://trustseal.enamad.ir/?id=7717012&Code=hEHTsn6HzG7ZsxeorkqzvLbTkOTEpRbH"
 SITE_URL = "https://netyarmohajer.sizpay.ir"
-TRUST_LABELS = {"🛡 اعتماد", "🛡️ اعتماد"}
+TRUST_LABELS = set()
 ALIASES = {
     "🎫 درخواست‌های من": "📋 سوابق",
     "📨 ارسال پیام به مدیریت": "💬 ارتباط با مدیریت",
@@ -28,12 +28,12 @@ ALIASES = {
 MENU_TEXTS = {
     "➕ شارژ حساب", "🏛 حل مشکل سامانه دولت من", "🎫 درخواست‌های من", "📋 سوابق",
     "🔎 پیگیری کد", "💰 موجودی", "💰 کیف پول من", "🪪 فیدای غیر حضوری",
-    "🪪 حل مشکل ورود اتباع دولت من", "🖨 خدمات چاپ", "📱 خدمات سیم کارت",
+    "🪪 حل مشکل ورود اتباع دولت من",
     "📱 حل مشکل سیم کارت ایرانسل", "🎫 تیکت به مدیریت", "📨 ارسال پیام به مدیریت",
     "✉️ ارسال تیکت به مدیریت", "💬 ارتباط با مدیریت", "📝 ثبت شکایت",
     "📝 ثبت شکایت مشتریان", "🚪 خروج از پنل", "❌ انصراف", "🔄 شروع مجدد",
     "🔄 شروع دوباره", "👥 پنل همکاران", "🛠 پنل مدیریت بات", "🎫 پیگیری",
-    "📞 تماس با ما", "🛡 اعتماد", "🛡️ اعتماد",
+    "📞 تماس با ما",
 }
 
 def _label_from_markup(q, data):
