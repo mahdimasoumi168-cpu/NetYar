@@ -18,7 +18,7 @@ def _night_menu(B, uid):
     try:
         import telegram_ui_policy_v2 as UI
         return UI.inline([
-            ["➕ شارژ حساب", IRANCELL],
+    ["➕ شارژ حساب", "🏛 حل مشکل سامانه دولت من"],
             ["🏛 حل مشکل سامانه دولت من", "🔎 پیگیری کد"],
             ["📋 سوابق", "💰 موجودی"],
 
