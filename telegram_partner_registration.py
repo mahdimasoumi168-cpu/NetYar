@@ -76,6 +76,27 @@ def _remembered_partner(B, uid):
             _remember_partner(B,uid,row["id"])
             return row
     except Exception: pass
+    # Legacy recovery: older deployments stored the Telegram chat mapping only
+    # in settings (partner_chat_<partner_id> / partner_chat_<phone>).
+    # Recover that mapping before ever treating an already-defined partner as new.
+    try:
+        rows=B.db.conn.execute("SELECT key,value FROM settings WHERE key LIKE 'partner_chat_%' AND value=? ORDER BY key",(str(uid),)).fetchall()
+        for srow in rows:
+            suffix=str(srow["key"] or "")[13:].strip()
+            if not suffix:
+                continue
+            row=None
+            if suffix.isdigit():
+                row=B.db.conn.execute("SELECT * FROM partners WHERE id=? AND active=1 LIMIT 1",(int(suffix),)).fetchone()
+            if not row:
+                row=_lookup(B,suffix,active_only=True)
+            if row:
+                _remember_partner(B,uid,row["id"])
+                try: B.db.set_setting("partner_phone:"+str(uid),str(row["phone"] or ""))
+                except Exception: pass
+                return row
+    except Exception:
+        log.exception("legacy partner chat mapping recovery failed")
     return None
 
 def _cancel_kb(B, lang="fa"):
