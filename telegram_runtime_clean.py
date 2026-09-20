@@ -332,7 +332,27 @@ async def _install_features(app):
 async def _global_error_handler(update, context):
     """Recover every uncaught handler error to the user's current menu."""
     try:
+async def _global_error_handler(update, context):
+    """Recover uncaught handler errors without hiding the real exception.
+
+    Service/data-entry failures must never silently reset the user to the main
+    menu. Keep the current session state intact and record the exact exception
+    and update type so the failing owner can be repaired from runtime logs.
+    """
+    try:
+        err=getattr(context,"error",None)
         uid=getattr(getattr(update,"effective_user",None),"id",None)
+        log.error(
+            "UNCAUGHT TELEGRAM HANDLER ERROR: uid=%r update=%s callback=%r mode=%r status=%r partner_id=%r error=%r",
+            uid,
+            type(update).__name__,
+            getattr(getattr(update,"callback_query",None),"data",None),
+            (B.S.get(uid,{}) or {}).get("mode") if uid is not None else None,
+            (B.S.get(uid,{}) or {}).get("status") if uid is not None else None,
+            (B.S.get(uid,{}) or {}).get("partner_id") if uid is not None else None,
+            err,
+            exc_info=err if isinstance(err,BaseException) else False,
+        )\n
         if uid is None:return
         try:
             q=getattr(update,"callback_query",None)
