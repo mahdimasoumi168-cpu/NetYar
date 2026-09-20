@@ -330,48 +330,40 @@ async def _install_features(app):
     app.add_handler(CallbackQueryHandler(_blocked_language_callback,pattern=r"^(lang|language):"),group=-9999998)
 
 async def _global_error_handler(update, context):
-    """Recover every uncaught handler error to the user's current menu."""
+    """Log the real exception and recover without destroying the current session."""
     try:
-async def _global_error_handler(update, context):
-    """Recover uncaught handler errors without hiding the real exception.
-
-    Service/data-entry failures must never silently reset the user to the main
-    menu. Keep the current session state intact and record the exact exception
-    and update type so the failing owner can be repaired from runtime logs.
-    """
-    try:
-        err=getattr(context,"error",None)
-        uid=getattr(getattr(update,"effective_user",None),"id",None)
+        err = getattr(context, "error", None)
+        uid = getattr(getattr(update, "effective_user", None), "id", None)
+        st = B.S.get(uid, {}) if uid is not None else {}
         log.error(
             "UNCAUGHT TELEGRAM HANDLER ERROR: uid=%r update=%s callback=%r mode=%r status=%r partner_id=%r error=%r",
-            uid,
-            type(update).__name__,
-            getattr(getattr(update,"callback_query",None),"data",None),
-            (B.S.get(uid,{}) or {}).get("mode") if uid is not None else None,
-            (B.S.get(uid,{}) or {}).get("status") if uid is not None else None,
-            (B.S.get(uid,{}) or {}).get("partner_id") if uid is not None else None,
-            err,
-            exc_info=err if isinstance(err,BaseException) else False,
-        )\n
-        if uid is None:return
-        try:
-            q=getattr(update,"callback_query",None)
-            if q: await q.answer("❌ خطایی رخ داد؛ به منوی مربوطه برگشتید.",show_alert=False)
-        except Exception: pass
-        st=B.S.get(uid,{})
-        msg=getattr(update,"effective_message",None)
-        if msg is None:return
-        if st.get("partner_id") and st.get("partner_active",True) and not st.get("partner_logged_out"):
-            await msg.reply_text("❌ در این مرحله خطایی رخ داد. به پنل همکاران برگشتید.",reply_markup=B.partner_kb(st.get("lang","fa")))
+            uid, type(update).__name__,
+            getattr(getattr(update, "callback_query", None), "data", None),
+            st.get("mode"), st.get("status"), st.get("partner_id"), err,
+            exc_info=err if isinstance(err, BaseException) else False,
+        )
+        if uid is None:
             return
-        if st.get("status")=="iranian":
+        try:
+            q = getattr(update, "callback_query", None)
+            if q:
+                await q.answer("❌ خطایی رخ داد؛ وضعیت شما حفظ شد.", show_alert=False)
+        except Exception:
+            pass
+        msg = getattr(update, "effective_message", None)
+        if msg is None:
+            return
+        if st.get("partner_id") and st.get("partner_active", True) and not st.get("partner_logged_out"):
+            await msg.reply_text("❌ در این مرحله خطایی رخ داد. وضعیت پنل همکاران شما حفظ شد؛ لطفاً دوباره تلاش کنید.", reply_markup=B.partner_kb(st.get("lang", "fa")))
+            return
+        if st.get("status") == "iranian":
             import telegram_final_iranian_menu_v38 as I
-            await msg.reply_text("❌ خطایی رخ داد. به منوی خدمات ایرانی برگشتید.",reply_markup=I._keyboard(B,uid))
+            await msg.reply_text("❌ در این مرحله خطایی رخ داد. وضعیت شما حفظ شد.", reply_markup=I._keyboard(B, uid))
             return
         if st.get("mode"):
-            await msg.reply_text("❌ در این مرحله خطایی رخ داد. عملیات لغو و به منوی مربوطه برگشتید.",reply_markup=B.cancel_kb(st.get("lang","fa")))
+            await msg.reply_text("❌ در این مرحله خطایی رخ داد. اطلاعات واردشده حفظ شد؛ دوباره تلاش کنید.", reply_markup=B.cancel_kb(st.get("lang", "fa")))
             return
-        await msg.reply_text("❌ خطایی رخ داد. به منوی اصلی برگشتید.",reply_markup=B.main(uid))
+        await msg.reply_text("❌ خطایی رخ داد. وضعیت شما حفظ شد؛ لطفاً دوباره تلاش کنید.", reply_markup=B.main(uid))
     except Exception:
         log.exception("global error recovery failed")
 
